@@ -122,6 +122,8 @@
 #define DEFAULT_PASS "12345678"
 #define FOLL_MODE FOLL_MODE_OFF
 #define FOLL_MODE_CH 7
+#define ALT_OFFSET 10 // m
+#define SPEED_OFFSET 10 // %
 
 // Set by target
 #ifdef MASTER_BUILD_FLAG

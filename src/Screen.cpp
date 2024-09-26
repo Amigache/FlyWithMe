@@ -121,6 +121,8 @@ void Screen::run()
         display.println((unsigned int)fwm->comm->commData.lastValidPacketSize);
         display.print("Mode: ");
         display.println(flightModeName);
+        display.print("Dist: ");
+        display.println(fwm->mav->APdata.wp_dist);
       }
 
       if (fwm->follow_mode == FOLL_MODE_LEADER)

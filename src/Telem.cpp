@@ -207,6 +207,28 @@ void Telem::run()
 
                         break;
                     }
+                    case MAVLINK_MSG_ID_MISSION_ACK:
+                    {
+                        mavlink_mission_ack_t ack;
+                        mavlink_msg_mission_ack_decode(&msg, &ack);
+
+                        if (ack.type != MAV_MISSION_ACCEPTED)
+                        {
+                            Log.error("Mission ACK Error, Type: %d" CR, ack.type);
+                        }
+                        break;
+                    }
+                    case MAVLINK_MSG_ID_COMMAND_ACK:
+                    {
+                        mavlink_command_ack_t ack;
+                        mavlink_msg_command_ack_decode(&msg, &ack);
+
+                        if (ack.result != MAV_RESULT_ACCEPTED)
+                        {
+                            Log.error("Command ACK Error %d, result: %d" CR, ack.command, ack.result);
+                        }
+                        break;
+                    }
                     }
                 }
             }
@@ -268,28 +290,63 @@ void Telem::request_data_streams(uint8_t req_stream_id, uint16_t req_message_rat
 
 void Telem::do_change_speed(uint16_t speed)
 {
-    // mostramos por log la velocidad a la que vamos a cambiar
-    // Log.notice("Target Speed: %d m/s" CR, speed);
+    if (SPEED_OFFSET > 0)
+    {
+        speed = static_cast<uint16_t>(round(speed * (1 + (SPEED_OFFSET / 100.0))));
+        Log.notice("Final Speed (uint16_t): %d" CR, speed); // Verificar valor final
+    }
 
     mavlink_message_t msg;
-    mavlink_msg_command_int_pack(
-        SYSID,                             // Sender system ID
-        COMPID,                            // Sender component ID
-        &msg,                              // MAVLink message
-        TARGET_SYSID,                      // Target system ID
-        TARGET_COMPID,                     // Target component ID
-        MAV_FRAME_GLOBAL_RELATIVE_ALT_INT, // Frame
-        MAV_CMD_DO_CHANGE_SPEED,           // Command ID
-        0,                                 // current
-        0,                                 // autocontinue
-        1,                                 // Speed type (0=Airspeed, 1=Ground Speed).
-        speed,                             // Target speed (m/s). If airspeed, a value below or above min/max airspeed limits results in no change. a value of -2 uses :ref:`TRIM_ARSPD_CM`
-        0,                                 // Throttle as a percentage (0-100%). A value of 0 or negative indicates no change.
-        0,                                 // Empty
-        0,                                 // Empty
-        0,                                 // Empty
-        0                                  // Empty
+    mavlink_msg_command_long_pack(
+        SYSID,                   // Sender system ID
+        COMPID,                  // Sender component ID
+        &msg,                    // MAVLink message
+        TARGET_SYSID,            // Target system ID
+        TARGET_COMPID,           // Target component ID
+        MAV_CMD_DO_CHANGE_SPEED, // Command ID
+        0,                       // Confirmation
+        1,                       // Param 1: Speed type (0=Airspeed, 1=Ground Speed).
+        speed,                   // Param 2: Target speed (m/s). If airspeed, a value below or above min/max airspeed limits results in no change. a value of -2 uses :ref:`TRIM_ARSPD_CM`
+        -1,                       // Param 3: Throttle as a percentage (0-100%). A value of 0 or negative indicates no change.
+        0,                       // Param 4: Empty
+        0,                       // Param 5: Empty
+        0,                       // Param 6: Empty
+        0                        // Param 7: Empty
     );
+    send_to_fc(msg);
+}
+
+void Telem::nav_waypoint(int32_t lat, int32_t lon, int32_t alt)
+{
+
+    // Altitude offset
+    if (ALT_OFFSET != 0)
+    {
+        alt = alt + (ALT_OFFSET * 1000);
+    }
+
+    mavlink_message_t msg;
+    mavlink_msg_mission_item_int_pack(
+        SYSID,                             // ID del sistema (tu drone o vehículo)
+        COMPID,                            // ID del componente (componente del MAVLink)
+        &msg,                              // Puntero al mensaje
+        TARGET_SYSID,                      // ID del sistema al que envías el comando
+        TARGET_COMPID,                     // ID del componente (por ejemplo, el autopiloto)
+        1,                                 // Sequence
+        MAV_FRAME_GLOBAL_RELATIVE_ALT_INT, // Frame
+        MAV_CMD_NAV_WAYPOINT,              // Command
+        2,                                 // current
+        1,                                 // autocontinue
+        0,                                 // Param 1 Delay
+        0,                                 // Param 2 Empty
+        0,                                 // Param 3 Empty
+        0,                                 // Param 4 Empty
+        lat,                               // Latitude
+        lon,                               // Longitude
+        (alt / 1000),                      // Altitude
+        MAV_MISSION_TYPE_MISSION           // Mission type
+    );
+
     send_to_fc(msg);
 }
 
@@ -299,7 +356,6 @@ void Telem::do_reposition(int32_t lat, int32_t lon, float alt, uint16_t hdg)
 
     int32_t lat_offset = 0;
     int32_t lon_offset = 0;
-    float alt_offset = 10;
 
     if (lat_offset != 0)
     {
@@ -311,9 +367,9 @@ void Telem::do_reposition(int32_t lat, int32_t lon, float alt, uint16_t hdg)
         lon = (lon + lon_offset) * sin(hdg);
     }
 
-    if (alt_offset != 0)
+    if (ALT_OFFSET != 0)
     {
-        alt = alt - (alt_offset * 1000);
+        alt = alt - (ALT_OFFSET * 1000);
     }
 
     mavlink_message_t msg;
@@ -335,33 +391,6 @@ void Telem::do_reposition(int32_t lat, int32_t lon, float alt, uint16_t hdg)
         lon,                               // Longitude
         (alt / 1000)                       // Altitude
     );
-    send_to_fc(msg);
-}
-
-void Telem::nav_waypoint(int32_t lat, int32_t lon, int32_t alt)
-{
-    mavlink_message_t msg;
-    mavlink_msg_mission_item_int_pack(
-        SYSID,                              // ID del sistema (tu drone o vehículo)
-        COMPID,                             // ID del componente (componente del MAVLink)
-        &msg,                               // Puntero al mensaje
-        TARGET_SYSID,                       // ID del sistema al que envías el comando
-        TARGET_COMPID,                      // ID del componente (por ejemplo, el autopiloto)
-        0,                                  // Sequence
-        MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,  // Frame
-        MAV_CMD_NAV_WAYPOINT,               // Command
-        2,                                  // current
-        1,                                  // autocontinue
-        0,                                  // Param 1 Delay
-        0,                                  // Param 2 Empty
-        0,                                  // Param 3 Empty
-        0,                                  // Param 4 Empty
-        lat,                                // Latitude 
-        lon,                                // Longitude 
-        (alt / 1000),                       // Altitude
-        MAV_MISSION_TYPE_MISSION            // Mission type     
-    );
-
     send_to_fc(msg);
 }
 

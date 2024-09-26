@@ -88,13 +88,10 @@ void Comm::run()
         commData.rx_packet_counter++;
 
         // Actualizamos target si estamos en modo follow
-        if (fwm->stage_follow == STAGE_APPROACH)
+        if (fwm->stage_follow == STAGE_APPROACH && fwm->mav->link)
         {
-
           fwm->mav->nav_waypoint(commData.lastValidPacket.lat, commData.lastValidPacket.lon, commData.lastValidPacket.relative_alt);
-
-          //fwm->mav->do_change_speed(commData.lastValidPacket.ground_speed);
-          
+          fwm->mav->do_change_speed(commData.lastValidPacket.ground_speed); 
         }
 
         // Time to get

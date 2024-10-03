@@ -18,6 +18,7 @@ public:
     Screen(FWM *fwm);
     void begin();
     void run();
+    void bridgeRun();
     void showCenterText(const char *text);
     void showServerData(const char* ssid, const char* password, IPAddress ip);
 

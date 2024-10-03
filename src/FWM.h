@@ -24,6 +24,7 @@ public:
     FWM();
     void begin();
     void run();
+    void bridgeRun();
 
     static FWM* self;
 

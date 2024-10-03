@@ -9,17 +9,13 @@ typedef struct __mavlink_manual_control_t {
  int16_t y; /*<  Y-axis, normalized to the range [-1000,1000]. A value of INT16_MAX indicates that this axis is invalid. Generally corresponds to left(-1000)-right(1000) movement on a joystick and the roll of a vehicle.*/
  int16_t z; /*<  Z-axis, normalized to the range [-1000,1000]. A value of INT16_MAX indicates that this axis is invalid. Generally corresponds to a separate slider movement with maximum being 1000 and minimum being -1000 on a joystick and the thrust of a vehicle. Positive values are positive thrust, negative values are negative thrust.*/
  int16_t r; /*<  R-axis, normalized to the range [-1000,1000]. A value of INT16_MAX indicates that this axis is invalid. Generally corresponds to a twisting of the joystick, with counter-clockwise being 1000 and clockwise being -1000, and the yaw of a vehicle.*/
- uint16_t buttons; /*<  A bitfield corresponding to the joystick buttons' 0-15 current state, 1 for pressed, 0 for released. The lowest bit corresponds to Button 1.*/
+ uint16_t buttons; /*<  A bitfield corresponding to the joystick buttons' current state, 1 for pressed, 0 for released. The lowest bit corresponds to Button 1.*/
  uint8_t target; /*<  The system to be controlled.*/
- uint16_t buttons2; /*<  A bitfield corresponding to the joystick buttons' 16-31 current state, 1 for pressed, 0 for released. The lowest bit corresponds to Button 16.*/
- uint8_t enabled_extensions; /*<  Set bits to 1 to indicate which of the following extension fields contain valid data: bit 0: pitch, bit 1: roll.*/
- int16_t s; /*<  Pitch-only-axis, normalized to the range [-1000,1000]. Generally corresponds to pitch on vehicles with additional degrees of freedom. Valid if bit 0 of enabled_extensions field is set. Set to 0 if invalid.*/
- int16_t t; /*<  Roll-only-axis, normalized to the range [-1000,1000]. Generally corresponds to roll on vehicles with additional degrees of freedom. Valid if bit 1 of enabled_extensions field is set. Set to 0 if invalid.*/
 }) mavlink_manual_control_t;
 
-#define MAVLINK_MSG_ID_MANUAL_CONTROL_LEN 18
+#define MAVLINK_MSG_ID_MANUAL_CONTROL_LEN 11
 #define MAVLINK_MSG_ID_MANUAL_CONTROL_MIN_LEN 11
-#define MAVLINK_MSG_ID_69_LEN 18
+#define MAVLINK_MSG_ID_69_LEN 11
 #define MAVLINK_MSG_ID_69_MIN_LEN 11
 
 #define MAVLINK_MSG_ID_MANUAL_CONTROL_CRC 243
@@ -31,33 +27,25 @@ typedef struct __mavlink_manual_control_t {
 #define MAVLINK_MESSAGE_INFO_MANUAL_CONTROL { \
     69, \
     "MANUAL_CONTROL", \
-    10, \
+    6, \
     {  { "target", NULL, MAVLINK_TYPE_UINT8_T, 0, 10, offsetof(mavlink_manual_control_t, target) }, \
          { "x", NULL, MAVLINK_TYPE_INT16_T, 0, 0, offsetof(mavlink_manual_control_t, x) }, \
          { "y", NULL, MAVLINK_TYPE_INT16_T, 0, 2, offsetof(mavlink_manual_control_t, y) }, \
          { "z", NULL, MAVLINK_TYPE_INT16_T, 0, 4, offsetof(mavlink_manual_control_t, z) }, \
          { "r", NULL, MAVLINK_TYPE_INT16_T, 0, 6, offsetof(mavlink_manual_control_t, r) }, \
          { "buttons", NULL, MAVLINK_TYPE_UINT16_T, 0, 8, offsetof(mavlink_manual_control_t, buttons) }, \
-         { "buttons2", NULL, MAVLINK_TYPE_UINT16_T, 0, 11, offsetof(mavlink_manual_control_t, buttons2) }, \
-         { "enabled_extensions", NULL, MAVLINK_TYPE_UINT8_T, 0, 13, offsetof(mavlink_manual_control_t, enabled_extensions) }, \
-         { "s", NULL, MAVLINK_TYPE_INT16_T, 0, 14, offsetof(mavlink_manual_control_t, s) }, \
-         { "t", NULL, MAVLINK_TYPE_INT16_T, 0, 16, offsetof(mavlink_manual_control_t, t) }, \
          } \
 }
 #else
 #define MAVLINK_MESSAGE_INFO_MANUAL_CONTROL { \
     "MANUAL_CONTROL", \
-    10, \
+    6, \
     {  { "target", NULL, MAVLINK_TYPE_UINT8_T, 0, 10, offsetof(mavlink_manual_control_t, target) }, \
          { "x", NULL, MAVLINK_TYPE_INT16_T, 0, 0, offsetof(mavlink_manual_control_t, x) }, \
          { "y", NULL, MAVLINK_TYPE_INT16_T, 0, 2, offsetof(mavlink_manual_control_t, y) }, \
          { "z", NULL, MAVLINK_TYPE_INT16_T, 0, 4, offsetof(mavlink_manual_control_t, z) }, \
          { "r", NULL, MAVLINK_TYPE_INT16_T, 0, 6, offsetof(mavlink_manual_control_t, r) }, \
          { "buttons", NULL, MAVLINK_TYPE_UINT16_T, 0, 8, offsetof(mavlink_manual_control_t, buttons) }, \
-         { "buttons2", NULL, MAVLINK_TYPE_UINT16_T, 0, 11, offsetof(mavlink_manual_control_t, buttons2) }, \
-         { "enabled_extensions", NULL, MAVLINK_TYPE_UINT8_T, 0, 13, offsetof(mavlink_manual_control_t, enabled_extensions) }, \
-         { "s", NULL, MAVLINK_TYPE_INT16_T, 0, 14, offsetof(mavlink_manual_control_t, s) }, \
-         { "t", NULL, MAVLINK_TYPE_INT16_T, 0, 16, offsetof(mavlink_manual_control_t, t) }, \
          } \
 }
 #endif
@@ -73,15 +61,11 @@ typedef struct __mavlink_manual_control_t {
  * @param y  Y-axis, normalized to the range [-1000,1000]. A value of INT16_MAX indicates that this axis is invalid. Generally corresponds to left(-1000)-right(1000) movement on a joystick and the roll of a vehicle.
  * @param z  Z-axis, normalized to the range [-1000,1000]. A value of INT16_MAX indicates that this axis is invalid. Generally corresponds to a separate slider movement with maximum being 1000 and minimum being -1000 on a joystick and the thrust of a vehicle. Positive values are positive thrust, negative values are negative thrust.
  * @param r  R-axis, normalized to the range [-1000,1000]. A value of INT16_MAX indicates that this axis is invalid. Generally corresponds to a twisting of the joystick, with counter-clockwise being 1000 and clockwise being -1000, and the yaw of a vehicle.
- * @param buttons  A bitfield corresponding to the joystick buttons' 0-15 current state, 1 for pressed, 0 for released. The lowest bit corresponds to Button 1.
- * @param buttons2  A bitfield corresponding to the joystick buttons' 16-31 current state, 1 for pressed, 0 for released. The lowest bit corresponds to Button 16.
- * @param enabled_extensions  Set bits to 1 to indicate which of the following extension fields contain valid data: bit 0: pitch, bit 1: roll.
- * @param s  Pitch-only-axis, normalized to the range [-1000,1000]. Generally corresponds to pitch on vehicles with additional degrees of freedom. Valid if bit 0 of enabled_extensions field is set. Set to 0 if invalid.
- * @param t  Roll-only-axis, normalized to the range [-1000,1000]. Generally corresponds to roll on vehicles with additional degrees of freedom. Valid if bit 1 of enabled_extensions field is set. Set to 0 if invalid.
+ * @param buttons  A bitfield corresponding to the joystick buttons' current state, 1 for pressed, 0 for released. The lowest bit corresponds to Button 1.
  * @return length of the message in bytes (excluding serial stream start sign)
  */
 static inline uint16_t mavlink_msg_manual_control_pack(uint8_t system_id, uint8_t component_id, mavlink_message_t* msg,
-                               uint8_t target, int16_t x, int16_t y, int16_t z, int16_t r, uint16_t buttons, uint16_t buttons2, uint8_t enabled_extensions, int16_t s, int16_t t)
+                               uint8_t target, int16_t x, int16_t y, int16_t z, int16_t r, uint16_t buttons)
 {
 #if MAVLINK_NEED_BYTE_SWAP || !MAVLINK_ALIGNED_FIELDS
     char buf[MAVLINK_MSG_ID_MANUAL_CONTROL_LEN];
@@ -91,10 +75,6 @@ static inline uint16_t mavlink_msg_manual_control_pack(uint8_t system_id, uint8_
     _mav_put_int16_t(buf, 6, r);
     _mav_put_uint16_t(buf, 8, buttons);
     _mav_put_uint8_t(buf, 10, target);
-    _mav_put_uint16_t(buf, 11, buttons2);
-    _mav_put_uint8_t(buf, 13, enabled_extensions);
-    _mav_put_int16_t(buf, 14, s);
-    _mav_put_int16_t(buf, 16, t);
 
         memcpy(_MAV_PAYLOAD_NON_CONST(msg), buf, MAVLINK_MSG_ID_MANUAL_CONTROL_LEN);
 #else
@@ -105,10 +85,6 @@ static inline uint16_t mavlink_msg_manual_control_pack(uint8_t system_id, uint8_
     packet.r = r;
     packet.buttons = buttons;
     packet.target = target;
-    packet.buttons2 = buttons2;
-    packet.enabled_extensions = enabled_extensions;
-    packet.s = s;
-    packet.t = t;
 
         memcpy(_MAV_PAYLOAD_NON_CONST(msg), &packet, MAVLINK_MSG_ID_MANUAL_CONTROL_LEN);
 #endif
@@ -128,16 +104,12 @@ static inline uint16_t mavlink_msg_manual_control_pack(uint8_t system_id, uint8_
  * @param y  Y-axis, normalized to the range [-1000,1000]. A value of INT16_MAX indicates that this axis is invalid. Generally corresponds to left(-1000)-right(1000) movement on a joystick and the roll of a vehicle.
  * @param z  Z-axis, normalized to the range [-1000,1000]. A value of INT16_MAX indicates that this axis is invalid. Generally corresponds to a separate slider movement with maximum being 1000 and minimum being -1000 on a joystick and the thrust of a vehicle. Positive values are positive thrust, negative values are negative thrust.
  * @param r  R-axis, normalized to the range [-1000,1000]. A value of INT16_MAX indicates that this axis is invalid. Generally corresponds to a twisting of the joystick, with counter-clockwise being 1000 and clockwise being -1000, and the yaw of a vehicle.
- * @param buttons  A bitfield corresponding to the joystick buttons' 0-15 current state, 1 for pressed, 0 for released. The lowest bit corresponds to Button 1.
- * @param buttons2  A bitfield corresponding to the joystick buttons' 16-31 current state, 1 for pressed, 0 for released. The lowest bit corresponds to Button 16.
- * @param enabled_extensions  Set bits to 1 to indicate which of the following extension fields contain valid data: bit 0: pitch, bit 1: roll.
- * @param s  Pitch-only-axis, normalized to the range [-1000,1000]. Generally corresponds to pitch on vehicles with additional degrees of freedom. Valid if bit 0 of enabled_extensions field is set. Set to 0 if invalid.
- * @param t  Roll-only-axis, normalized to the range [-1000,1000]. Generally corresponds to roll on vehicles with additional degrees of freedom. Valid if bit 1 of enabled_extensions field is set. Set to 0 if invalid.
+ * @param buttons  A bitfield corresponding to the joystick buttons' current state, 1 for pressed, 0 for released. The lowest bit corresponds to Button 1.
  * @return length of the message in bytes (excluding serial stream start sign)
  */
 static inline uint16_t mavlink_msg_manual_control_pack_chan(uint8_t system_id, uint8_t component_id, uint8_t chan,
                                mavlink_message_t* msg,
-                                   uint8_t target,int16_t x,int16_t y,int16_t z,int16_t r,uint16_t buttons,uint16_t buttons2,uint8_t enabled_extensions,int16_t s,int16_t t)
+                                   uint8_t target,int16_t x,int16_t y,int16_t z,int16_t r,uint16_t buttons)
 {
 #if MAVLINK_NEED_BYTE_SWAP || !MAVLINK_ALIGNED_FIELDS
     char buf[MAVLINK_MSG_ID_MANUAL_CONTROL_LEN];
@@ -147,10 +119,6 @@ static inline uint16_t mavlink_msg_manual_control_pack_chan(uint8_t system_id, u
     _mav_put_int16_t(buf, 6, r);
     _mav_put_uint16_t(buf, 8, buttons);
     _mav_put_uint8_t(buf, 10, target);
-    _mav_put_uint16_t(buf, 11, buttons2);
-    _mav_put_uint8_t(buf, 13, enabled_extensions);
-    _mav_put_int16_t(buf, 14, s);
-    _mav_put_int16_t(buf, 16, t);
 
         memcpy(_MAV_PAYLOAD_NON_CONST(msg), buf, MAVLINK_MSG_ID_MANUAL_CONTROL_LEN);
 #else
@@ -161,10 +129,6 @@ static inline uint16_t mavlink_msg_manual_control_pack_chan(uint8_t system_id, u
     packet.r = r;
     packet.buttons = buttons;
     packet.target = target;
-    packet.buttons2 = buttons2;
-    packet.enabled_extensions = enabled_extensions;
-    packet.s = s;
-    packet.t = t;
 
         memcpy(_MAV_PAYLOAD_NON_CONST(msg), &packet, MAVLINK_MSG_ID_MANUAL_CONTROL_LEN);
 #endif
@@ -183,7 +147,7 @@ static inline uint16_t mavlink_msg_manual_control_pack_chan(uint8_t system_id, u
  */
 static inline uint16_t mavlink_msg_manual_control_encode(uint8_t system_id, uint8_t component_id, mavlink_message_t* msg, const mavlink_manual_control_t* manual_control)
 {
-    return mavlink_msg_manual_control_pack(system_id, component_id, msg, manual_control->target, manual_control->x, manual_control->y, manual_control->z, manual_control->r, manual_control->buttons, manual_control->buttons2, manual_control->enabled_extensions, manual_control->s, manual_control->t);
+    return mavlink_msg_manual_control_pack(system_id, component_id, msg, manual_control->target, manual_control->x, manual_control->y, manual_control->z, manual_control->r, manual_control->buttons);
 }
 
 /**
@@ -197,7 +161,7 @@ static inline uint16_t mavlink_msg_manual_control_encode(uint8_t system_id, uint
  */
 static inline uint16_t mavlink_msg_manual_control_encode_chan(uint8_t system_id, uint8_t component_id, uint8_t chan, mavlink_message_t* msg, const mavlink_manual_control_t* manual_control)
 {
-    return mavlink_msg_manual_control_pack_chan(system_id, component_id, chan, msg, manual_control->target, manual_control->x, manual_control->y, manual_control->z, manual_control->r, manual_control->buttons, manual_control->buttons2, manual_control->enabled_extensions, manual_control->s, manual_control->t);
+    return mavlink_msg_manual_control_pack_chan(system_id, component_id, chan, msg, manual_control->target, manual_control->x, manual_control->y, manual_control->z, manual_control->r, manual_control->buttons);
 }
 
 /**
@@ -209,15 +173,11 @@ static inline uint16_t mavlink_msg_manual_control_encode_chan(uint8_t system_id,
  * @param y  Y-axis, normalized to the range [-1000,1000]. A value of INT16_MAX indicates that this axis is invalid. Generally corresponds to left(-1000)-right(1000) movement on a joystick and the roll of a vehicle.
  * @param z  Z-axis, normalized to the range [-1000,1000]. A value of INT16_MAX indicates that this axis is invalid. Generally corresponds to a separate slider movement with maximum being 1000 and minimum being -1000 on a joystick and the thrust of a vehicle. Positive values are positive thrust, negative values are negative thrust.
  * @param r  R-axis, normalized to the range [-1000,1000]. A value of INT16_MAX indicates that this axis is invalid. Generally corresponds to a twisting of the joystick, with counter-clockwise being 1000 and clockwise being -1000, and the yaw of a vehicle.
- * @param buttons  A bitfield corresponding to the joystick buttons' 0-15 current state, 1 for pressed, 0 for released. The lowest bit corresponds to Button 1.
- * @param buttons2  A bitfield corresponding to the joystick buttons' 16-31 current state, 1 for pressed, 0 for released. The lowest bit corresponds to Button 16.
- * @param enabled_extensions  Set bits to 1 to indicate which of the following extension fields contain valid data: bit 0: pitch, bit 1: roll.
- * @param s  Pitch-only-axis, normalized to the range [-1000,1000]. Generally corresponds to pitch on vehicles with additional degrees of freedom. Valid if bit 0 of enabled_extensions field is set. Set to 0 if invalid.
- * @param t  Roll-only-axis, normalized to the range [-1000,1000]. Generally corresponds to roll on vehicles with additional degrees of freedom. Valid if bit 1 of enabled_extensions field is set. Set to 0 if invalid.
+ * @param buttons  A bitfield corresponding to the joystick buttons' current state, 1 for pressed, 0 for released. The lowest bit corresponds to Button 1.
  */
 #ifdef MAVLINK_USE_CONVENIENCE_FUNCTIONS
 
-static inline void mavlink_msg_manual_control_send(mavlink_channel_t chan, uint8_t target, int16_t x, int16_t y, int16_t z, int16_t r, uint16_t buttons, uint16_t buttons2, uint8_t enabled_extensions, int16_t s, int16_t t)
+static inline void mavlink_msg_manual_control_send(mavlink_channel_t chan, uint8_t target, int16_t x, int16_t y, int16_t z, int16_t r, uint16_t buttons)
 {
 #if MAVLINK_NEED_BYTE_SWAP || !MAVLINK_ALIGNED_FIELDS
     char buf[MAVLINK_MSG_ID_MANUAL_CONTROL_LEN];
@@ -227,10 +187,6 @@ static inline void mavlink_msg_manual_control_send(mavlink_channel_t chan, uint8
     _mav_put_int16_t(buf, 6, r);
     _mav_put_uint16_t(buf, 8, buttons);
     _mav_put_uint8_t(buf, 10, target);
-    _mav_put_uint16_t(buf, 11, buttons2);
-    _mav_put_uint8_t(buf, 13, enabled_extensions);
-    _mav_put_int16_t(buf, 14, s);
-    _mav_put_int16_t(buf, 16, t);
 
     _mav_finalize_message_chan_send(chan, MAVLINK_MSG_ID_MANUAL_CONTROL, buf, MAVLINK_MSG_ID_MANUAL_CONTROL_MIN_LEN, MAVLINK_MSG_ID_MANUAL_CONTROL_LEN, MAVLINK_MSG_ID_MANUAL_CONTROL_CRC);
 #else
@@ -241,10 +197,6 @@ static inline void mavlink_msg_manual_control_send(mavlink_channel_t chan, uint8
     packet.r = r;
     packet.buttons = buttons;
     packet.target = target;
-    packet.buttons2 = buttons2;
-    packet.enabled_extensions = enabled_extensions;
-    packet.s = s;
-    packet.t = t;
 
     _mav_finalize_message_chan_send(chan, MAVLINK_MSG_ID_MANUAL_CONTROL, (const char *)&packet, MAVLINK_MSG_ID_MANUAL_CONTROL_MIN_LEN, MAVLINK_MSG_ID_MANUAL_CONTROL_LEN, MAVLINK_MSG_ID_MANUAL_CONTROL_CRC);
 #endif
@@ -258,7 +210,7 @@ static inline void mavlink_msg_manual_control_send(mavlink_channel_t chan, uint8
 static inline void mavlink_msg_manual_control_send_struct(mavlink_channel_t chan, const mavlink_manual_control_t* manual_control)
 {
 #if MAVLINK_NEED_BYTE_SWAP || !MAVLINK_ALIGNED_FIELDS
-    mavlink_msg_manual_control_send(chan, manual_control->target, manual_control->x, manual_control->y, manual_control->z, manual_control->r, manual_control->buttons, manual_control->buttons2, manual_control->enabled_extensions, manual_control->s, manual_control->t);
+    mavlink_msg_manual_control_send(chan, manual_control->target, manual_control->x, manual_control->y, manual_control->z, manual_control->r, manual_control->buttons);
 #else
     _mav_finalize_message_chan_send(chan, MAVLINK_MSG_ID_MANUAL_CONTROL, (const char *)manual_control, MAVLINK_MSG_ID_MANUAL_CONTROL_MIN_LEN, MAVLINK_MSG_ID_MANUAL_CONTROL_LEN, MAVLINK_MSG_ID_MANUAL_CONTROL_CRC);
 #endif
@@ -272,7 +224,7 @@ static inline void mavlink_msg_manual_control_send_struct(mavlink_channel_t chan
   is usually the receive buffer for the channel, and allows a reply to an
   incoming message with minimum stack space usage.
  */
-static inline void mavlink_msg_manual_control_send_buf(mavlink_message_t *msgbuf, mavlink_channel_t chan,  uint8_t target, int16_t x, int16_t y, int16_t z, int16_t r, uint16_t buttons, uint16_t buttons2, uint8_t enabled_extensions, int16_t s, int16_t t)
+static inline void mavlink_msg_manual_control_send_buf(mavlink_message_t *msgbuf, mavlink_channel_t chan,  uint8_t target, int16_t x, int16_t y, int16_t z, int16_t r, uint16_t buttons)
 {
 #if MAVLINK_NEED_BYTE_SWAP || !MAVLINK_ALIGNED_FIELDS
     char *buf = (char *)msgbuf;
@@ -282,10 +234,6 @@ static inline void mavlink_msg_manual_control_send_buf(mavlink_message_t *msgbuf
     _mav_put_int16_t(buf, 6, r);
     _mav_put_uint16_t(buf, 8, buttons);
     _mav_put_uint8_t(buf, 10, target);
-    _mav_put_uint16_t(buf, 11, buttons2);
-    _mav_put_uint8_t(buf, 13, enabled_extensions);
-    _mav_put_int16_t(buf, 14, s);
-    _mav_put_int16_t(buf, 16, t);
 
     _mav_finalize_message_chan_send(chan, MAVLINK_MSG_ID_MANUAL_CONTROL, buf, MAVLINK_MSG_ID_MANUAL_CONTROL_MIN_LEN, MAVLINK_MSG_ID_MANUAL_CONTROL_LEN, MAVLINK_MSG_ID_MANUAL_CONTROL_CRC);
 #else
@@ -296,10 +244,6 @@ static inline void mavlink_msg_manual_control_send_buf(mavlink_message_t *msgbuf
     packet->r = r;
     packet->buttons = buttons;
     packet->target = target;
-    packet->buttons2 = buttons2;
-    packet->enabled_extensions = enabled_extensions;
-    packet->s = s;
-    packet->t = t;
 
     _mav_finalize_message_chan_send(chan, MAVLINK_MSG_ID_MANUAL_CONTROL, (const char *)packet, MAVLINK_MSG_ID_MANUAL_CONTROL_MIN_LEN, MAVLINK_MSG_ID_MANUAL_CONTROL_LEN, MAVLINK_MSG_ID_MANUAL_CONTROL_CRC);
 #endif
@@ -364,51 +308,11 @@ static inline int16_t mavlink_msg_manual_control_get_r(const mavlink_message_t* 
 /**
  * @brief Get field buttons from manual_control message
  *
- * @return  A bitfield corresponding to the joystick buttons' 0-15 current state, 1 for pressed, 0 for released. The lowest bit corresponds to Button 1.
+ * @return  A bitfield corresponding to the joystick buttons' current state, 1 for pressed, 0 for released. The lowest bit corresponds to Button 1.
  */
 static inline uint16_t mavlink_msg_manual_control_get_buttons(const mavlink_message_t* msg)
 {
     return _MAV_RETURN_uint16_t(msg,  8);
-}
-
-/**
- * @brief Get field buttons2 from manual_control message
- *
- * @return  A bitfield corresponding to the joystick buttons' 16-31 current state, 1 for pressed, 0 for released. The lowest bit corresponds to Button 16.
- */
-static inline uint16_t mavlink_msg_manual_control_get_buttons2(const mavlink_message_t* msg)
-{
-    return _MAV_RETURN_uint16_t(msg,  11);
-}
-
-/**
- * @brief Get field enabled_extensions from manual_control message
- *
- * @return  Set bits to 1 to indicate which of the following extension fields contain valid data: bit 0: pitch, bit 1: roll.
- */
-static inline uint8_t mavlink_msg_manual_control_get_enabled_extensions(const mavlink_message_t* msg)
-{
-    return _MAV_RETURN_uint8_t(msg,  13);
-}
-
-/**
- * @brief Get field s from manual_control message
- *
- * @return  Pitch-only-axis, normalized to the range [-1000,1000]. Generally corresponds to pitch on vehicles with additional degrees of freedom. Valid if bit 0 of enabled_extensions field is set. Set to 0 if invalid.
- */
-static inline int16_t mavlink_msg_manual_control_get_s(const mavlink_message_t* msg)
-{
-    return _MAV_RETURN_int16_t(msg,  14);
-}
-
-/**
- * @brief Get field t from manual_control message
- *
- * @return  Roll-only-axis, normalized to the range [-1000,1000]. Generally corresponds to roll on vehicles with additional degrees of freedom. Valid if bit 1 of enabled_extensions field is set. Set to 0 if invalid.
- */
-static inline int16_t mavlink_msg_manual_control_get_t(const mavlink_message_t* msg)
-{
-    return _MAV_RETURN_int16_t(msg,  16);
 }
 
 /**
@@ -426,10 +330,6 @@ static inline void mavlink_msg_manual_control_decode(const mavlink_message_t* ms
     manual_control->r = mavlink_msg_manual_control_get_r(msg);
     manual_control->buttons = mavlink_msg_manual_control_get_buttons(msg);
     manual_control->target = mavlink_msg_manual_control_get_target(msg);
-    manual_control->buttons2 = mavlink_msg_manual_control_get_buttons2(msg);
-    manual_control->enabled_extensions = mavlink_msg_manual_control_get_enabled_extensions(msg);
-    manual_control->s = mavlink_msg_manual_control_get_s(msg);
-    manual_control->t = mavlink_msg_manual_control_get_t(msg);
 #else
         uint8_t len = msg->len < MAVLINK_MSG_ID_MANUAL_CONTROL_LEN? msg->len : MAVLINK_MSG_ID_MANUAL_CONTROL_LEN;
         memset(manual_control, 0, MAVLINK_MSG_ID_MANUAL_CONTROL_LEN);

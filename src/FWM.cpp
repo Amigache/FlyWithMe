@@ -46,7 +46,10 @@ void FWM::begin()
     web = new Web(this);
 
     // Default Follow mode
-    changeFollowMode(follow_mode);
+    if(!MAV_BRIDGE)
+    {
+        changeFollowMode(FOLL_MODE);
+    }
 
     Log.info("FWM Ready" CR);
 }
@@ -57,6 +60,13 @@ void FWM::run()
     mav->run();
     screen->run();
     web->run();
+}
+
+void FWM::bridgeRun()
+{
+    comm->bridgeRun();
+    mav->bridgeRun();
+    screen->bridgeRun();
 }
 
 // TICKER --------------------------------------------

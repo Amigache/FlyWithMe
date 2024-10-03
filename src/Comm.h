@@ -21,6 +21,10 @@ public:
     Comm(FWM *fwm);
     void begin();
     void run();
+    
+    void bridgeRun();
+    void receive_mavlink_lora();
+    void send_mavlink_lora(mavlink_message_t message);
 
     static void beacon_ticker_callback();
 

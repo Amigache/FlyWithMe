@@ -36,7 +36,10 @@ void Comm::begin()
   Log.notice("LoRa Ready" CR);
 
   // TICKER -----------------------------------------------------------------------------------------------
-  beacon_ticker.attach_ms(BEACON_CHECK_INTERVAL, Comm::beacon_ticker_callback);
+  if (!MAV_BRIDGE)
+  {
+    beacon_ticker.attach_ms(BEACON_CHECK_INTERVAL, Comm::beacon_ticker_callback);
+  }
 }
 
 // Static member function definition
@@ -79,7 +82,7 @@ void Comm::run()
 
       commData.rssi = LoRa.packetRssi();
 
-      // Comprobamos el checksum de msg
+      // Validating checksum
       if (validateChecksum(incomingPacket))
       {
         // Actualizamos commData
@@ -87,11 +90,17 @@ void Comm::run()
         commData.lastValidPacketSize = sizeof(commData.lastValidPacket);
         commData.rx_packet_counter++;
 
-        // Actualizamos target si estamos en modo follow
+        // Update target if we are in approach stage
         if (fwm->stage_follow == STAGE_APPROACH && fwm->mav->link)
         {
+          // Update target
           fwm->mav->nav_waypoint(commData.lastValidPacket.lat, commData.lastValidPacket.lon, commData.lastValidPacket.relative_alt);
-          fwm->mav->do_change_speed(commData.lastValidPacket.ground_speed); 
+          
+          // Get dynamic speed
+          uint16_t dynamic_speed = fwm->mav->calculate_dynamic_speed(commData.lastValidPacket.ground_speed, fwm->mav->APdata.wp_dist);
+
+          // Change speed
+          fwm->mav->do_change_speed(dynamic_speed);
         }
 
         // Time to get
@@ -104,6 +113,54 @@ void Comm::run()
       }
     }
   }
+}
+
+void Comm::bridgeRun()
+{
+  if (LoRa.parsePacket())
+  {
+    receive_mavlink_lora();
+  }
+}
+
+void Comm::receive_mavlink_lora()
+{
+  static mavlink_message_t message;
+  static mavlink_status_t status;
+
+  commData.rssi = LoRa.packetRssi();
+  commData.snr = LoRa.packetSnr();
+
+  while (LoRa.available() > 0)
+  {
+    uint8_t serial_byte = LoRa.read();
+    if (mavlink_parse_char(MAVLINK_COMM_0, serial_byte, &message, &status))
+    {
+      switch (message.msgid)
+      {
+      case MAVLINK_MSG_ID_HEARTBEAT:
+        //fwm->mav->send_to_fc(message);
+        break;
+      case MAVLINK_MSG_ID_HIGH_LATENCY2:
+        fwm->mav->send_to_fc(message);
+        break;
+      default:
+        //fwm->mav->send_to_fc(message);
+        break;
+      }
+    }
+  }
+}
+
+void Comm::send_mavlink_lora(mavlink_message_t message)
+{
+  static uint8_t mavlink_message_buffer[MAVLINK_MAX_PACKET_LEN];
+  static uint16_t mavlink_message_length = 0;
+  mavlink_message_length = mavlink_msg_to_send_buffer(mavlink_message_buffer, &message);
+
+  LoRa.beginPacket();
+  LoRa.write(mavlink_message_buffer, mavlink_message_length);
+  LoRa.endPacket();
 }
 
 void Comm::sendPacket(LoraPacket_t packet)

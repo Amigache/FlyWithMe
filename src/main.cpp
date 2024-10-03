@@ -26,53 +26,59 @@ void setup()
 
   // FWM ---------------------------------------------------------------------------------------------------
   fwm.begin();
-
 }
 
 void loop()
 {
-
-  // Only work if we are on follower mode
-  if (fwm.follow_mode == FOLL_MODE_FOLLOWER)
+  if (MAV_BRIDGE)
   {
-    if (fwm.mav->APdata.custom_mode == MODE_GUIDED)
+    fwm.bridgeRun();
+  }
+  else
+  {
+    // Only work if we are on follower mode
+    if (fwm.follow_mode == FOLL_MODE_FOLLOWER)
     {
-
-      // Start approach we have beacon
-      if (fwm.comm->commData.have_beacon && fwm.stage_follow == STAGE_IDLE)
+      if (fwm.mav->APdata.custom_mode == MODE_GUIDED)
       {
 
-        Log.info("Beacon OK, start approach" CR);
+        // Start approach we have beacon
+        if (fwm.comm->commData.have_beacon && fwm.stage_follow == STAGE_IDLE)
+        {
 
-        fwm.stage_follow = STAGE_APPROACH;
+          Log.info("Beacon OK, start approach" CR);
 
-        // Stop approach beacuse beacon lost
+          fwm.stage_follow = STAGE_APPROACH;
+
+          // Stop approach beacuse beacon lost
+        }
+        else if (!fwm.comm->commData.have_beacon && fwm.stage_follow == STAGE_APPROACH)
+        {
+
+          Log.info("Beacon LOST, stop follow" CR);
+
+          fwm.stage_follow = STAGE_IDLE;
+        }
+
+        // Stop approach beacuse mode changed
       }
-      else if (!fwm.comm->commData.have_beacon && fwm.stage_follow == STAGE_APPROACH)
+      else if (fwm.mav->APdata.custom_mode != MODE_GUIDED && fwm.stage_follow == STAGE_APPROACH)
       {
 
-        Log.info("Beacon LOST, stop follow" CR);
+        Log.info("Stop follow, mode changed" CR);
 
         fwm.stage_follow = STAGE_IDLE;
       }
-
-      // Stop approach beacuse mode changed
-    }
-    else if (fwm.mav->APdata.custom_mode != MODE_GUIDED && fwm.stage_follow == STAGE_APPROACH)
-    {
-
-      Log.info("Stop follow, mode changed" CR);
-
-      fwm.stage_follow = STAGE_IDLE;
+      else
+      {
+        fwm.stage_follow = STAGE_IDLE;
+      }
     }
     else
     {
       fwm.stage_follow = STAGE_IDLE;
     }
-  }else{
-    fwm.stage_follow = STAGE_IDLE;
+
+    fwm.run();
   }
-
-  fwm.run();
-
 }

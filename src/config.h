@@ -4,7 +4,13 @@
 #include <Arduino.h>
 #include <ArduinoLog.h>
 #include <HardwareSerial.h>
-#include "../lib/mavlink/ardupilotmega/mavlink.h"
+
+// For mavlink sha256 redefinition error
+#ifdef F
+#undef F
+#endif
+
+#include "../lib/mavlink/common/mavlink.h"
 
 // DEBUG MODE
 #define DEBUG_MODE // Comentar para desactivar debug
@@ -53,8 +59,8 @@
 #define SERIAL_BAUD_TELEM 57600
 
 // Time to lost link
-#define LOST_TIME 5        // s
-#define LOST_TIME_BEACON 5 // s
+#define LOST_TIME 10        // s
+#define LOST_TIME_BEACON 10 // s
 
 // Flight modes
 #define MODE_GUIDED 15
@@ -63,6 +69,9 @@
 
 // Web Server
 #define WEB_PORT 80
+
+// MavBridge
+#define MAV_BRIDGE 0
 
 // BOARD config ------------------------------------------------------------------------------------------
 
@@ -124,6 +133,7 @@
 #define FOLL_MODE_CH 7
 #define ALT_OFFSET 10 // m
 #define SPEED_OFFSET 10 // %
+#define DIST_OFFSET 10 //m
 
 // Set by target
 #ifdef MASTER_BUILD_FLAG
@@ -200,6 +210,7 @@ typedef struct
   LoraPacket_t lastValidPacket;
   bool have_beacon = false;
   int rssi = 0;
+  int snr = 0;
 } CommData_t;
 
 // Struct que contiene el modo de vuelo y su nombre asociado

@@ -15,6 +15,10 @@ public:
   Telem(FWM *fwm);
   void begin();
   void run();
+
+  void bridgeRun();
+  void receive_mavlink_serial();
+
   void send_to_fc(mavlink_message_t msg);
   void heartbeat(uint8_t system_id, uint8_t component_id, uint8_t type, uint8_t autopilot, uint8_t base_mode, uint32_t custom_mode, uint8_t system_status);
   void status_text(const char * text);
@@ -26,6 +30,8 @@ public:
   void set_param_value(std::string param_name, float param_value);
 
   static void heartbeat_ticker_callback();
+
+  uint16_t calculate_dynamic_speed(float leader_speed, float distance);
 
   APdata_t APdata;
   boolean link = false;
@@ -45,9 +51,9 @@ private:
 
   int listTimeOutPointer = 0;
 
-  unsigned long time_heartbeat = 0;
+  // unsigned long time_heartbeat = 0;
   unsigned long last_heartbeat = 0;
-  unsigned long timeout_count = 0;
+  // unsigned long timeout_count = 0;
 
   bool init_setup_done = false;
 

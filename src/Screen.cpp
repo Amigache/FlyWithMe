@@ -53,7 +53,7 @@ void Screen::begin()
 
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3c, false, false))
   { // Address 0x3C for 128x32
-    Log.error(F("SSD1306 allocation failed" CR));
+    Log.error("SSD1306 allocation failed" CR);
     for (;;)
       ; // Don't proceed, loop forever
   }
@@ -69,7 +69,6 @@ void Screen::begin()
   Log.notice("Display Ready" CR);
 }
 
-// void Screen::run(Comm *comm, Telem *mav, Web *web)
 void Screen::run()
 {
   // buscamos el modo de vuelo
@@ -145,6 +144,23 @@ void Screen::run()
   }
 }
 
+void Screen::bridgeRun()
+{
+  int cursorY = 8;     // Tamaño de la fuente predeterminada en altura es 8 píxeles
+  int lineSpacing = 2; // Pequeño margen debajo del texto
+
+  display.clearDisplay();
+  display.setCursor(0, 0);
+  display.println("MODE BRIDGE");
+  display.drawLine(0, cursorY + lineSpacing, 128, cursorY + lineSpacing, SSD1306_WHITE);
+  display.setCursor(0, cursorY + lineSpacing + 5); // Mover el cursor debajo de la línea
+  display.print("RSSI: ");
+  display.println(fwm->comm->commData.rssi);
+  display.print("SNR: ");
+  display.println(fwm->comm->commData.snr);
+  display.display();
+}
+
 void Screen::showCenterText(const char *text)
 {
   display.clearDisplay();
@@ -155,7 +171,7 @@ void Screen::showCenterText(const char *text)
   int16_t y = (SCREEN_HEIGHT - display.getCursorY()) / 2;
 
   display.setCursor(x, y);
-  display.println(F(text));
+  display.println(text);
   display.display();
 }
 

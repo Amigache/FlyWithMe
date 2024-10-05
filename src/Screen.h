@@ -25,7 +25,7 @@ public:
     boolean connected_screen = false;
     
 private:
-    Params_t params_data;
+    // Params_t params_data;
     FWM *fwm;
 };
 #endif

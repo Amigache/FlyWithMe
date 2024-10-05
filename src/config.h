@@ -12,26 +12,10 @@
 
 #include "../lib/mavlink/common/mavlink.h"
 
-// DEBUG MODE
-#define DEBUG_MODE // Comentar para desactivar debug
-
 #define VERSION "FlyWithMe V1.0"
 
-// MAVLink config ----------------------------------------------------------------------------------------
-/* The default UART header for your MCU */
-// #define SYSID 1                                   ///< ID 20 for this airplane. 1 PX, 255 ground station
-// #define COMPID 158                                ///< The component sending the message
-// #define SELF_TYPE MAV_TYPE_FIXED_WING             ///< This system is an airplane / fixed wing
-
-// Define the system type, in this case an airplane -> on-board controller
-// #define SYS_TYPE MAV_TYPE_GENERIC
-// #define AP_TYPE MAV_AUTOPILOT_INVALID
-
-// #define SYS_MODE MAV_MODE_PREFLIGHT               ///< Booting up
-// #define CUSTOM_MODE 0                             ///< Custom mode, can be defined by user/adopter
-// #define SYSTEM_STATE MAV_STATE_STANDBY            ///< System ready for flight
-
-// Target system and component
+// DEBUG MODE
+#define DEBUG_MODE // Comentar para desactivar debug
 
 // Data Streams
 #define MAV_DATA_STREAM_POSITION_RATE 0x02       ///< 2 Hz
@@ -40,15 +24,8 @@
 // Params setup
 #define AUTO_SET_FOLL_PARAMS 1 ///< 1 to automatically set params, 0 otherwise
 
-// Follow Target Interval
-// #define FOLLOW_TARGET_INTERVAL 1000              ///< ms 1 vez por segundo
-
-// GCS config --------------------------------------------------------------------------------------------
-// #define GCS_SYSID 255                             ///< ID 255 for this ground station
-
 // Intervals
 #define HEARTBEAT_INTERVAL 1000 ///< ms 1 vez por segundo
-// #define LORA_SEND_INTERVAL 500                    ///< ms 2 veces por segundo
 #define BEACON_CHECK_INTERVAL 1000 ///< ms 1 vez por segundo
 #define SEND_PACKET_INTERVAL 1000
 
@@ -64,8 +41,6 @@
 
 // Flight modes
 #define MODE_GUIDED 15
-
-// #define QUEUE_SIZE 10
 
 // Web Server
 #define WEB_PORT 80
@@ -107,11 +82,6 @@
 // 915E6 for North America
 #define LORA_BAND 866E6
 
-// Data types --------------------------------------------------------------------------------------------
-// #define LORA_HEARTBEAT_PACKET 0
-// #define LORA_POSITION_PACKET 1
-// #define LORA_LOCAL_POSITION_PACKET 2
-
 // Stages ------------------------------------------------------------------------------------------------
 #define STAGE_IDLE 0
 #define STAGE_APPROACH 1
@@ -132,8 +102,8 @@
 #define FOLL_MODE FOLL_MODE_OFF
 #define FOLL_MODE_CH 7
 #define ALT_OFFSET 10 // m
-#define SPEED_OFFSET 10 // %
-#define DIST_OFFSET 10 //m
+#define SPEED_OFFSET 20 // %
+#define DIST_OFFSET 100 //m
 
 // Set by target
 #ifdef MASTER_BUILD_FLAG

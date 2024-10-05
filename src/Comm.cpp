@@ -91,7 +91,7 @@ void Comm::run()
         commData.rx_packet_counter++;
 
         // Update target if we are in approach stage
-        if (fwm->stage_follow == STAGE_APPROACH && fwm->mav->link)
+        if (fwm->stage_follow == STAGE_APPROACH)
         {
           // Update target
           fwm->mav->nav_waypoint(commData.lastValidPacket.lat, commData.lastValidPacket.lon, commData.lastValidPacket.relative_alt);

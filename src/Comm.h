@@ -22,6 +22,8 @@ public:
     void begin();
     void run();
     
+    static Comm* self;            // Puntero a la instancia
+
     void bridgeRun();
     void receive_mavlink_lora();
     void send_mavlink_lora(mavlink_message_t message);
@@ -37,8 +39,6 @@ public:
     unsigned long time_lora_send = 0;
     unsigned long time_beacon = 0;
     unsigned long last_beacon = 0;
-
-    static Comm* self;            // Puntero a la instancia
 
 private:
 

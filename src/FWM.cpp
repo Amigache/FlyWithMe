@@ -46,7 +46,7 @@ void FWM::begin()
     web = new Web(this);
 
     // Default Follow mode
-    if(!MAV_BRIDGE)
+    if (!MAV_BRIDGE)
     {
         changeFollowMode(FOLL_MODE);
     }
@@ -54,14 +54,45 @@ void FWM::begin()
     Log.info("FWM Ready" CR);
 }
 
+/**
+ * @brief Main loop
+ */
 void FWM::run()
 {
+    // State machine
+    if (follow_mode == FOLL_MODE_FOLLOWER) // Only work if we are on follower mode
+    {
+        if (mav->APdata.custom_mode == MODE_GUIDED) // Only work if we are on guided mode
+        {
+            if (comm->commData.have_beacon && stage_follow == STAGE_IDLE)
+            {
+                stage_follow = STAGE_APPROACH;
+            }
+            else if (!comm->commData.have_beacon && stage_follow == STAGE_APPROACH)
+            {
+                stage_follow = STAGE_IDLE;
+            }
+        }
+        else if (stage_follow == STAGE_APPROACH) // Mode changed, stop follow
+        {
+            stage_follow = STAGE_IDLE;
+        }
+    }
+    else
+    {
+        stage_follow = STAGE_IDLE; // Not in follower mode
+    }
+
+    // Run instances
     comm->run();
     mav->run();
     screen->run();
     web->run();
 }
 
+/**
+ * @brief Bridge run
+ */
 void FWM::bridgeRun()
 {
     comm->bridgeRun();
@@ -69,7 +100,17 @@ void FWM::bridgeRun()
     screen->bridgeRun();
 }
 
-// TICKER --------------------------------------------
+/**
+ * @brief Send packet ticker callback
+ * 
+ * Send packet to follower
+ * 
+ * @param void
+ * @return void
+ * 
+ * @note This function is called by a Ticker
+ * 
+ */
 void FWM::send_packet_ticker_callback()
 {
     if (self)
@@ -92,7 +133,13 @@ void FWM::send_packet_ticker_callback()
     }
 }
 
-// FOLLOW MODE ---------------------------------------
+/**
+ * @brief Change follow mode
+ * 
+ * @param mode uint8_t
+ * @return void
+ * 
+ */
 void FWM::changeFollowMode(uint8_t mode)
 {
     follow_mode = mode;
@@ -110,8 +157,13 @@ void FWM::changeFollowMode(uint8_t mode)
     }
 }
 
-// PARAMS --------------------------------------------
-
+/**
+ * @brief Reset params
+ * 
+ * @param void
+ * @return void
+ * 
+ */
 void FWM::resetParams()
 {
     preferences.begin("storage", false);
@@ -119,6 +171,13 @@ void FWM::resetParams()
     preferences.end();
 }
 
+/**
+ * @brief Check if exist params
+ * 
+ * @param void
+ * @return bool
+ * 
+ */
 bool FWM::existParams()
 {
     // Try to read some preferences
@@ -137,6 +196,13 @@ bool FWM::existParams()
     return true;
 }
 
+/**
+ * @brief Save params
+ * 
+ * @param void
+ * @return void
+ * 
+ */
 void FWM::saveParams()
 {
     preferences.begin("storage", false);
@@ -151,6 +217,13 @@ void FWM::saveParams()
     Log.notice("Params saved" CR);
 }
 
+/**
+ * @brief Load params
+ * 
+ * @param void
+ * @return void
+ * 
+ */
 void FWM::loadParams()
 {
     preferences.begin("storage", true);

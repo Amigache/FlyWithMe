@@ -16,6 +16,8 @@ public:
   void begin();
   void run();
 
+  static Telem* self;
+
   void bridgeRun();
   void receive_mavlink_serial();
 
@@ -40,8 +42,6 @@ public:
   boolean linkTimeout = false;
   boolean lock_ap = false;
   boolean is_connecting = false;
-
-  static Telem* self;
 
   HardwareSerial SerialPort;
 

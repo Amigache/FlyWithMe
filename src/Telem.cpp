@@ -612,12 +612,17 @@ void Telem::guided_follow(LoraPacket_t leader, int32_t targetLat, int32_t target
         hcmd -= 360.0f;
 
     // 4) Velocidad = la del lider + correccion longitudinal (por detras -> acelerar)
-    float boost = -along * ALONG_GAIN_CMS_PER_M;
+    float along_dead = along;
+    if (fabsf(along_dead) < SPEED_DEADBAND_M)
+        along_dead = 0.0f; // banda muerta: evita cazar la velocidad con ruido pequeno
+    float boost = -along_dead * ALONG_GAIN_CMS_PER_M;
     if (boost > MAX_SPEED_BOOST)
         boost = MAX_SPEED_BOOST;
     if (boost < -MAX_SPEED_SLOW)
         boost = -MAX_SPEED_SLOW;
     float speed_cms = (float)leader.ground_speed + boost;
+    // Cuantizar para que la velocidad comandada cambie a saltos y no cazar (el FC ignora valores repetidos)
+    speed_cms = roundf(speed_cms / (float)SPEED_QUANT_CMS) * (float)SPEED_QUANT_CMS;
 
     // 5) Refresco periodico del WP: fija la altitud objetivo (next_WP_loc) y respaldo de posicion
     static uint32_t lastWpMs = 0;

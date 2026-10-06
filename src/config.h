@@ -172,6 +172,8 @@
 #define MAX_HEADING_CORR_DEG 25.0f       // deg - tope de correccion de rumbo
 #define ALONG_GAIN_CMS_PER_M 12.0f       // cm/s de correccion por metro de error longitudinal
 #define MAX_SPEED_SLOW 400               // cm/s (4 m/s) de frenado maximo
+#define SPEED_DEADBAND_M 2.0f            // m - error longitudinal que no corrige (evita caza de velocidad)
+#define SPEED_QUANT_CMS 50               // cm/s - cuantizacion de la velocidad comandada (menos caza del TECS)
 #define SPEED_GAIN_CMS_PER_M 8         // cm/s de sobre-velocidad por metro de error de distancia (control suave)
 #define MAX_SPEED_BOOST 600            // cm/s (6 m/s) de sobre-velocidad maxima
 #define AUTO_CALIBRATE_LORA 0          // 1 = calibrar automáticamente al inicio, 0 = manual

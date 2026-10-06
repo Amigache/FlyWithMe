@@ -55,12 +55,16 @@ ninguno entra en EMERGENCY. Salida `PASS`/`FAIL` (código 0/1).
 Prueba con autopilotos **simulados** (Mission Planner SITL) sin cablear el UART del FC. El proyecto
 es para **aviones**, así que se usa `ArduPlane.exe` (no ArduCopter).
 
-1. Lanzar los vehículos SITL (nativo Windows, en `Documents\Mission Planner\sitl`):
+1. Lanzar los vehículos SITL (nativo Windows). Se usan los `plane.parm` del repo
+   (`tools/sitl/leader.parm` y `tools/sitl/follower.parm`, copiados del de Mission Planner
+   `sitl\models\plane.parm` + `SYSID_THISMAV`) y **`--sysid`** (el `SYSID_THISMAV` del parm NO se
+   aplica por sí solo; sin él, el SITL arranca con sysid 1):
    ```
-   ArduPlane.exe --instance 0 --serial0 tcp:5760 -M+ -s1 --home -35.363261,149.165230,584,353 -P SERIAL1_PROTOCOL=2 -P SERIAL2_PROTOCOL=2
-   ArduPlane.exe --instance 1 --serial0 tcp:5770 -M+ -s1 --home -35.3633006,149.165230,584,353 -P SERIAL1_PROTOCOL=2 -P SERIAL2_PROTOCOL=2
+   ArduPlane.exe --instance 0 --serial0 tcp:5760 --sysid 1 -M+ -s1 --home 0.000000,0.000000,302,0 --defaults <repo>\tools\sitl\leader.parm
+   ArduPlane.exe --instance 1 --serial0 tcp:5770 --sysid 2 -M+ -s1 --home 0.000000,0.000000,302,0 --defaults <repo>\tools\sitl\follower.parm
    ```
    Puertos por instancia: SERIAL0 `5760+10N` (ESP32), SERIAL1 `+2` (Mission Planner), SERIAL2 `+3` (control).
+   Los `plane.parm` marcan el INS como calibrado (`INS_ACC*`, `INS_GYR_CAL 0`) → **arma sin calibrar**.
 2. Flashear la placa con el entorno SITL (`FC_LINK_USB=1`, MAVLink por USB/UART0):
    ```
    pio run -e ttgo-lora32-v1-master-sitl -t upload        # COMx (líder)

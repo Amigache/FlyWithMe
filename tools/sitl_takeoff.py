@@ -19,7 +19,7 @@ except ImportError:
 def main():
     ap = argparse.ArgumentParser(description="GUIDED + arm + takeoff de un avion SITL")
     ap.add_argument("--conn", default="tcp:127.0.0.1:5763")
-    ap.add_argument("--mode", type=int, default=15, help="custom_mode GUIDED plane=15")
+    ap.add_argument("--mode", type=int, default=13, help="custom_mode: TAKEOFF plane=13, GUIDED=15")
     ap.add_argument("--alt", type=float, default=120.0, help="altitud de despegue (m)")
     args = ap.parse_args()
 
@@ -30,6 +30,10 @@ def main():
     print(f"SITL sysid={m.target_system} mode={m.flightmode}")
     tgt, comp = m.target_system, m.target_component
 
+    # SITL no trae calibracion 3D de acelerometros -> desactivar checks de armado
+    m.mav.param_set_send(tgt, comp, b'ARMING_CHECK', 0, mavutil.mavlink.MAV_PARAM_TYPE_INT32)
+    time.sleep(1)
+
     m.mav.set_mode_send(tgt, mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, args.mode)
     time.sleep(1)
 
@@ -37,9 +41,10 @@ def main():
     m.mav.command_long_send(tgt, comp, mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM, 0,
                             1, 0, 0, 0, 0, 0, 0)
     time.sleep(2)
-    # Despegar
-    m.mav.command_long_send(tgt, comp, mavutil.mavlink.MAV_CMD_NAV_TAKEOFF, 0,
-                            0, 0, 0, 0, 0, 0, args.alt)
+    # En GUIDED hay que ordenar el despegue; en TAKEOFF (13) el avion despega solo al armar
+    if args.mode == 15:
+        m.mav.command_long_send(tgt, comp, mavutil.mavlink.MAV_CMD_NAV_TAKEOFF, 0,
+                                0, 0, 0, 0, 0, 0, args.alt)
 
     # Esperar y mostrar altitud relativa
     deadline = time.time() + 20

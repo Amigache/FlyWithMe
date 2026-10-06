@@ -86,14 +86,23 @@ Mission Planner → **Connection: TCP** → host `127.0.0.1`:
 Verás un **avión** (ArduPlane) con mapa/HUD/parámetros en vivo. (SERIAL0 lo ocupa el puente del
 ESP32, por eso el GCS usa SERIAL1.)
 
-> **Estado verificado (ArduPlane, ambas placas):** reciben MAVLink real por USB (`LINK TO FC OK`),
-> enlazan por LoRa (`BEACON LOCK`), y el seguidor pasa a **FOLLOWING** al poner su FC en GUIDED
-> (`STATE_TRANSITION from=SEARCHING,to=FOLLOWING`). En tierra, el safety `Leader altitude too low`
-> impide calcular la formación (correcto); para ver `Formation position` hay que **despegar el líder**
-> (o bajar `MIN_SAFE_ALTITUDE` en el entorno SITL).
+> **Estado verificado (ArduPlane estable, ambas placas):** reciben MAVLink real por USB
+> (`LINK TO FC OK`), enlazan por LoRa (`BEACON LOCK`), el seguidor pasa a **FOLLOWING** con el FC en
+> GUIDED y **calcula la formación** (`Formation position: lat=..., lon=..., alt=...`).
+>
+> **Versión estable de SITL:** la local (`Documents\Mission Planner\sitl\ArduPlane.exe`) es
+> `4.8.0-dev`. Versión **estable**: descargar de
+> `https://firmware.ardupilot.org/Tools/MissionPlanner/sitl/PlaneStable/` (`ArduPlane.elf` + DLLs
+> cyg*) → es **4.7.2**.
+>
+> **Armado:** SITL lanzado "a pelo" pide calibración 3D de acelerómetros (Mission Planner lo evita
+> porque pasa `--defaults`). `tools/sitl_takeoff.py` hace `param_set(ARMING_CHECK,0)` antes de armar.
 >
 > ⚠️ **sysid:** SITL emite `sysid=1`; el seguidor espera `TARGET_SYSID=2`, por eso `slave-sitl`
 > añade `-D TARGET_SYSID=1`.
+>
+> **Formación en banco:** `slave-sitl` añade `-D MIN_SAFE_ALTITUDE=0` para validar `Formation position`
+> con el avión SITL en el suelo. Producción mantiene 50 m.
 >
 > Nota: los puertos USB reenumeran (COMx→21→22); comprobar el puerto antes de cada prueba.
 

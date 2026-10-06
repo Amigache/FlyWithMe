@@ -97,7 +97,9 @@
 // SAFETY LIMITS (FASE 1 - Seguridad Crítica) -----------------------------------------------------------
 #define MAX_FOLLOW_DISTANCE 5000  // metros - 5km máximo de distancia de seguimiento
 #define MAX_FOLLOW_SPEED 5000     // cm/s - 50 m/s máximo de velocidad
+#ifndef MIN_SAFE_ALTITUDE
 #define MIN_SAFE_ALTITUDE 50000   // mm - 50m mínimo sobre terreno
+#endif
 #define EMERGENCY_RECOVERY_MS 5000 // ms - espera antes de reintentar tras una emergencia (histéresis)
 #define MAX_VALID_LATITUDE 900000000  // Lat máxima válida (* 1E7)
 #define MAX_VALID_LONGITUDE 1800000000 // Lon máxima válida (* 1E7)

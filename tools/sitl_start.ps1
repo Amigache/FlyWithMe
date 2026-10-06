@@ -8,7 +8,7 @@ param(
     [string]$LeaderHome = "0.000000,0.000000,302,180",
     [string]$FollowerHome = "0.000000,0.000000,302,180",
     [string]$Python = "$env:USERPROFILE\.platformio\penv\Scripts\python.exe",
-    [int]$Baud = 38400
+    [int]$Baud = 57600
 )
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot

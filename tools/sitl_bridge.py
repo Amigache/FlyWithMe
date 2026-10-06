@@ -11,7 +11,7 @@ SITL (Mission Planner, Documents\\Mission Planner\\sitl):
   ArduPlane.exe  --instance 0 --serial0 tcp:5760 -M+ -s1 --home -35.363261,149.165230,584,353
 
 Uso (pyserial necesario; el python de PlatformIO lo tiene):
-  python tools/sitl_bridge.py --tcp 127.0.0.1:5760 --port COMx --baud 38400
+  python tools/sitl_bridge.py --tcp 127.0.0.1:5760 --port COMx --baud 57600
   .\\.platformio\\penv\\Scripts\\python.exe tools/sitl_bridge.py --tcp 127.0.0.1:5760 --port COMx
 
 Multi-vehiculo: instancia 0 -> TCP 5760, instancia 1 -> TCP 5770, etc.
@@ -33,7 +33,7 @@ def main():
     ap = argparse.ArgumentParser(description="Puente SITL (TCP) <-> placa (serie USB)")
     ap.add_argument("--tcp", default="127.0.0.1:5760", help="host:puerto del SITL")
     ap.add_argument("--port", required=True, help="puerto serie de la placa (p. ej. COMx)")
-    ap.add_argument("--baud", type=int, default=38400, help="baud del USB de la placa (38400)")
+    ap.add_argument("--baud", type=int, default=57600, help="baud del USB de la placa (57600)")
     ap.add_argument("--print-serial", action="store_true", help="mostrar los datos de la placa (logs)")
     args = ap.parse_args()
 

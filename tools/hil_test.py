@@ -13,7 +13,7 @@ Requisitos:
       .platformio\\penv\\Scripts\\python.exe tools\\hil_test.py --master COMx --slave COMx
 
 Uso:
-  python tools/hil_test.py --master COMx --slave COMx [--seconds 35] [--baud 38400]
+  python tools/hil_test.py --master COMx --slave COMx [--seconds 35] [--baud 57600]
 """
 import argparse
 import sys
@@ -50,7 +50,7 @@ def main():
     ap = argparse.ArgumentParser(description="HIL test FlyWithMe (lider/seguidor por LoRa)")
     ap.add_argument("--master", default="COMx", help="puerto serie del lider")
     ap.add_argument("--slave", default="COMx", help="puerto serie del seguidor")
-    ap.add_argument("--baud", type=int, default=38400)
+    ap.add_argument("--baud", type=int, default=57600)
     ap.add_argument("--seconds", type=int, default=35)
     args = ap.parse_args()
 

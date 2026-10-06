@@ -33,6 +33,12 @@
 #endif
 #define LINK_METRICS_LOG_INTERVAL_MS 5000 ///< A4: periodo de log de métricas de enlace
 
+// MENSAJERIA MAVLINK (evitar saturar el FC/GCS) -------------------------------------------------------
+#define SPEED_CHANGE_THRESHOLD 100        ///< cm/s - solo enviar DO_CHANGE_SPEED si cambia mas que esto
+#define SPEED_RESEND_MS 2000              ///< ms - reenviar la velocidad como maximo cada esto
+#define STATUS_TEXT_MIN_INTERVAL_MS 5000  ///< ms - no repetir el MISMO STATUSTEXT antes de esto
+#define STATUS_DISTANCE_INTERVAL_MS 5000  ///< ms - notificar distancia/estado de seguimiento cada esto
+
 // OTHER config ------------------------------------------------------------------------------------------
 
 // Serial Bauds

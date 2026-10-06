@@ -207,8 +207,12 @@ void Comm::run()
                 fwm->mav->nav_waypoint(targetLat, targetLon, targetAlt);
                 
                 // Get dynamic speed
-                // P2: wp_dist viene en cm; calculate_dynamic_speed espera metros (DIST_OFFSET en m)
-                uint16_t dynamic_speed = fwm->mav->calculate_dynamic_speed(incomingPacket.ground_speed, fwm->mav->APdata.wp_dist / 100.0f);
+                // Distancia real al LIDER (no wp_dist, que en GUIDED+DO_REPOSITION suele ser 0) para
+                // que el seguidor acelere si va por detras y converja a la distancia de formacion.
+                float distToLeader = fwm->mav->calculateDistance(
+                    fwm->mav->APdata.lat, fwm->mav->APdata.lon,
+                    incomingPacket.lat, incomingPacket.lon);
+                uint16_t dynamic_speed = fwm->mav->calculate_dynamic_speed(incomingPacket.ground_speed, distToLeader);
 
                 // Change speed
                 fwm->mav->do_change_speed(dynamic_speed);
@@ -292,8 +296,11 @@ void Comm::run()
               fwm->mav->nav_waypoint(targetLat, targetLon, targetAlt);
               
               // Get dynamic speed
-              // P2: wp_dist viene en cm; calculate_dynamic_speed espera metros (DIST_OFFSET en m)
-              uint16_t dynamic_speed = fwm->mav->calculate_dynamic_speed(commData.lastValidPacket.ground_speed, fwm->mav->APdata.wp_dist / 100.0f);
+              // Distancia real al LIDER (no wp_dist) para que el seguidor converja a la formacion.
+              float distToLeader = fwm->mav->calculateDistance(
+                  fwm->mav->APdata.lat, fwm->mav->APdata.lon,
+                  commData.lastValidPacket.lat, commData.lastValidPacket.lon);
+              uint16_t dynamic_speed = fwm->mav->calculate_dynamic_speed(commData.lastValidPacket.ground_speed, distToLeader);
 
               // Change speed
               fwm->mav->do_change_speed(dynamic_speed);

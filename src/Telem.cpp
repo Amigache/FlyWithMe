@@ -355,6 +355,17 @@ void Telem::heartbeat(uint8_t system_id, uint8_t component_id, uint8_t type, uin
  */
 void Telem::status_text(const char *text)
 {
+    // Mensajeria: no repetir el MISMO STATUSTEXT demasiado seguido (evita inundar Messages/OSD).
+    static char lastText[50] = "";
+    static uint32_t lastMs = 0;
+    if (strcmp(text, lastText) == 0 && (millis() - lastMs) < STATUS_TEXT_MIN_INTERVAL_MS)
+    {
+        return;
+    }
+    strncpy(lastText, text, sizeof(lastText) - 1);
+    lastText[sizeof(lastText) - 1] = '\0';
+    lastMs = millis();
+
     mavlink_message_t msg;
     std::string msgText = std::string("FWM: ") + text;
     mavlink_msg_statustext_pack(SYSID, COMPID, &msg, 6, msgText.c_str(), 0, 0);
@@ -419,6 +430,19 @@ void Telem::request_data_streams(uint8_t req_stream_id, uint16_t req_message_rat
  */
 void Telem::do_change_speed(uint16_t speed)
 {
+    // Mensajeria: enviar DO_CHANGE_SPEED solo si la velocidad cambia lo suficiente o ha pasado
+    // tiempo. Si no, ArduPilot responde un STATUSTEXT "Set groundspeed ..." por cada comando y satura.
+    static uint16_t lastSpeed = 0xFFFF;
+    static uint32_t lastMs = 0;
+    if (lastSpeed != 0xFFFF &&
+        abs((int)speed - (int)lastSpeed) < SPEED_CHANGE_THRESHOLD &&
+        (millis() - lastMs) < SPEED_RESEND_MS)
+    {
+        return;
+    }
+    lastSpeed = speed;
+    lastMs = millis();
+
     mavlink_message_t msg;
     mavlink_msg_command_long_pack(
         SYSID,                   // Sender system ID

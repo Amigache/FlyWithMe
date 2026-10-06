@@ -126,6 +126,26 @@ void FWM::run()
                    lost, lossPct, dist);
         lastLinkLog = millis();
     }
+
+    // Mensajeria (seguidor): notificar distancia de seguimiento al FC/GCS periodicamente
+    static uint32_t lastFollowStatus = 0;
+    if (follow_mode == FOLL_MODE_FOLLOWER && comm->commData.have_beacon &&
+        (millis() - lastFollowStatus > STATUS_DISTANCE_INTERVAL_MS))
+    {
+        int dist = (int)getLinkDistance();
+        static int prevDist = -1;
+        const char *trend = " holding";
+        if (prevDist >= 0)
+        {
+            if (dist < prevDist - 3) trend = " approaching";
+            else if (dist > prevDist + 3) trend = " falling behind";
+        }
+        prevDist = dist;
+        char s[48];
+        snprintf(s, sizeof(s), "Follow %dm%s", dist, trend);
+        mav->status_text(s);
+        lastFollowStatus = millis();
+    }
     
     // A2: recuperación tras emergencia (histéresis: se reintenta pasado el cooldown)
     if (currentState == STATE_EMERGENCY && (millis() - stateEntryTime) > EMERGENCY_RECOVERY_MS)
@@ -457,6 +477,7 @@ void FWM::onStateEntry(SystemState state)
         
     case STATE_FOLLOWING:
         Log.notice("Following leader" CR);
+        mav->status_text("Following leader");
         stage_follow = STAGE_APPROACH;
         break;
         

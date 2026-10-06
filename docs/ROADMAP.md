@@ -171,9 +171,28 @@ Validación end-to-end (firmware real + LoRa, SITL ArduPlane, `tools/hil_sitl_va
 | Recta | 105–112 m (objetivo 100) | 0–3° | **PASS**, sin loiter |
 | Giro 90° | 102–118 m | 0–11° (pico en el giro) | **PASS**, sin zigzag |
 
+Tras afinar (`CROSS_TRACK_GAIN_DEG_PER_M=0.6`, `MAX_HEADING_CORR_DEG=40`, `DIST_OFFSET=92`):
+
+| Formación | Separación real (objetivo) | Alabeo giro | Resultado |
+|---|---|---|---|
+| TRAIL | ~100 m (100) | ~11° | **PASS** |
+| LEFT | ~54 m (50) | recupera tras el giro | **PASS** |
+| ABOVE | +20 m alt, 5–15 m horiz | ~0° | **PASS** |
+| BELOW | −20 m alt | — | **PASS** |
+| RIGHT | simétrico a LEFT | — | PASS (arnés PC) |
+
+> El error de seguimiento en recta es de pocos metros (±3–10 m). En formaciones **laterales** el
+> punto de formación "barre" al girar; con la corrección reforzada (0.6/40) el seguidor recupera
+> tras el giro. La línea integral se descartó por inestable.
+
 Herramientas: `tools/bench_restart.ps1` (SITL+bridges), `tools/follow_law_test.py` (afinado de la
-ley en PC sin reflashear), `tools/hil_sitl_validate.py` (recta + `--target2` giro, alabeo y
-velocidades). `tools/sitl_takeoff.py` robusto (reintentos de armado + streams).
+ley en PC sin reflashear; soporta las 5 formaciones), `tools/hil_sitl_validate.py` (recta + `--target2`
+giro, alabeo y velocidades). `tools/sitl_takeoff.py` robusto (reintentos de armado + streams).
+
+> ⚠️ **Pendiente de banco:** al terminar las pruebas el puerto `COMx` (CP210x) quedó bloqueado
+> (`semaphore timeout`), así que la placa seguidora conserva el firmware de la prueba BELOW. El
+> **código del repo ya está en TRAIL por defecto**; reenchufar/rebootear y reflashear
+> `-e ttgo-lora32-v1-slave-sitl` cuando el puerto se libere.
 
 ### Fase D — Interfaz y observabilidad
 - [ ] **D11** Web: telemetría en vivo, config persistente, descarga de logs.

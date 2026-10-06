@@ -110,6 +110,22 @@ void FWM::run()
         logger->logTelemetry(mav->APdata);
         lastTelemetryLog = millis();
     }
+
+    // A4: métricas de enlace periódicas (RSSI/SNR, pérdidas, distancia)
+    static uint32_t lastLinkLog = 0;
+    if (millis() - lastLinkLog > LINK_METRICS_LOG_INTERVAL_MS)
+    {
+        int rx = (int)comm->commData.rx_packet_counter;
+        int lost = (int)comm->commData.lost_packet_counter;
+        int lossPct = (rx + lost) > 0 ? (lost * 100) / (rx + lost) : 0;
+        int dist = (int)getLinkDistance();
+        Log.notice("Link: %s rssi=%d snr=%d rx=%d tx=%d lost=%d (%dpct) dist=%dm" CR,
+                   getStateName(currentState),
+                   comm->commData.rssi, comm->commData.snr,
+                   rx, (int)comm->commData.tx_packet_counter,
+                   lost, lossPct, dist);
+        lastLinkLog = millis();
+    }
     
     // A2: recuperación tras emergencia (histéresis: se reintenta pasado el cooldown)
     if (currentState == STATE_EMERGENCY && (millis() - stateEntryTime) > EMERGENCY_RECOVERY_MS)
@@ -503,6 +519,23 @@ float FWM::getDistanceToFollower()
     // Si somos líder, no tenemos forma de saber la distancia al seguidor
     // Retornar una distancia media por defecto
     return DISTANCE_THRESHOLD_MEDIUM;
+}
+
+/**
+ * @brief A4: Distancia al peer (líder o seguidor) en metros
+ *
+ * @return float - distancia en metros, o -1 si no hay beacon válido
+ */
+float FWM::getLinkDistance()
+{
+    if (!comm->commData.have_beacon)
+    {
+        return -1.0f;
+    }
+
+    return mav->calculateDistance(mav->APdata.lat, mav->APdata.lon,
+                                  comm->commData.lastValidPacket.lat,
+                                  comm->commData.lastValidPacket.lon);
 }
 
 /**

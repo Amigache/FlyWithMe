@@ -306,12 +306,19 @@ void Web::setupWebServer()
   
   // API REST - Obtener estadísticas
   server->on("/api/stats", HTTP_GET, [this](AsyncWebServerRequest *request){
+    uint32_t rx = fwm->comm->commData.rx_packet_counter;
+    uint32_t lost = fwm->comm->commData.lost_packet_counter;
+    int lossPct = (rx + lost) > 0 ? (int)((lost * 100UL) / (rx + lost)) : 0;
     String stats = "{";
     stats += "\"uptime\":" + String(millis()) + ",";
-    stats += "\"rx_packets\":" + String(fwm->comm->commData.rx_packet_counter) + ",";
+    stats += "\"rx_packets\":" + String(rx) + ",";
     stats += "\"tx_packets\":" + String(fwm->comm->commData.tx_packet_counter) + ",";
+    stats += "\"lost_packets\":" + String(lost) + ",";
+    stats += "\"packet_loss\":" + String(lossPct) + ",";
     stats += "\"rssi\":" + String(fwm->comm->commData.rssi) + ",";
-    stats += "\"snr\":" + String(fwm->comm->commData.snr);
+    stats += "\"snr\":" + String(fwm->comm->commData.snr) + ",";
+    stats += "\"distance\":" + String((int)fwm->getLinkDistance()) + ",";
+    stats += "\"state\":\"" + String(fwm->getStateName(fwm->currentState)) + "\"";
     stats += "}";
     request->send(200, "application/json", stats);
   });
@@ -381,7 +388,10 @@ void Web::sendTelemetryWebSocket()
   telemetry += "\"alt\":" + String(fwm->mav->APdata.relative_alt / 1000.0, 2) + ",";
   telemetry += "\"heading\":" + String(fwm->mav->APdata.hdg / 100.0, 2) + ",";
   telemetry += "\"speed\":" + String(fwm->mav->APdata.ground_speed) + ",";
-  telemetry += "\"rssi\":" + String(fwm->comm->commData.rssi);
+  telemetry += "\"rssi\":" + String(fwm->comm->commData.rssi) + ",";
+  telemetry += "\"snr\":" + String(fwm->comm->commData.snr) + ",";
+  telemetry += "\"distance\":" + String((int)fwm->getLinkDistance()) + ",";
+  telemetry += "\"state\":\"" + String(fwm->getStateName(fwm->currentState)) + "\"";
   telemetry += "}";
   
   ws->textAll(telemetry);
@@ -423,6 +433,9 @@ String Web::generateHTML()
       <div class="stat"><span class="stat-label">Packets TX:</span><span class="stat-value" id="tx">-</span></div>
       <div class="stat"><span class="stat-label">RSSI:</span><span class="stat-value" id="rssi">-</span></div>
       <div class="stat"><span class="stat-label">SNR:</span><span class="stat-value" id="snr">-</span></div>
+      <div class="stat"><span class="stat-label">Perdidas:</span><span class="stat-value" id="lost">-</span></div>
+      <div class="stat"><span class="stat-label">Distancia:</span><span class="stat-value" id="dist">-</span></div>
+      <div class="stat"><span class="stat-label">Estado:</span><span class="stat-value" id="state">-</span></div>
     </div>
     
     <div class="section">
@@ -484,6 +497,9 @@ String Web::generateHTML()
           document.getElementById('tx').textContent = data.tx_packets;
           document.getElementById('rssi').textContent = data.rssi + ' dBm';
           document.getElementById('snr').textContent = data.snr;
+          document.getElementById('lost').textContent = data.lost_packets + ' (' + data.packet_loss + '%)';
+          document.getElementById('dist').textContent = (data.distance >= 0 ? data.distance + ' m' : '--');
+          document.getElementById('state').textContent = data.state;
         });
     }
     

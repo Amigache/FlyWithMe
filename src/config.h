@@ -29,6 +29,7 @@
 #define HEARTBEAT_INTERVAL 1000 ///< ms 1 vez por segundo
 #define BEACON_CHECK_INTERVAL 1000 ///< ms 1 vez por segundo
 #define SEND_PACKET_INTERVAL 1000
+#define LINK_METRICS_LOG_INTERVAL_MS 5000 ///< A4: periodo de log de métricas de enlace
 
 // OTHER config ------------------------------------------------------------------------------------------
 
@@ -575,7 +576,9 @@ struct SystemStats {
   uint32_t packetsLost;
   float packetLossRate;
   int avgRSSI;
+  int avgSNR;
   float totalDistance;
+  int linkDistance;   // A4: distancia al peer en metros (-1 si no hay beacon)
   uint32_t stateChanges;
   uint32_t safetyViolations;
 };

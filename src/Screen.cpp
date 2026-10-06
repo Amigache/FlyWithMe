@@ -290,27 +290,35 @@ void Screen::showStatsScreen()
   
   display.println("ESTADISTICAS");
   display.drawLine(0, 10, 128, 10, SSD1306_WHITE);
-  display.setCursor(0, 15);
+  display.setCursor(0, 13);
   
   display.print("Uptime: ");
   display.print(stats.uptime / 1000);
   display.println("s");
   
-  display.print("RX: ");
-  display.println(stats.totalPacketsRx);
-  
-  display.print("TX: ");
+  display.print("RX:");
+  display.print(stats.totalPacketsRx);
+  display.print(" TX:");
   display.println(stats.totalPacketsTx);
   
-  display.print("Lost: ");
+  display.print("Lost:");
   display.print(stats.packetsLost);
   display.print(" (");
   display.print(stats.packetLossRate, 1);
   display.println("%)");
   
-  display.print("RSSI: ");
+  display.print("RSSI:");
   display.print(stats.avgRSSI);
-  display.println("dBm");
+  display.print(" SNR:");
+  display.println(stats.avgSNR);
+  
+  display.print("Dist: ");
+  if (stats.linkDistance < 0) {
+    display.println("--");
+  } else {
+    display.print(stats.linkDistance);
+    display.println(" m");
+  }
   
   display.display();
 }
@@ -330,6 +338,8 @@ SystemStats Screen::getSystemStats()
   }
   
   stats.avgRSSI = fwm->comm->commData.rssi;
+  stats.avgSNR = fwm->comm->commData.snr;          // A4
+  stats.linkDistance = (int)fwm->getLinkDistance(); // A4
   stats.totalDistance = 0; // TODO: calcular distancia total recorrida
   stats.stateChanges = 0;
   stats.safetyViolations = 0;

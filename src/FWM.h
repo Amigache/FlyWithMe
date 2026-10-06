@@ -51,6 +51,7 @@ public:
     // FASE 2: Control de flujo adaptativo y logging
     void updateTransmissionRate();
     float getDistanceToFollower();
+    float getLinkDistance(); // A4: distancia al peer (-1 si no hay beacon)
     Logger* logger = nullptr;
 
     // Params

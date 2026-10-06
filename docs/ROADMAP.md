@@ -58,7 +58,10 @@ ninguno entra en EMERGENCY. Salida `PASS`/`FAIL` (código 0/1).
 - [x] **A1** Defaults seguros de `APdata`/`commData` (evitar basura).
 - [x] **A2** Recuperación de FSM con histéresis (`EMERGENCY → SEARCHING`; `LOST_LINK → FOLLOWING`).
 - [x] **A3** Arnés HIL `tools/hil_test.py`.
-- [ ] **A4** Métricas de enlace (RSSI/SNR, pérdidas, distancia) en log/OLED/web.
+- [x] **A4** Métricas de enlace (RSSI/SNR, pérdidas, distancia, estado) en log/OLED/web.
+  - Log periódico `Link: ...` cada `LINK_METRICS_LOG_INTERVAL_MS` (5 s).
+  - OLED `showStatsScreen()`: Uptime, RX/TX, Lost+%, RSSI/SNR, Distancia.
+  - Web: `/api/stats` y WebSocket con `lost_packets`, `packet_loss`, `distance`, `state`; panel HTML con Pérdidas/Distancia/Estado.
 
 ### Fase B — Integración con FC real (`FC_EMULATION 0`)
 - [ ] **B5** Verificar/ajustar el baud del UART1 (posible desfase por cristal).

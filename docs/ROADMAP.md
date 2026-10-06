@@ -73,9 +73,16 @@ Prueba con un autopiloto **simulado** (Mission Planner SITL) sin cablear el UART
 
 En producción: `FC_LINK_USB=0` (MAVLink por UART1, GPIO12/13 → FC real).
 
-> **Estado verificado:** el **líder** recibe MAVLink real de SITL por USB (`LINK TO FC OK`) y
-> transmite posiciones reales por LoRa. El **seguidor (COMx) no enlaza por USB** (su RX PC→ESP no
-> entrega datos) → pendiente comprobar cable/puerto/placa.
+> **Estado verificado (ambas placas):** los dos reciben MAVLink real de SITL por USB (`LINK TO FC OK`),
+> transmiten/reciben por LoRa (`BEACON LOCK`) y calculan `dist` en metros. El líder transmite
+> posiciones reales. Para ver `FOLLOWING` hay que poner el FC del seguidor en **GUIDED**.
+>
+> ⚠️ **sysid:** SITL emite `sysid=1`, pero el firmware filtra por `TARGET_SYSID` (el seguidor espera
+> `2`). Por eso el entorno `slave-sitl` añade `-D TARGET_SYSID=1`. En producción el FC debe usar el
+> sysid que espera cada rol (o hacer el filtro configurable — ver B7).
+>
+> Nota: los puertos USB de estas placas reenumeran (COMx→21→22); comprobar el puerto antes de cada
+> prueba.
 
 ---
 
@@ -91,8 +98,9 @@ En producción: `FC_LINK_USB=0` (MAVLink por UART1, GPIO12/13 → FC real).
   - Web: `/api/stats` y WebSocket con `lost_packets`, `packet_loss`, `distance`, `state`; panel HTML con Pérdidas/Distancia/Estado.
 
 ### Fase B — Integración con FC real (`FC_EMULATION 0`)
-- [x] **B5a** Enlace de pruebas con SITL por USB (`FC_LINK_USB=1`): líder verificado; seguidor
-  pendiente por el RX de COMx. Añadidos `tools/sitl_bridge.py` y entornos `*-sitl`.
+- [x] **B5a** Enlace de pruebas con SITL por USB (`FC_LINK_USB=1`): **líder y seguidor verificados**
+  (`LINK TO FC OK`, `BEACON LOCK`, `dist`). Añadidos `tools/sitl_bridge.py` y entornos `*-sitl`
+  (el de seguidor con `-D TARGET_SYSID=1`).
 - [ ] **B5b** Verificar/ajustar el baud del UART1 con FC real (posible desfase por cristal).
 - [ ] **B6** Validar MAVLink real: RX (HEARTBEAT/GLOBAL_POSITION_INT), `request_data_streams`,
   `nav_waypoint` en GUIDED, `do_change_speed`. **Requiere el FC en modo GUIDED** para seguir.

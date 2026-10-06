@@ -142,9 +142,13 @@
 
 // Set by target
 #ifdef MASTER_BUILD_FLAG
+#ifndef TARGET_SYSID
 #define TARGET_SYSID 1     ///< Pixhawk (or any other autopilot)
+#endif
 #define TARGET_COMPID 1    ///< Component
+#ifndef SYSID
 #define SYSID TARGET_SYSID ///< ID 20 for this airplane. 1 PX, 255 ground station
+#endif
 #define COMPID 158         ///< The component sending the message
 #define DEFAULT_SSID "FWM AP 1"
 #define DEFAULT_PASS "12345678"
@@ -153,9 +157,13 @@
 #endif
 
 #ifdef SLAVE_BUILD_FLAG
+#ifndef TARGET_SYSID
 #define TARGET_SYSID 2     ///< Pixhawk (or any other autopilot)
+#endif
 #define TARGET_COMPID 1    ///< Component
+#ifndef SYSID
 #define SYSID TARGET_SYSID ///< ID 20 for this airplane. 1 PX, 255 ground station
+#endif
 #define COMPID 158         ///< The component sending the message
 #define DEFAULT_SSID "FWM AP 2"
 #define DEFAULT_PASS "12345678"

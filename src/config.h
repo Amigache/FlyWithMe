@@ -34,7 +34,7 @@
 #define LINK_METRICS_LOG_INTERVAL_MS 5000 ///< A4: periodo de log de métricas de enlace
 
 // MENSAJERIA MAVLINK (evitar saturar el FC/GCS) -------------------------------------------------------
-#define SPEED_CHANGE_THRESHOLD 100        ///< cm/s - solo enviar DO_CHANGE_SPEED si cambia mas que esto
+#define SPEED_CHANGE_THRESHOLD 200        ///< cm/s - solo enviar DO_CHANGE_SPEED si cambia mas que esto (2 m/s)
 #define SPEED_RESEND_MS 2000              ///< ms - reenviar la velocidad como maximo cada esto
 #define STATUS_TEXT_MIN_INTERVAL_MS 5000  ///< ms - no repetir el MISMO STATUSTEXT antes de esto
 #define STATUS_DISTANCE_INTERVAL_MS 5000  ///< ms - notificar distancia/estado de seguimiento cada esto
@@ -143,6 +143,9 @@
 #define DEFAULT_FORMATION 0            // 0=TRAIL, 1=LEFT, 2=RIGHT, 3=ABOVE, 4=BELOW
 #define FORMATION_LATERAL_OFFSET 50    // metros - Offset lateral para formaciones
 #define FORMATION_VERTICAL_OFFSET 20   // metros - Offset vertical para formaciones
+#define FORMATION_LEAD_S 1.0f          // s - adelanto (carrot) sobre la traza del lider para no "llegar y orbitar"
+#define SPEED_GAIN_CMS_PER_M 6         // cm/s de sobre-velocidad por metro de error de distancia (control suave)
+#define MAX_SPEED_BOOST 400            // cm/s (4 m/s) de sobre-velocidad maxima
 #define AUTO_CALIBRATE_LORA 0          // 1 = calibrar automáticamente al inicio, 0 = manual
 
 // DEFAULT PARAMS

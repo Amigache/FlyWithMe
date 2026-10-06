@@ -430,18 +430,14 @@ void Telem::request_data_streams(uint8_t req_stream_id, uint16_t req_message_rat
  */
 void Telem::do_change_speed(uint16_t speed)
 {
-    // Mensajeria: enviar DO_CHANGE_SPEED solo si la velocidad cambia lo suficiente o ha pasado
-    // tiempo. Si no, ArduPilot responde un STATUSTEXT "Set groundspeed ..." por cada comando y satura.
+    // Mensajeria: enviar DO_CHANGE_SPEED SOLO cuando la velocidad cambia (no repetir la misma).
+    // ArduPilot responde un STATUSTEXT "Set groundspeed ..." por cada comando; si no cambia, no lo mandamos.
     static uint16_t lastSpeed = 0xFFFF;
-    static uint32_t lastMs = 0;
-    if (lastSpeed != 0xFFFF &&
-        abs((int)speed - (int)lastSpeed) < SPEED_CHANGE_THRESHOLD &&
-        (millis() - lastMs) < SPEED_RESEND_MS)
+    if (lastSpeed != 0xFFFF && abs((int)speed - (int)lastSpeed) < SPEED_CHANGE_THRESHOLD)
     {
         return;
     }
     lastSpeed = speed;
-    lastMs = millis();
 
     mavlink_message_t msg;
     mavlink_msg_command_long_pack(
@@ -543,26 +539,22 @@ void Telem::do_reposition(int32_t lat, int32_t lon, float alt, uint16_t hdg)
 
 uint16_t Telem::calculate_dynamic_speed(float leader_speed, float distance)
 {
-    // If we are within the offset, return the leader's speed
-    if (distance <= DIST_OFFSET)
+    // B: control PROPORCIONAL suave (evita el ciclo limite del esquema por escalones).
+    // Si vamos a la distancia de formacion, igualamos la velocidad del lider; si vamos por
+    // detras, sumamos una sobre-velocidad proporcional al error (con tope).
+    float error = distance - DIST_OFFSET; // m por detras del punto de formacion
+    if (error < 0.0f)
     {
-        return leader_speed;
+        error = 0.0f;
     }
 
-    // Calculate the speed multiplier based on the offset
-    float speed_multiplier = 1 + (SPEED_OFFSET / 100.0);
-
-    // Calculate the dynamic speed
-    float dynamic_speed = leader_speed * speed_multiplier;
-
-    // If we are within the double offset, interpolate the speed
-    if (distance <= DIST_OFFSET * 2)
+    float boost = error * SPEED_GAIN_CMS_PER_M; // cm/s
+    if (boost > MAX_SPEED_BOOST)
     {
-        float factor = (distance - DIST_OFFSET) / DIST_OFFSET;
-        dynamic_speed = leader_speed + (dynamic_speed - leader_speed) * factor;
+        boost = MAX_SPEED_BOOST;
     }
 
-    return static_cast<uint16_t>(round(dynamic_speed));
+    return static_cast<uint16_t>(leader_speed + boost);
 }
 
 // Functions
@@ -904,7 +896,18 @@ void Telem::calculateFormationPosition(LoraPacket_t leader, FormationType format
     targetLat = leader.lat + (int32_t)(deltaLat_m * LAT_M_TO_DEG * 1E7);
     targetLon = leader.lon + (int32_t)(deltaLon_m * LON_M_TO_DEG * 1E7);
     targetAlt = leader.relative_alt + deltaAlt;
-    
+
+    // A: carrot/look-ahead. Adelantar el objetivo sobre la traza del lider para que el avion NO
+    // "llegue" al punto y empiece a orbitar: persigue un punto que va por delante (mas fluido).
+    if (FORMATION_LEAD_S > 0.0f)
+    {
+        float lead_north_m = (leader.vx / 100.0f) * FORMATION_LEAD_S; // vx = norte (cm/s)
+        float lead_east_m = (leader.vy / 100.0f) * FORMATION_LEAD_S;  // vy = este  (cm/s)
+        targetLat += (int32_t)(lead_north_m * LAT_M_TO_DEG * 1E7);
+        targetLon += (int32_t)(lead_east_m * LON_M_TO_DEG * 1E7);
+        targetAlt -= (int32_t)((leader.vz / 100.0f) * FORMATION_LEAD_S * 1000.0f); // vz abajo
+    }
+
     // Asegurar que la altitud no sea negativa
     if (targetAlt < 0) targetAlt = leader.relative_alt;
     

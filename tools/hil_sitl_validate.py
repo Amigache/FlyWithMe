@@ -63,6 +63,12 @@ def main():
     print(f"Lider sysid={lead.target_system} mode={lead.flightmode} | "
           f"Seguidor sysid={fol.target_system} mode={fol.flightmode}")
 
+    # Pedir ATTITUDE a 10 Hz en el enlace del seguidor para poder medir el alabeo
+    fol.mav.command_long_send(fol.target_system, fol.target_component,
+                              mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL, 0,
+                              mavutil.mavlink.MAVLINK_MSG_ID_ATTITUDE, 100000,
+                              0, 0, 0, 0, 0)
+
     lp, fp = pos(lead), pos(fol)
     if not lp or not fp:
         print("ERROR: sin posicion")

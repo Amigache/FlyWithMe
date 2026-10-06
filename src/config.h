@@ -139,7 +139,7 @@
 #define USE_PREDICTION 1               // 1 = usar predicción de movimiento, 0 = desactivado
 #define PREDICTION_TIME_MS 1000        // ms - Tiempo de predicción adelantado
 #define USE_POSITION_FILTER 1          // 1 = usar filtro de posición, 0 = desactivado
-#define POSITION_FILTER_ALPHA 0.7      // 0.0-1.0 - Factor de filtro (mayor = más rápido)
+#define POSITION_FILTER_ALPHA 0.3      // 0.0-1.0 - Factor de filtro (menor = más suave, más lag)
 #define DEFAULT_FORMATION 0            // 0=TRAIL, 1=LEFT, 2=RIGHT, 3=ABOVE, 4=BELOW
 #define FORMATION_LATERAL_OFFSET 50    // metros - Offset lateral para formaciones
 #define FORMATION_VERTICAL_OFFSET 20   // metros - Offset vertical para formaciones
@@ -155,7 +155,7 @@
 #define FOLL_MODE FOLL_MODE_OFF
 #define FOLL_MODE_CH 7
 #define ALT_OFFSET 10 // m
-#define SPEED_OFFSET 20 // %
+#define SPEED_OFFSET 10 // % (sobre-velocidad al recuperar distancia; menor = mas suave)
 #define DIST_OFFSET 100 //m
 
 // Set by target

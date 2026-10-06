@@ -83,3 +83,9 @@ INS_GYR_CAL      0
 
 # --- FlyWithMe SITL: sysid del SEGUIDOR ---
 SYSID_THISMAV 2
+
+# --- Suavizado del seguimiento (evitar loiter amplio y alabeo brusco) ---
+WP_LOITER_RAD 40
+NAVL1_PERIOD 20
+NAVL1_DAMPING 0.75
+ROLL_LIMIT_DEG 45

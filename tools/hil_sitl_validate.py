@@ -94,15 +94,24 @@ def main():
         fol.mav.set_mode_send(fol.target_system, mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, 15)
         print("-> Seguidor -> GUIDED")
 
+    def roll_deg(conn):
+        m = latest(conn, 'ATTITUDE')
+        return None if m is None else math.degrees(m.roll)
+
     dists = []
+    rolls = []
     t0 = time.time()
-    print("\n t(s)   dist(m)   lider_alt  seg_alt")
+    print("\n t(s)   dist(m)   lider_alt  seg_alt   roll(deg)")
     while time.time() - t0 < args.seconds:
         lp, fp = pos(lead), pos(fol)
         if lp and fp:
             d = haversine(lp[0], lp[1], fp[0], fp[1])
             dists.append(d)
-            print(f"{time.time()-t0:5.0f}   {d:7.1f}   {lp[2]:7.1f}   {fp[2]:7.1f}")
+            r = roll_deg(fol)
+            if r is not None:
+                rolls.append(abs(r))
+            rs = f"{abs(r):8.1f}" if r is not None else "       -"
+            print(f"{time.time()-t0:5.0f}   {d:7.1f}   {lp[2]:7.1f}   {fp[2]:7.1f}   {rs}")
         time.sleep(2)
 
     print("\n=== RESULTADO ===")
@@ -112,6 +121,8 @@ def main():
         # criterio: el seguidor se mantiene a <300 m del lider (formacion ~100 m) la mayor parte del tiempo
         cerca = sum(1 for d in dists if d < 300) / len(dists)
         print(f"fraccion a <300 m: {cerca*100:.0f}%")
+        if rolls:
+            print(f"alabeo |roll|: max={max(rolls):.0f} media={sum(rolls)/len(rolls):.0f} deg")
         ok = cerca > 0.7 and min(dists) < 250
         print("RESULTADO:", "PASS" if ok else "FAIL")
         sys.exit(0 if ok else 1)

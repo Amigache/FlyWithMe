@@ -17,6 +17,13 @@ void Telem::begin()
 {
     self = this;
 
+#if FC_EMULATION
+    // Inicializar los datos sintéticos ANTES de usarlos (si no, parten con basura y desbordan)
+    simulatedData.init();
+    Log.notice("FC_EMULATION: telemetria sintetica activada (lat=%d, lon=%d)" CR,
+               (int)(simulatedData.lat * 1e7), (int)(simulatedData.lon * 1e7));
+#endif
+
     Log.notice("Init MAVLink Serial" CR);
     SerialPort.begin(SERIAL_BAUD_TELEM, SERIAL_8N1, SERIAL1_RX, SERIAL1_TX);
     delay(3000);
@@ -57,6 +64,12 @@ void Telem::heartbeat_ticker_callback()
  */
 void Telem::run()
 {
+#if FC_EMULATION
+    // Emulación de FC: sintetizar telemetría válida (no usar el UART1)
+    updateFcEmulation();
+    return;
+#endif
+
     // Try during to stablish link
     if (!linkTimeout)
     {
@@ -543,6 +556,14 @@ void Telem::init_setup()
 
 void Telem::check_link()
 {
+#if FC_EMULATION
+    // Sin FC real: mantener el link "vivo" para que el líder siga transmitiendo
+    link = true;
+    linkTimeout = false;
+    linkTryTime = 0;
+    return;
+#endif
+
     if (linkTryTime >= fwm->params.link_timeout && !lock_ap)
     {
         Log.error("NOT FC CONNECTION" CR);
@@ -653,7 +674,9 @@ bool Telem::isSafeToFollow(LoraPacket_t leaderData)
     
     if (distance > MAX_FOLLOW_DISTANCE)
     {
-        Log.warning("Leader too far: %.2f m (max: %d m)" CR, distance, MAX_FOLLOW_DISTANCE);
+        Log.warning("Leader too far: %d m (max: %d m) foll=(%d,%d) lead=(%d,%d)" CR,
+                    (int)distance, MAX_FOLLOW_DISTANCE,
+                    APdata.lat, APdata.lon, leaderData.lat, leaderData.lon);
         status_text("Leader too far - aborting");
         
         // FASE 1: Transición a estado de emergencia
@@ -758,8 +781,8 @@ PredictedPosition Telem::predictLeaderPosition(LoraPacket_t current, uint32_t fu
     else
         predicted.confidence = 0.7;
     
-    Log.verbose("Predicted position: lat=%d, lon=%d, confidence=%.2f" CR, 
-               predicted.lat, predicted.lon, predicted.confidence);
+    Log.verbose("Predicted position: lat=%d, lon=%d, confidence=%d" CR, 
+               predicted.lat, predicted.lon, (int)(predicted.confidence * 100));
     
     return predicted;
 }
@@ -803,7 +826,7 @@ void Telem::calculateFormationPosition(LoraPacket_t leader, FormationType format
         deltaLat_m = -offsetDistance * cos(headingRad);
         deltaLon_m = -offsetDistance * sin(headingRad);
         deltaAlt = (ALT_OFFSET * 1000); // ALT_OFFSET está en metros, convertir a mm
-        Log.verbose("Formation: TRAIL, offset=%.1fm" CR, offsetDistance);
+        Log.verbose("Formation: TRAIL, offset=%dm" CR, (int)offsetDistance);
         break;
         
     case FORMATION_LEFT:
@@ -811,7 +834,7 @@ void Telem::calculateFormationPosition(LoraPacket_t leader, FormationType format
         deltaLat_m = lateralOffset * cos(headingRad - PI/2);
         deltaLon_m = lateralOffset * sin(headingRad - PI/2);
         deltaAlt = (ALT_OFFSET * 1000);
-        Log.verbose("Formation: LEFT, offset=%.1fm" CR, lateralOffset);
+        Log.verbose("Formation: LEFT, offset=%dm" CR, (int)lateralOffset);
         break;
         
     case FORMATION_RIGHT:
@@ -819,7 +842,7 @@ void Telem::calculateFormationPosition(LoraPacket_t leader, FormationType format
         deltaLat_m = lateralOffset * cos(headingRad + PI/2);
         deltaLon_m = lateralOffset * sin(headingRad + PI/2);
         deltaAlt = (ALT_OFFSET * 1000);
-        Log.verbose("Formation: RIGHT, offset=%.1fm" CR, lateralOffset);
+        Log.verbose("Formation: RIGHT, offset=%dm" CR, (int)lateralOffset);
         break;
         
     case FORMATION_ABOVE:
@@ -827,7 +850,7 @@ void Telem::calculateFormationPosition(LoraPacket_t leader, FormationType format
         deltaLat_m = 0;
         deltaLon_m = 0;
         deltaAlt = (verticalOffset * 1000); // Offset positivo hacia arriba
-        Log.verbose("Formation: ABOVE, offset=%.1fm" CR, verticalOffset);
+        Log.verbose("Formation: ABOVE, offset=%dm" CR, (int)verticalOffset);
         break;
         
     case FORMATION_BELOW:
@@ -835,7 +858,7 @@ void Telem::calculateFormationPosition(LoraPacket_t leader, FormationType format
         deltaLat_m = 0;
         deltaLon_m = 0;
         deltaAlt = -(verticalOffset * 1000); // Offset negativo hacia abajo
-        Log.verbose("Formation: BELOW, offset=%.1fm" CR, verticalOffset);
+        Log.verbose("Formation: BELOW, offset=%dm" CR, (int)verticalOffset);
         break;
     }
     
@@ -880,8 +903,8 @@ void Telem::initSimulation()
 {
   simulatedData.init();
   Log.notice("Modo simulación inicializado" CR);
-  Log.notice("Posición inicial: lat=%.6f, lon=%.6f, alt=%.1f" CR,
-             simulatedData.lat, simulatedData.lon, simulatedData.alt);
+  Log.notice("Posicion inicial: lat=%d, lon=%d, alt=%dm" CR,
+             (int)(simulatedData.lat * 1e7), (int)(simulatedData.lon * 1e7), (int)simulatedData.alt);
 }
 
 void Telem::updateSimulation()
@@ -911,3 +934,28 @@ LoraPacket_t Telem::getSimulatedPacket()
 }
 
 #endif // SIMULATION_MODE
+
+// ============================================================================
+// EMULACIÓN DE FC (sin autopiloto): sintetiza telemetría válida en APdata
+// ============================================================================
+#if FC_EMULATION
+void Telem::updateFcEmulation()
+{
+    simulatedData.update();
+
+    APdata.lat = (int32_t)(simulatedData.lat * 1e7);
+    APdata.lon = (int32_t)(simulatedData.lon * 1e7);
+    APdata.alt = (int32_t)(simulatedData.alt * 1000.0f);       // mm
+    APdata.relative_alt = APdata.alt;
+    APdata.ground_speed = (uint16_t)simulatedData.groundSpeed; // cm/s
+    APdata.hdg = (uint16_t)(simulatedData.heading * 100.0f);   // grados * 100
+    APdata.vx = 0;
+    APdata.vy = 0;
+    APdata.vz = 0;
+    APdata.wp_dist = 0;
+    APdata.custom_mode = MODE_GUIDED; // activa el seguimiento en el FSM del seguidor
+    APdata.base_mode = MAV_MODE_AUTO_ARMED;
+    APdata.system_status = MAV_STATE_ACTIVE;
+    APdata.armed = true;
+}
+#endif // FC_EMULATION

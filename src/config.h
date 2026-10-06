@@ -510,7 +510,9 @@ public:
 // ============================================================================
 
 // --- Sistema de Menú Interactivo ---
-#define USE_INTERACTIVE_MENU 1        // Activar menú OLED
+// NOTA: los pines del menú (12/13/14/15) chocan con UART MAVLink (12/13), LoRa RST (14) y
+// OLED SCL (15). Desactivado hasta reasignar los botones a GPIOs libres.
+#define USE_INTERACTIVE_MENU 0        // Activar menú OLED
 #define BUTTON_UP_PIN 12              // Botón navegación arriba
 #define BUTTON_DOWN_PIN 13            // Botón navegación abajo
 #define BUTTON_SELECT_PIN 14          // Botón seleccionar
@@ -528,6 +530,11 @@ public:
 #define SIMULATION_MODE 0             // Activar modo simulación (sin hardware)
 #define SIMULATION_UPDATE_RATE 100    // Actualización simulación (ms)
 #define SIMULATION_NOISE_LEVEL 0.1f   // Nivel de ruido en simulación
+
+// --- Emulación de FC (banco de pruebas sin autopiloto) ---
+// 1 = el ESP32 sintetiza telemetría válida (GPS en movimiento) en APdata y NO usa el UART1.
+// El enlace LoRa real sigue funcionando: útil para validar comunicación líder/seguidor sin FC.
+#define FC_EMULATION 1
 
 // --- Enumeraciones de Menú ---
 enum MenuState {
@@ -573,7 +580,7 @@ struct SystemStats {
 };
 
 // --- Simulador ---
-#if SIMULATION_MODE
+#if (SIMULATION_MODE || FC_EMULATION)
 struct SimulatedData {
   float lat;
   float lon;

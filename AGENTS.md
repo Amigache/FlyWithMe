@@ -34,16 +34,21 @@ pio run -e ttgo-lora32-v1-slave
 pio run -e ttgo-lora32-v1-master -t upload
 pio run -e ttgo-lora32-v1-slave  -t upload
 
-# Monitor serie (57600 baudios)
+# Monitor serie (38400 baudios; ver nota más abajo)
 pio device monitor
 
 # Limpieza
 pio run -t clean
 ```
 
-- Los puertos serie están fijados en `platformio.ini`: `COM12` (master) y `COM29` (slave).
-  **Ajustar** `monitor_port`/`upload_port` al entorno real antes de flashear.
-- `monitor_speed = 57600`.
+- Los puertos serie están en `platformio.ini`: `COMx` (master) y `COMx` (slave). **Ajustar**
+  `monitor_port`/`upload_port` al entorno real antes de flashear.
+- `monitor_speed = 38400`. **No es 57600:** estas placas usan cristal de **26 MHz** y el core 3.x
+  genera el baud real ≈ x0.66 (configurar 57600 produce ~38400 en el cable). Si se cambia la placa,
+  verificar el baud con un escaneo.
+- ⚠️ **En Windows, flashear requiere UTF-8**: sin `PYTHONIOENCODING=utf-8` PlatformIO crashea con
+  `UnicodeEncodeError` (cp1252) y la subida queda colgada. Usar:
+  `$env:PYTHONIOENCODING='utf-8'; pio run -e ... -t upload`.
 - **Compatibilidad de entorno:** se compila con **Arduino core 3.x / ESP-IDF 5**. Implicaciones:
   - Las librerías async son los forks mantenidos `esp32async/ESPAsyncWebServer` y
     `esp32async/AsyncTCP`. Las originales `me-no-dev/*` **fallan al enlazar** con core 3.x
@@ -57,6 +62,12 @@ pio run -t clean
     firmware (~1.13 MB) usa ~**36 %**. Con la partición por defecto (`default.csv`, app 1.25 MB)
     llegaría al ~86 %; **no la cambies** sin revisar el tamaño con `pio run`.
   - Verificado: `pio run` de `master` y `slave` → **SUCCESS** (RAM 15.0 %, Flash 35.9 %).
+  - **Menú OLED desactivado** (`USE_INTERACTIVE_MENU 0`): sus pines (12/13/14/15) chocan con el
+    UART MAVLink (12/13), LoRa RST (14) y OLED SCL (15). No reactivar sin reasignar a GPIOs libres.
+  - **Compresión LoRa**: `Comm::compressPacket` debe usar `floor()` para lat/lon. Con truncado
+    hacia cero, las **longitudes negativas** (hemisferio oeste, p. ej. España) se corrompían ~100 km.
+  - **LoRa**: los setters (`setSignalBandwidth`, etc.) van **después** de `LoRa.begin()`; antes,
+    `setLdoFlag()` divide por cero (registros sin inicializar).
 
 ### Tests
 
@@ -123,6 +134,9 @@ desarrollo consolidada: roadmap + Fases 1–4). Ver sección 7.
   - `Log.*` (ArduinoLog) → consola serie (requiere `DEBUG_MODE`).
   - `logger->info/debug/warning/...` → log persistente CSV en SPIFFS (`/flight.log`).
   - Niveles propios `FWM_LOG_LEVEL_*` (prefijo `FWM_` para no chocar con ArduinoLog).
+  - ⚠️ **ArduinoLog no soporta `%f`**: no usar `%f`/`%.2f` en `Log.*` (imprime basura tipo `2f`).
+    Formatear como entero escalado, p. ej. `Log.notice("d=%dm", (int)distance)`. `snprintf` de C
+    **sí** soporta floats.
 - **Errores**: preferir `isSafeToFollow()` y `validatePacket()` antes de aplicar un waypoint.
   Nunca seguir con datos GPS inválidos.
 
@@ -144,9 +158,10 @@ desarrollo consolidada: roadmap + Fases 1–4). Ver sección 7.
 | `MAX_FOLLOW_DISTANCE` | `5000` | m — límite de seguridad. |
 | `MIN_SAFE_ALTITUDE` | `50000` | mm (50 m) — altitud mínima. |
 | `AUTO_CALIBRATE_LORA` | `0` | Auto-calibración LoRa al inicio. |
-| `USE_INTERACTIVE_MENU` | `1` | Menú OLED por botones (pines 12/13/14/15). |
+| `USE_INTERACTIVE_MENU` | `0` | Menú OLED por botones. **Desactivado** por conflicto de pines. |
 | `USE_WEB_SERVER` / `USE_WEBSOCKET` | `1` / `1` | Servidor async (80) + WS (81). |
-| `SIMULATION_MODE` | `0` | Simulación sin hardware (GPS/LoRa simulados). |
+| `SIMULATION_MODE` | `0` | Simulación sin hardware en el **seguidor** (genera paquetes locales, no usa LoRa). |
+| `FC_EMULATION` | `1` (banco) | Emula el FC: sintetiza telemetría en `APdata` sin UART1, **mantiene el LoRa real**. Poner `0` para vuelo con FC. |
 | `WEB_START_AP_IMMEDIATELY` | `1` | Inicia el AP WiFi al arrancar. |
 
 ---

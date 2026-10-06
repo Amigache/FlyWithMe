@@ -50,12 +50,17 @@ public:
   PositionFilter positionFilter;
   PredictedPosition lastPrediction;
   
-  // FASE 4: Simulación
-  #if SIMULATION_MODE
+  // FASE 4: Simulación / Emulación de FC
+  #if (SIMULATION_MODE || FC_EMULATION)
   SimulatedData simulatedData;
+  #endif
+  #if SIMULATION_MODE
   void initSimulation();
   void updateSimulation();
   LoraPacket_t getSimulatedPacket();
+  #endif
+  #if FC_EMULATION
+  void updateFcEmulation();
   #endif
 
   APdata_t APdata;

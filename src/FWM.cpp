@@ -382,7 +382,7 @@ bool FWM::isValidStateTransition(SystemState from, SystemState to)
         return (to == STATE_SEARCHING || to == STATE_LANDING);
         
     case STATE_SEARCHING:
-        return (to == STATE_CONNECTING || to == STATE_LANDING);
+        return (to == STATE_CONNECTING || to == STATE_FOLLOWING || to == STATE_LANDING);
         
     case STATE_CONNECTING:
         return (to == STATE_FOLLOWING || to == STATE_SEARCHING || to == STATE_LANDING);
@@ -514,17 +514,17 @@ void FWM::updateTransmissionRate()
     if (distance < DISTANCE_THRESHOLD_CLOSE)
     {
         newInterval = PACKET_RATE_CLOSE; // 2000ms - 0.5 Hz cuando está cerca
-        Log.verbose("Transmission rate: CLOSE (%.1fm) - %dms" CR, distance, newInterval);
+        Log.verbose("Transmission rate: CLOSE (%dm) - %dms" CR, (int)distance, newInterval);
     }
     else if (distance < DISTANCE_THRESHOLD_MEDIUM)
     {
         newInterval = PACKET_RATE_MEDIUM; // 1000ms - 1 Hz distancia media
-        Log.verbose("Transmission rate: MEDIUM (%.1fm) - %dms" CR, distance, newInterval);
+        Log.verbose("Transmission rate: MEDIUM (%dm) - %dms" CR, (int)distance, newInterval);
     }
     else
     {
         newInterval = PACKET_RATE_FAR; // 500ms - 2 Hz cuando está lejos
-        Log.verbose("Transmission rate: FAR (%.1fm) - %dms" CR, distance, newInterval);
+        Log.verbose("Transmission rate: FAR (%dm) - %dms" CR, (int)distance, newInterval);
     }
     
     // Solo actualizar si el intervalo cambia significativamente (> 100ms diferencia)

@@ -19,11 +19,6 @@ void Comm::begin()
   // LORA --------------------------------------------------------------------------------------------------
   Log.notice("Init LoRa" CR);
   LoRa.setPins(SS, RST, DIO0);
-  LoRa.setSignalBandwidth(LORA_SIGNAL_BANDWIDTH); // 125kHz
-  LoRa.setSpreadingFactor(LORA_SPREADING_FACTOR); // SF12
-  LoRa.setCodingRate4(LORA_CODING_RATE);          // 4/5
-  LoRa.setTxPower(LORA_TX_POWER);                 // 20dBm
-  LoRa.setSyncWord(LORA_SYNC_WORD);
 
   if (!LoRa.begin(LORA_BAND))
   {
@@ -31,6 +26,14 @@ void Comm::begin()
     for (;;)
       ; // Don't proceed, loop forever
   }
+
+  // IMPORTANTE: los setters deben ir DESPUÉS de begin(). Antes, los registros del SX1276 están
+  // sin inicializar y setLdoFlag() calcula getSignalBandwidth()/2^SF == 0 -> divide by zero.
+  LoRa.setSignalBandwidth(LORA_SIGNAL_BANDWIDTH); // 125kHz
+  LoRa.setSpreadingFactor(LORA_SPREADING_FACTOR); // SF12
+  LoRa.setCodingRate4(LORA_CODING_RATE);          // 4/5
+  LoRa.setTxPower(LORA_TX_POWER);                 // 20dBm
+  LoRa.setSyncWord(LORA_SYNC_WORD);
 
   delay(3000);
   Log.notice("LoRa Ready" CR);
@@ -475,17 +478,19 @@ CompressedLoraPacket_t Comm::compressPacket(LoraPacket_t packet)
   // System ID
   compressed.sysid = packet.sysid;
   
-  // Latitud: separar parte entera y decimal
+  // Latitud: separar parte entera (floor) y decimal.
+  // IMPORTANTE: usar floor() (no truncado hacia cero) para que la fracción sea siempre [0,1).
+  // Si no, las coordenadas negativas se reconstruyen mal (p. ej. -3.703 -> -3 + 0.703 = -2.297).
   // lat está en formato * 1E7, ej: 404567890 = 40.4567890°
   double lat_degrees = packet.lat / 1E7;
-  compressed.lat_deg = (int8_t)lat_degrees;  // Parte entera: 40
-  double lat_fraction = fabs(lat_degrees - compressed.lat_deg);
-  compressed.lat_frac = (uint8_t)(lat_fraction * 255.0); // Mapear 0.0-1.0 a 0-255
+  compressed.lat_deg = (int8_t)floor(lat_degrees);        // Parte entera, hacia abajo
+  double lat_fraction = lat_degrees - compressed.lat_deg; // [0,1)
+  compressed.lat_frac = (uint8_t)(lat_fraction * 255.0);  // Mapear 0.0-1.0 a 0-255
   
-  // Longitud: separar parte entera y decimal
+  // Longitud: separar parte entera (floor) y decimal
   double lon_degrees = packet.lon / 1E7;
-  compressed.lon_deg = (int16_t)lon_degrees;
-  double lon_fraction = fabs(lon_degrees - compressed.lon_deg);
+  compressed.lon_deg = (int16_t)floor(lon_degrees);
+  double lon_fraction = lon_degrees - compressed.lon_deg; // [0,1)
   compressed.lon_frac = (uint8_t)(lon_fraction * 255.0);
   
   // Altitud relativa: convertir de mm a decímetros

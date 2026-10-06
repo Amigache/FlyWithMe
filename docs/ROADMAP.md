@@ -60,11 +60,13 @@ es para **aviones**, así que se usa `ArduPlane.exe` (no ArduCopter).
    `sitl\models\plane.parm` + `SYSID_THISMAV`) y **`--sysid`** (el `SYSID_THISMAV` del parm NO se
    aplica por sí solo; sin él, el SITL arranca con sysid 1):
    ```
-   ArduPlane.exe --instance 0 --serial0 tcp:5760 --sysid 1 -M+ -s1 --home 0.000000,0.000000,302,0 --defaults <repo>\tools\sitl\leader.parm
-   ArduPlane.exe --instance 1 --serial0 tcp:5770 --sysid 2 -M+ -s1 --home 0.000000,0.000000,302,0 --defaults <repo>\tools\sitl\follower.parm
+   ArduPlane.exe --instance 0 --serial0 tcp:5760 --sysid 1 --model plane --home 0.000000,0.000000,302,0 --defaults <repo>\tools\sitl\leader.parm
+   ArduPlane.exe --instance 1 --serial0 tcp:5770 --sysid 2 --model plane --home 0.000000,0.000000,302,0 --defaults <repo>\tools\sitl\follower.parm
    ```
    Puertos por instancia: SERIAL0 `5760+10N` (ESP32), SERIAL1 `+2` (Mission Planner), SERIAL2 `+3` (control).
    Los `plane.parm` marcan el INS como calibrado (`INS_ACC*`, `INS_GYR_CAL 0`) → **arma sin calibrar**.
+   ⚠️ Usar **`--model plane`**. El flag `-M+` de Mission Planner pone el modelo a `"+"` (inválido) y
+   el avión **rebota en el suelo** (`SIM Hit ground`) sin despegar.
 2. Flashear la placa con el entorno SITL (`FC_LINK_USB=1`, MAVLink por USB/UART0):
    ```
    pio run -e ttgo-lora32-v1-master-sitl -t upload        # COMx (líder)

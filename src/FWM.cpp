@@ -64,6 +64,19 @@ void FWM::begin()
     mav = new Telem(this);
     mav->begin();
 
+    // Restaurar config guardada (formación, predicción, filtro)
+    preferences.begin("storage", true);
+    int savedFormation = preferences.getInt("formation", DEFAULT_FORMATION);
+    bool savedPrediction = preferences.getBool("prediction", USE_PREDICTION);
+    bool savedFilter = preferences.getBool("filter", USE_POSITION_FILTER);
+    preferences.end();
+    if (savedFormation >= 0 && savedFormation <= 4)
+    {
+        mav->currentFormation = (FormationType)savedFormation;
+    }
+    mav->predictionEnabled = savedPrediction;
+    mav->filterEnabled = savedFilter;
+
     web = new Web(this);
     
     // FASE 2: Inicializar logger
@@ -373,6 +386,55 @@ void FWM::loadParams()
     preferences.end();
 
     Log.notice("Params loaded" CR);
+}
+
+/**
+ * @brief Cambia la formación del seguidor en caliente y la persiste en NVS.
+ */
+void FWM::setFormation(uint8_t idx)
+{
+    if (idx > 4)
+    {
+        idx = 0;
+    }
+    if (mav != nullptr)
+    {
+        mav->currentFormation = (FormationType)idx;
+    }
+    preferences.begin("storage", false);
+    preferences.putInt("formation", (int)idx);
+    preferences.end();
+    Log.notice("Formation set to %d" CR, (int)idx);
+}
+
+/**
+ * @brief Activa/desactiva la predicción en caliente y la persiste.
+ */
+void FWM::setPrediction(bool on)
+{
+    if (mav != nullptr)
+    {
+        mav->predictionEnabled = on;
+    }
+    preferences.begin("storage", false);
+    preferences.putBool("prediction", on);
+    preferences.end();
+    Log.notice("Prediction %s" CR, on ? "ON" : "OFF");
+}
+
+/**
+ * @brief Activa/desactiva el filtro de posición en caliente y lo persiste.
+ */
+void FWM::setFilter(bool on)
+{
+    if (mav != nullptr)
+    {
+        mav->filterEnabled = on;
+    }
+    preferences.begin("storage", false);
+    preferences.putBool("filter", on);
+    preferences.end();
+    Log.notice("Filter %s" CR, on ? "ON" : "OFF");
 }
 
 // ============================================================================================================

@@ -166,42 +166,46 @@ void Comm::run()
                 // FASE 3: Calcular posición objetivo con predicción y formación
                 int32_t targetLat, targetLon, targetAlt;
                 
-                #if USE_PREDICTION
-                // Predecir posición futura del líder
-                PredictedPosition predicted = fwm->mav->predictLeaderPosition(incomingPacket);
-                
-                // Usar posición predicha si la confianza es suficiente
-                if (predicted.confidence > 0.5)
+                if (fwm->mav->predictionEnabled)
                 {
-                  // Calcular posición de formación basada en predicción
-                  LoraPacket_t predictedPacket = incomingPacket;
-                  predictedPacket.lat = predicted.lat;
-                  predictedPacket.lon = predicted.lon;
-                  predictedPacket.relative_alt = predicted.alt;
-                  
-                  fwm->mav->calculateFormationPosition(predictedPacket, fwm->mav->currentFormation,
-                                                       targetLat, targetLon, targetAlt);
-                  fwm->mav->lastPrediction = predicted;
+                  // Predecir posición futura del líder
+                  PredictedPosition predicted = fwm->mav->predictLeaderPosition(incomingPacket);
+
+                  // Usar posición predicha si la confianza es suficiente
+                  if (predicted.confidence > 0.5)
+                  {
+                    // Calcular posición de formación basada en predicción
+                    LoraPacket_t predictedPacket = incomingPacket;
+                    predictedPacket.lat = predicted.lat;
+                    predictedPacket.lon = predicted.lon;
+                    predictedPacket.relative_alt = predicted.alt;
+
+                    fwm->mav->calculateFormationPosition(predictedPacket, fwm->mav->currentFormation,
+                                                         targetLat, targetLon, targetAlt);
+                    fwm->mav->lastPrediction = predicted;
+                  }
+                  else
+                  {
+                    // Usar posición actual si la predicción no es confiable
+                    fwm->mav->calculateFormationPosition(incomingPacket, fwm->mav->currentFormation,
+                                                         targetLat, targetLon, targetAlt);
+                  }
                 }
                 else
                 {
-                  // Usar posición actual si la predicción no es confiable
+                  // Sin predicción, calcular posición de formación directamente
                   fwm->mav->calculateFormationPosition(incomingPacket, fwm->mav->currentFormation,
                                                        targetLat, targetLon, targetAlt);
                 }
-                #else
-                // Sin predicción, calcular posición de formación directamente
-                fwm->mav->calculateFormationPosition(incomingPacket, fwm->mav->currentFormation,
-                                                     targetLat, targetLon, targetAlt);
-                #endif
-                
-                #if USE_POSITION_FILTER
-                // Aplicar filtro de posición para suavizar movimientos
-                fwm->mav->positionFilter.update(targetLat, targetLon, targetAlt);
-                targetLat = fwm->mav->positionFilter.getLat();
-                targetLon = fwm->mav->positionFilter.getLon();
-                targetAlt = fwm->mav->positionFilter.getAlt();
-                #endif
+
+                if (fwm->mav->filterEnabled)
+                {
+                  // Aplicar filtro de posición para suavizar movimientos
+                  fwm->mav->positionFilter.update(targetLat, targetLon, targetAlt);
+                  targetLat = fwm->mav->positionFilter.getLat();
+                  targetLon = fwm->mav->positionFilter.getLon();
+                  targetAlt = fwm->mav->positionFilter.getAlt();
+                }
                 
                 // Actualizar waypoint con posición calculada
                 fwm->mav->nav_waypoint(targetLat, targetLon, targetAlt);
@@ -258,39 +262,43 @@ void Comm::run()
               // FASE 3: Calcular posición objetivo con predicción y formación
               int32_t targetLat, targetLon, targetAlt;
               
-              #if USE_PREDICTION
-              // Predecir posición futura del líder
-              PredictedPosition predicted = fwm->mav->predictLeaderPosition(commData.lastValidPacket);
-              
-              // Usar posición predicha si la confianza es suficiente
-              if (predicted.confidence > 0.5)
+              if (fwm->mav->predictionEnabled)
               {
-                LoraPacket_t predictedPacket = commData.lastValidPacket;
-                predictedPacket.lat = predicted.lat;
-                predictedPacket.lon = predicted.lon;
-                predictedPacket.relative_alt = predicted.alt;
-                
-                fwm->mav->calculateFormationPosition(predictedPacket, fwm->mav->currentFormation,
-                                                     targetLat, targetLon, targetAlt);
-                fwm->mav->lastPrediction = predicted;
+                // Predecir posición futura del líder
+                PredictedPosition predicted = fwm->mav->predictLeaderPosition(commData.lastValidPacket);
+
+                // Usar posición predicha si la confianza es suficiente
+                if (predicted.confidence > 0.5)
+                {
+                  LoraPacket_t predictedPacket = commData.lastValidPacket;
+                  predictedPacket.lat = predicted.lat;
+                  predictedPacket.lon = predicted.lon;
+                  predictedPacket.relative_alt = predicted.alt;
+
+                  fwm->mav->calculateFormationPosition(predictedPacket, fwm->mav->currentFormation,
+                                                       targetLat, targetLon, targetAlt);
+                  fwm->mav->lastPrediction = predicted;
+                }
+                else
+                {
+                  fwm->mav->calculateFormationPosition(commData.lastValidPacket, fwm->mav->currentFormation,
+                                                       targetLat, targetLon, targetAlt);
+                }
               }
               else
               {
                 fwm->mav->calculateFormationPosition(commData.lastValidPacket, fwm->mav->currentFormation,
                                                      targetLat, targetLon, targetAlt);
               }
-              #else
-              fwm->mav->calculateFormationPosition(commData.lastValidPacket, fwm->mav->currentFormation,
-                                                   targetLat, targetLon, targetAlt);
-              #endif
-              
-              #if USE_POSITION_FILTER
-              // Aplicar filtro de posición
-              fwm->mav->positionFilter.update(targetLat, targetLon, targetAlt);
-              targetLat = fwm->mav->positionFilter.getLat();
-              targetLon = fwm->mav->positionFilter.getLon();
-              targetAlt = fwm->mav->positionFilter.getAlt();
-              #endif
+
+              if (fwm->mav->filterEnabled)
+              {
+                // Aplicar filtro de posición
+                fwm->mav->positionFilter.update(targetLat, targetLon, targetAlt);
+                targetLat = fwm->mav->positionFilter.getLat();
+                targetLon = fwm->mav->positionFilter.getLon();
+                targetAlt = fwm->mav->positionFilter.getAlt();
+              }
               
               #if USE_HEADING_GUIDANCE
               // Guiado por RUMBO + velocidad + altitud: no crea objetivo de posicion -> no loitea

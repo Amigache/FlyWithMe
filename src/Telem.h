@@ -55,6 +55,10 @@ public:
   FormationType currentFormation = (FormationType)DEFAULT_FORMATION;
   PositionFilter positionFilter;
   PredictedPosition lastPrediction;
+
+  // Ajustes conmutables en caliente desde la web (por defecto, los #define de config.h)
+  bool predictionEnabled = USE_PREDICTION;
+  bool filterEnabled = USE_POSITION_FILTER;
   
   // FASE 4: Simulación / Emulación de FC
   #if (SIMULATION_MODE || FC_EMULATION)

@@ -286,20 +286,28 @@ void Web::setupWebServer()
   
   // API REST - Obtener configuración
   server->on("/api/config", HTTP_GET, [this](AsyncWebServerRequest *request){
-    handleGetConfig();
-    request->send(200, "application/json", "{\"status\":\"ok\"}");
+    String cfg = "{";
+    cfg += "\"formation\":" + String((int)fwm->mav->currentFormation) + ",";
+    cfg += "\"formation_name\":\"" + String(fwm->mav->getFormationName(fwm->mav->currentFormation)) + "\",";
+    cfg += "\"prediction\":" + String(fwm->mav->predictionEnabled ? "true" : "false") + ",";
+    cfg += "\"filter\":" + String(fwm->mav->filterEnabled ? "true" : "false");
+    cfg += "}";
+    request->send(200, "application/json", cfg);
   });
   
   // API REST - Establecer configuración
   server->on("/api/config", HTTP_POST, [this](AsyncWebServerRequest *request){
-    // Manejar parámetros
+    // Formación: 0=TRAIL, 1=LEFT, 2=RIGHT, 3=ABOVE, 4=BELOW
     if (request->hasParam("formation", true)) {
-      String formation = request->getParam("formation", true)->value();
-      // TODO: Actualizar formación
+      fwm->setFormation((uint8_t)request->getParam("formation", true)->value().toInt());
     }
     if (request->hasParam("prediction", true)) {
-      String pred = request->getParam("prediction", true)->value();
-      // TODO: Activar/desactivar predicción
+      String p = request->getParam("prediction", true)->value();
+      fwm->setPrediction(p == "1" || p == "true" || p == "on");
+    }
+    if (request->hasParam("filter", true)) {
+      String f = request->getParam("filter", true)->value();
+      fwm->setFilter(f == "1" || f == "true" || f == "on");
     }
     request->send(200, "application/json", generateAPIResponse(true, "Config updated"));
   });
@@ -487,6 +495,13 @@ String Web::generateHTML()
     
     // Actualizar estadísticas cada segundo
     setInterval(updateStats, 1000);
+
+    // Cargar la configuración actual en los controles
+    fetch('/api/config').then(r => r.json()).then(c => {
+      document.getElementById('formation').value = c.formation;
+      document.getElementById('prediction').checked = c.prediction;
+      document.getElementById('filter').checked = c.filter;
+    }).catch(() => {});
     
     function updateStats() {
       fetch('/api/stats')

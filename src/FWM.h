@@ -60,6 +60,11 @@ public:
     void saveParams();
     void loadParams();
 
+    // Config runtime (persistente en NVS) desde la web
+    void setFormation(uint8_t idx);
+    void setPrediction(bool on);
+    void setFilter(bool on);
+
     // Variables
     Params_t params;
 

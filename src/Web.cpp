@@ -24,13 +24,13 @@ void Web::startAP()
 {
   // Start the server
   Log.notice("Init Access Point" CR);
-  
+
   // IMPORTANTE: Configurar modo WiFi ANTES de iniciar AP
   WiFi.mode(WIFI_AP);
   delay(100);  // Dar tiempo al WiFi para inicializar
 
   WiFi.softAP(fwm->params.ssid, fwm->params.pass);
-  
+
   // Esperar a que el AP esté completamente activo
   delay(500);
 

@@ -28,21 +28,26 @@ def haversine(lat1, lon1, lat2, lon2):
     return 2 * R * math.asin(math.sqrt(a))
 
 
-def latest(conn, mtype):
-    msg = None
+def drain(conn):
+    """Lee todos los mensajes pendientes y devuelve el ultimo de cada tipo."""
+    latest_by_type = {}
     while True:
-        m = conn.recv_match(type=mtype, blocking=False)
+        m = conn.recv_match(blocking=False)
         if m is None:
             break
-        msg = m
-    return msg
+        latest_by_type[m.get_type()] = m
+    return latest_by_type
 
 
-def pos(conn):
-    m = latest(conn, 'GLOBAL_POSITION_INT')
+def pos_of(d, key='GLOBAL_POSITION_INT'):
+    m = d.get(key)
     if m is None:
         return None
     return (m.lat / 1e7, m.lon / 1e7, m.relative_alt / 1000.0)
+
+
+def pos(conn):
+    return pos_of(drain(conn))
 
 
 def main():
@@ -51,6 +56,7 @@ def main():
     ap.add_argument('--follower', default='tcp:127.0.0.1:5773')
     ap.add_argument('--seconds', type=int, default=90)
     ap.add_argument('--target', default=None, help='lat,lon,alt para mover al lider')
+    ap.add_argument('--target2', default=None, help='segundo destino a mitad de la prueba (giro)')
     ap.add_argument('--follower-guided', action='store_true',
                     help='poner el seguidor en GUIDED justo despues de mandar el lider lejos')
     args = ap.parse_args()
@@ -63,7 +69,14 @@ def main():
     print(f"Lider sysid={lead.target_system} mode={lead.flightmode} | "
           f"Seguidor sysid={fol.target_system} mode={fol.flightmode}")
 
-    # Pedir ATTITUDE a 10 Hz en el enlace del seguidor para poder medir el alabeo
+    # Pedir streams (incluye ATTITUDE) en ambos enlaces: en SITL el SET_MESSAGE_INTERVAL
+    # no basta y el alabeo llegaba vacio.
+    for c in (lead, fol):
+        c.mav.request_data_stream_send(c.target_system, c.target_component,
+                                       mavutil.mavlink.MAV_DATA_STREAM_ALL, 10, 1)
+    time.sleep(0.5)
+
+    # Pedir ATTITUDE a 10 Hz en el enlace del seguidor (respaldo)
     fol.mav.command_long_send(fol.target_system, fol.target_component,
                               mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL, 0,
                               mavutil.mavlink.MAVLINK_MSG_ID_ATTITUDE, 100000,
@@ -100,24 +113,36 @@ def main():
         fol.mav.set_mode_send(fol.target_system, mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, 15)
         print("-> Seguidor -> GUIDED")
 
-    def roll_deg(conn):
-        m = latest(conn, 'ATTITUDE')
-        return None if m is None else math.degrees(m.roll)
-
     dists = []
     rolls = []
     t0 = time.time()
-    print("\n t(s)   dist(m)   lider_alt  seg_alt   roll(deg)")
+    switched = False
+    print("\n t(s)   dist(m)   lider_alt  seg_alt   roll(deg)  gs_lid  gs_seg  as_seg")
     while time.time() - t0 < args.seconds:
-        lp, fp = pos(lead), pos(fol)
+        dl, df = drain(lead), drain(fol)
+        lp, fp = pos_of(dl), pos_of(df)
         if lp and fp:
             d = haversine(lp[0], lp[1], fp[0], fp[1])
             dists.append(d)
-            r = roll_deg(fol)
+            att = df.get('ATTITUDE')
+            r = None if att is None else math.degrees(att.roll)
             if r is not None:
                 rolls.append(abs(r))
             rs = f"{abs(r):8.1f}" if r is not None else "       -"
-            print(f"{time.time()-t0:5.0f}   {d:7.1f}   {lp[2]:7.1f}   {fp[2]:7.1f}   {rs}")
+            gsl = dl.get('VFR_HUD')
+            gsf = df.get('VFR_HUD')
+            gsl_s = f"{gsl.groundspeed:6.1f}" if gsl else "     -"
+            gsf_s = f"{gsf.groundspeed:6.1f}" if gsf else "     -"
+            asf_s = f"{gsf.airspeed:6.1f}" if gsf else "     -"
+            print(f"{time.time()-t0:5.0f}   {d:7.1f}   {lp[2]:7.1f}   {fp[2]:7.1f}   {rs}  {gsl_s} {gsf_s} {asf_s}")
+        if args.target2 and not switched and (time.time() - t0) > args.seconds * 0.45:
+            lat2, lon2, alt2 = [float(x) for x in args.target2.split(',')]
+            lead.mav.command_int_send(lead.target_system, lead.target_component,
+                                      mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
+                                      mavutil.mavlink.MAV_CMD_DO_REPOSITION, 0, 0,
+                                      -1, 0, 0, 0, int(lat2 * 1e7), int(lon2 * 1e7), float(alt2))
+            switched = True
+            print(f"-> GIRO: lider a {lat2:.6f},{lon2:.6f}")
         time.sleep(2)
 
     print("\n=== RESULTADO ===")

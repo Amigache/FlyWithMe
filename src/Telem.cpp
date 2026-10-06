@@ -500,6 +500,138 @@ void Telem::nav_waypoint(int32_t lat, int32_t lon, int32_t alt)
     send_to_fc(msg);
 }
 
+// ============================================================================================================
+// GUIADO POR RUMBO (GUIDED_CHANGE_*) - evita el loiter de DO_REPOSITION y maneja los giros
+// ============================================================================================================
+
+void Telem::guided_change_heading(float heading_deg, float rate_dps)
+{
+    mavlink_message_t msg;
+    mavlink_msg_command_int_pack(
+        SYSID, COMPID, &msg, TARGET_SYSID, TARGET_COMPID,
+        MAV_FRAME_GLOBAL_RELATIVE_ALT_INT, MAV_CMD_GUIDED_CHANGE_HEADING,
+        0, 0,
+        0.0f,       // param1: 0 = course over ground
+        heading_deg,// param2: rumbo objetivo (deg 0-359.99)
+        rate_dps,   // param3: velocidad de cambio (deg/s)
+        0.0f,
+        0, 0, 0.0f);
+    send_to_fc(msg);
+}
+
+void Telem::guided_change_speed(float speed_mps, float accel_mps2)
+{
+    // ArduPlane SOLO acepta airspeed (param1=0); con groundspeed (1) responde DENIED.
+    if (speed_mps < GUIDED_AIRSPEED_MIN)
+    {
+        speed_mps = GUIDED_AIRSPEED_MIN;
+    }
+    if (speed_mps > GUIDED_AIRSPEED_MAX)
+    {
+        speed_mps = GUIDED_AIRSPEED_MAX;
+    }
+
+    mavlink_message_t msg;
+    mavlink_msg_command_int_pack(
+        SYSID, COMPID, &msg, TARGET_SYSID, TARGET_COMPID,
+        MAV_FRAME_GLOBAL_RELATIVE_ALT_INT, MAV_CMD_GUIDED_CHANGE_SPEED,
+        0, 0,
+        0.0f,        // param1: 0 = airspeed (unico soportado por ArduPlane)
+        speed_mps,   // param2: velocidad (m/s)
+        accel_mps2,  // param3: aceleracion (m/s^2)
+        0.0f,
+        0, 0, 0.0f);
+    send_to_fc(msg);
+}
+
+void Telem::guided_change_altitude(float alt_m, float rate_mps)
+{
+    mavlink_message_t msg;
+    mavlink_msg_command_int_pack(
+        SYSID, COMPID, &msg, TARGET_SYSID, TARGET_COMPID,
+        MAV_FRAME_GLOBAL_RELATIVE_ALT_INT, MAV_CMD_GUIDED_CHANGE_ALTITUDE,
+        0, 0,
+        0.0f,
+        0.0f,
+        rate_mps,    // param3: regimen de cambio (m/s)
+        0.0f,
+        0, 0, alt_m);// param7 (z): altitud objetivo (m)
+    send_to_fc(msg);
+}
+
+/**
+ * @brief Guiado de formacion por TRACK (cross-track), suave y sin zigzag:
+ *  - Rumbo = direccion de la traza del lider + correccion proporcional al error lateral.
+ *  - Velocidad = la del lider + correccion por error longitudinal (distancia al punto).
+ *  - Cada GUIDED_ALT_REFRESH_MS un DO_REPOSITION al punto de formacion fija la altitud (next_WP_loc).
+ *  El rumbo se reafirma cada ciclo y manda sobre la posicion.
+ */
+void Telem::guided_follow(LoraPacket_t leader, int32_t targetLat, int32_t targetLon, int32_t targetAlt)
+{
+    // 1) Direccion de la traza del lider (plano NE) desde su velocidad
+    float un = 0.0f, ue = 0.0f;
+    float vmag = sqrtf((float)leader.vx * (float)leader.vx + (float)leader.vy * (float)leader.vy);
+    if (vmag > 100.0f) // > 1 m/s
+    {
+        un = (float)leader.vx / vmag;
+        ue = (float)leader.vy / vmag;
+    }
+    else
+    {
+        // Respaldo: marcacion del seguidor al punto de formacion
+        double lat1 = APdata.lat / 1E7, lon1 = APdata.lon / 1E7;
+        double lat2 = targetLat / 1E7, lon2 = targetLon / 1E7;
+        double dLon = (lon2 - lon1) * PI / 180.0;
+        double yy = sin(dLon) * cos(lat2 * PI / 180.0);
+        double xx = cos(lat1 * PI / 180.0) * sin(lat2 * PI / 180.0) -
+                    sin(lat1 * PI / 180.0) * cos(lat2 * PI / 180.0) * cos(dLon);
+        float brg = (float)atan2(yy, xx);
+        un = cosf(brg);
+        ue = sinf(brg);
+    }
+
+    // 2) Errores del seguidor respecto al punto de formacion, en ejes de la traza
+    double fnlat = APdata.lat / 1E7, fnlon = APdata.lon / 1E7;
+    double plat = targetLat / 1E7, plon = targetLon / 1E7;
+    float dn = (float)((fnlat - plat) * 111320.0);
+    float de = (float)((fnlon - plon) * 111320.0 * cos(plat * PI / 180.0));
+    float along = dn * un + de * ue;   // positivo = por delante del punto
+    float cross = -dn * ue + de * un;  // positivo = a la derecha de la traza
+
+    // 3) Rumbo = traza + correccion cross-track
+    float theta = atan2f(ue, un) * 180.0f / PI;
+    float corr = -CROSS_TRACK_GAIN_DEG_PER_M * cross;
+    if (corr > MAX_HEADING_CORR_DEG)
+        corr = MAX_HEADING_CORR_DEG;
+    if (corr < -MAX_HEADING_CORR_DEG)
+        corr = -MAX_HEADING_CORR_DEG;
+    float hcmd = theta + corr;
+    if (hcmd < 0.0f)
+        hcmd += 360.0f;
+    if (hcmd >= 360.0f)
+        hcmd -= 360.0f;
+
+    // 4) Velocidad = la del lider + correccion longitudinal (por detras -> acelerar)
+    float boost = -along * ALONG_GAIN_CMS_PER_M;
+    if (boost > MAX_SPEED_BOOST)
+        boost = MAX_SPEED_BOOST;
+    if (boost < -MAX_SPEED_SLOW)
+        boost = -MAX_SPEED_SLOW;
+    float speed_cms = (float)leader.ground_speed + boost;
+
+    // 5) Refresco periodico del WP: fija la altitud objetivo (next_WP_loc) y respaldo de posicion
+    static uint32_t lastWpMs = 0;
+    uint32_t now = millis();
+    if (lastWpMs == 0 || (now - lastWpMs) >= GUIDED_ALT_REFRESH_MS)
+    {
+        nav_waypoint(targetLat, targetLon, targetAlt);
+        lastWpMs = now;
+    }
+
+    guided_change_heading(hcmd, GUIDED_TURN_RATE_DPS);
+    guided_change_speed(speed_cms / 100.0f, GUIDED_SPEED_ACCEL);
+}
+
 /**
  * Sends a MAVLink command to reposition the vehicle.
  *
@@ -855,7 +987,7 @@ void Telem::calculateFormationPosition(LoraPacket_t leader, FormationType format
         // Posición detrás del líder
         deltaLat_m = -offsetDistance * cos(headingRad);
         deltaLon_m = -offsetDistance * sin(headingRad);
-        deltaAlt = (ALT_OFFSET * 1000); // ALT_OFFSET está en metros, convertir a mm
+        deltaAlt = 0; // TRAIL va a la MISMA altitud que el lider
         Log.verbose("Formation: TRAIL, offset=%dm" CR, (int)offsetDistance);
         break;
         
@@ -863,7 +995,7 @@ void Telem::calculateFormationPosition(LoraPacket_t leader, FormationType format
         // Posición a la izquierda del líder (perpendicular al rumbo, -90°)
         deltaLat_m = lateralOffset * cos(headingRad - PI/2);
         deltaLon_m = lateralOffset * sin(headingRad - PI/2);
-        deltaAlt = (ALT_OFFSET * 1000);
+        deltaAlt = 0; // LEFT va a la MISMA altitud que el lider
         Log.verbose("Formation: LEFT, offset=%dm" CR, (int)lateralOffset);
         break;
         
@@ -871,7 +1003,7 @@ void Telem::calculateFormationPosition(LoraPacket_t leader, FormationType format
         // Posición a la derecha del líder (perpendicular al rumbo, +90°)
         deltaLat_m = lateralOffset * cos(headingRad + PI/2);
         deltaLon_m = lateralOffset * sin(headingRad + PI/2);
-        deltaAlt = (ALT_OFFSET * 1000);
+        deltaAlt = 0; // RIGHT va a la MISMA altitud que el lider
         Log.verbose("Formation: RIGHT, offset=%dm" CR, (int)lateralOffset);
         break;
         
@@ -897,15 +1029,18 @@ void Telem::calculateFormationPosition(LoraPacket_t leader, FormationType format
     targetLon = leader.lon + (int32_t)(deltaLon_m * LON_M_TO_DEG * 1E7);
     targetAlt = leader.relative_alt + deltaAlt;
 
-    // A: carrot/look-ahead. Adelantar el objetivo sobre la traza del lider para que el avion NO
-    // "llegue" al punto y empiece a orbitar: persigue un punto que va por delante (mas fluido).
-    if (FORMATION_LEAD_S > 0.0f)
+    // A: carrot/look-ahead en DISTANCIA fija sobre la traza del lider (direccion de su velocidad).
+    // El objetivo queda ~FORMATION_LEAD_M por delante -> el avion vuela hacia un punto que nunca
+    // alcanza y NO loitea; la distancia longitudinal la ajusta el lazo de velocidad.
     {
-        float lead_north_m = (leader.vx / 100.0f) * FORMATION_LEAD_S; // vx = norte (cm/s)
-        float lead_east_m = (leader.vy / 100.0f) * FORMATION_LEAD_S;  // vy = este  (cm/s)
-        targetLat += (int32_t)(lead_north_m * LAT_M_TO_DEG * 1E7);
-        targetLon += (int32_t)(lead_east_m * LON_M_TO_DEG * 1E7);
-        targetAlt -= (int32_t)((leader.vz / 100.0f) * FORMATION_LEAD_S * 1000.0f); // vz abajo
+        float vmag = sqrtf((float)leader.vx * (float)leader.vx + (float)leader.vy * (float)leader.vy); // cm/s
+        if (vmag > 100.0f && FORMATION_LEAD_M > 0.0f)
+        {
+            float un = leader.vx / vmag; // componente norte unitaria
+            float ue = leader.vy / vmag; // componente este unitaria
+            targetLat += (int32_t)(FORMATION_LEAD_M * un * LAT_M_TO_DEG * 1E7);
+            targetLon += (int32_t)(FORMATION_LEAD_M * ue * LON_M_TO_DEG * 1E7);
+        }
     }
 
     // Asegurar que la altitud no sea negativa

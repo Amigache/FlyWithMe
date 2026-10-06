@@ -28,6 +28,12 @@ public:
   void do_change_speed(uint16_t speed);
   void do_reposition(int32_t lat, int32_t lon, float alt, uint16_t hdg);
   void nav_waypoint(int32_t lat, int32_t lon, int32_t alt);
+
+  // GUIADO POR RUMBO (GUIDED_CHANGE_*)
+  void guided_change_heading(float heading_deg, float rate_dps);
+  void guided_change_speed(float speed_mps, float accel_mps2);
+  void guided_change_altitude(float alt_m, float rate_mps);
+  void guided_follow(LoraPacket_t leader, int32_t targetLat, int32_t targetLon, int32_t targetAlt);
   void request_param_value(std::string param_name);
   void set_param_value(std::string param_name, float param_value);
 

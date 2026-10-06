@@ -292,9 +292,13 @@ void Comm::run()
               targetAlt = fwm->mav->positionFilter.getAlt();
               #endif
               
+              #if USE_HEADING_GUIDANCE
+              // Guiado por RUMBO + velocidad + altitud: no crea objetivo de posicion -> no loitea
+              fwm->mav->guided_follow(commData.lastValidPacket, targetLat, targetLon, targetAlt);
+              #else
               // Actualizar waypoint
               fwm->mav->nav_waypoint(targetLat, targetLon, targetAlt);
-              
+
               // Get dynamic speed
               // Distancia real al LIDER (no wp_dist) para que el seguidor converja a la formacion.
               float distToLeader = fwm->mav->calculateDistance(
@@ -304,6 +308,7 @@ void Comm::run()
 
               // Change speed
               fwm->mav->do_change_speed(dynamic_speed);
+              #endif
             }
             else
             {

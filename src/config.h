@@ -143,9 +143,37 @@
 #define DEFAULT_FORMATION 0            // 0=TRAIL, 1=LEFT, 2=RIGHT, 3=ABOVE, 4=BELOW
 #define FORMATION_LATERAL_OFFSET 50    // metros - Offset lateral para formaciones
 #define FORMATION_VERTICAL_OFFSET 20   // metros - Offset vertical para formaciones
-#define FORMATION_LEAD_S 1.0f          // s - adelanto (carrot) sobre la traza del lider para no "llegar y orbitar"
-#define SPEED_GAIN_CMS_PER_M 6         // cm/s de sobre-velocidad por metro de error de distancia (control suave)
-#define MAX_SPEED_BOOST 400            // cm/s (4 m/s) de sobre-velocidad maxima
+// Carrot/look-ahead (solo para el guiado por POSICION de respaldo)
+#define FORMATION_LEAD_M 0.0f          // m - adelanto del objetivo (0 si se usa guiado por rumbo)
+
+// GUIADO POR RUMBO (GUIDED_CHANGE_*, dentro de COMMAND_INT). Es el metodo del plane_follow de
+// ArduPilot: no usa objetivo de posicion -> NO loitea y maneja los giros. Requiere ArduPlane 4.x.
+#ifndef MAV_CMD_GUIDED_CHANGE_SPEED
+#define MAV_CMD_GUIDED_CHANGE_SPEED 43000
+#endif
+#ifndef MAV_CMD_GUIDED_CHANGE_ALTITUDE
+#define MAV_CMD_GUIDED_CHANGE_ALTITUDE 43001
+#endif
+#ifndef MAV_CMD_GUIDED_CHANGE_HEADING
+#define MAV_CMD_GUIDED_CHANGE_HEADING 43002
+#endif
+#define USE_HEADING_GUIDANCE 1         // 1 = guiado por rumbo+velocidad; 0 = DO_REPOSITION
+#define GUIDED_TURN_RATE_DPS 30.0f     // deg/s - limite de cambio de rumbo (suave)
+#define GUIDED_SPEED_ACCEL 1.0f        // m/s^2
+#define GUIDED_ALT_RATE 2.0f           // m/s
+// Cada GUIDED_ALT_REFRESH_MS se envia un DO_REPOSITION al objetivo de formacion: fija next_WP_loc
+// (altitud objetivo) y sirve de respaldo de posicion. El rumbo se reafirma cada ciclo encima.
+#define GUIDED_ALT_REFRESH_MS 2000     // ms
+#define GUIDED_AIRSPEED_MIN 10.0f      // m/s - tope inferior de airspeed comandada
+#define GUIDED_AIRSPEED_MAX 30.0f      // m/s - tope superior de airspeed comandada
+// Ley cross-track (seguimiento de la traza del lider): rumbo = traza + correccion por error
+// lateral; velocidad = la del lider + correccion por error longitudinal. Evoluciona suave, sin zigzag.
+#define CROSS_TRACK_GAIN_DEG_PER_M 0.5f  // deg de correccion por metro de error lateral
+#define MAX_HEADING_CORR_DEG 25.0f       // deg - tope de correccion de rumbo
+#define ALONG_GAIN_CMS_PER_M 12.0f       // cm/s de correccion por metro de error longitudinal
+#define MAX_SPEED_SLOW 400               // cm/s (4 m/s) de frenado maximo
+#define SPEED_GAIN_CMS_PER_M 8         // cm/s de sobre-velocidad por metro de error de distancia (control suave)
+#define MAX_SPEED_BOOST 600            // cm/s (6 m/s) de sobre-velocidad maxima
 #define AUTO_CALIBRATE_LORA 0          // 1 = calibrar automáticamente al inicio, 0 = manual
 
 // DEFAULT PARAMS

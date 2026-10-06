@@ -75,6 +75,11 @@ pio run -t clean
 pio test
 ```
 
+- **Pruebas con FC simulado (SITL):** entornos `ttgo-lora32-v1-master-sitl` / `-slave-sitl`
+  (`FC_LINK_USB=1`) + `tools/sitl_bridge.py` (puente serie↔TCP). Procedimiento completo en
+  `docs/ROADMAP.md` §3.
+- **Arnés HIL:** `tools/hil_test.py` valida el enlace líder/seguidor por serial (`FC_EMULATION=1`).
+
 > ⚠️ **Salvedad:** `platformio.ini` **no define un `[env:native]`**, y `test/test_main.cpp`
 > duplica sus propias funciones auxiliares (no enlaza contra `src/`). El runner documentado en
 > `FASE4_IMPLEMENTADA.md` puede no ejecutarse tal cual. Antes de confiar en `pio test`, verificar/
@@ -162,6 +167,7 @@ desarrollo consolidada: roadmap + Fases 1–4). Ver sección 7.
 | `USE_WEB_SERVER` / `USE_WEBSOCKET` | `1` / `1` | Servidor async (80) + WS (81). |
 | `SIMULATION_MODE` | `0` | Simulación sin hardware en el **seguidor** (genera paquetes locales, no usa LoRa). |
 | `FC_EMULATION` | `1` (banco) | Emula el FC: sintetiza telemetría en `APdata` sin UART1, **mantiene el LoRa real**. Poner `0` para vuelo con FC. |
+| `FC_LINK_USB` | `0` | 1 = MAVLink por USB (UART0) en lugar de UART1 → pruebas con **SITL** (entornos `*-sitl`). En producción `0`. |
 | `WEB_START_AP_IMMEDIATELY` | `1` | Inicia el AP WiFi al arrancar. |
 
 ---

@@ -72,6 +72,7 @@ public:
   boolean is_connecting = false;
 
   HardwareSerial SerialPort;
+  HardwareSerial *fcPort = nullptr; // puerto de MAVLink: UART1 (FC real) o UART0 (SITL por USB)
 
 private:
   void check_link();

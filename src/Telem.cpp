@@ -30,10 +30,17 @@ void Telem::begin()
                (int)(simulatedData.lat * 1e7), (int)(simulatedData.lon * 1e7));
 #endif
 
+#if FC_LINK_USB
+    // Pruebas con SITL: MAVLink por el USB (UART0); no se usa el UART1.
+    fcPort = &Serial;
+    Log.notice("FC link por USB (UART0) - modo SITL" CR);
+#else
     Log.notice("Init MAVLink Serial" CR);
-    SerialPort.begin(SERIAL_BAUD_TELEM, SERIAL_8N1, SERIAL1_RX, SERIAL1_TX);
+    fcPort = &SerialPort;
+    fcPort->begin(SERIAL_BAUD_TELEM, SERIAL_8N1, SERIAL1_RX, SERIAL1_TX);
     delay(3000);
     Log.notice("MAVLink Serial Ready" CR);
+#endif
 
     // TICKER -----------------------------------------------------------------------------------------------
     if (!MAV_BRIDGE)
@@ -80,12 +87,12 @@ void Telem::run()
     if (!linkTimeout)
     {
         // ESCUCHAMOS
-        while (SerialPort.available() > 0)
+        while (fcPort->available() > 0)
         {
             mavlink_message_t msg;
             mavlink_status_t status;
 
-            if (mavlink_parse_char(MAVLINK_COMM_0, SerialPort.read(), &msg, &status))
+            if (mavlink_parse_char(MAVLINK_COMM_0, fcPort->read(), &msg, &status))
             {
                 // MSGS que vienen de la FC
                 if (msg.sysid == TARGET_SYSID && msg.compid == TARGET_COMPID)
@@ -262,7 +269,7 @@ void Telem::run()
  */
 void Telem::bridgeRun()
 {
-    if (SerialPort.available())
+    if (fcPort->available())
     {
         receive_mavlink_serial();
     }
@@ -278,9 +285,9 @@ void Telem::receive_mavlink_serial()
     static mavlink_status_t status;
 
     // Read all data available from Serial and send over LoRa
-    while (SerialPort.available() > 0)
+    while (fcPort->available() > 0)
     {
-        uint8_t serial_byte = SerialPort.read();
+        uint8_t serial_byte = fcPort->read();
         if (mavlink_parse_char(MAVLINK_COMM_0, serial_byte, &message, &status))
         {
             if (message.sysid == TARGET_SYSID && message.compid == TARGET_COMPID)
@@ -311,7 +318,7 @@ void Telem::send_to_fc(mavlink_message_t msg)
 {
     uint8_t buf[MAVLINK_MAX_PACKET_LEN];
     uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
-    SerialPort.write(buf, len);
+    fcPort->write(buf, len);
 }
 
 /**

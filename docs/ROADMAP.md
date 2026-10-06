@@ -50,6 +50,33 @@ plan de trabajo por fases. Actualizar al completar cada tarea.
 Comprueba: líder transmite, seguidor engancha beacon, entra en FOLLOWING, calcula formación y
 ninguno entra en EMERGENCY. Salida `PASS`/`FAIL` (código 0/1).
 
+### SITL (FC simulado) — MAVLink por USB
+
+Prueba con un autopiloto **simulado** (Mission Planner SITL) sin cablear el UART del FC.
+
+1. Lanzar uno o varios vehículos SITL (nativo Windows, en `Documents\Mission Planner\sitl`):
+   ```
+   ArduCopter.exe --instance 0 --serial0 tcp:5760 -M+ -s1 --home -35.363261,149.165230,584,353
+   ArduCopter.exe --instance 1 --serial0 tcp:5770 -M+ -s1 --home -35.3633006,149.165230,584,353
+   ```
+   Instancia N → TCP `5760 + 10*N`.
+2. Flashear la placa con el entorno SITL (`FC_LINK_USB=1`, MAVLink por USB/UART0):
+   ```
+   pio run -e ttgo-lora32-v1-master-sitl -t upload
+   pio run -e ttgo-lora32-v1-slave-sitl  -t upload
+   ```
+3. Puente serie ↔ TCP (uno por placa):
+   ```
+   .\.platformio\penv\Scripts\python.exe tools\sitl_bridge.py --tcp 127.0.0.1:5760 --port COMx
+   .\.platformio\penv\Scripts\python.exe tools\sitl_bridge.py --tcp 127.0.0.1:5770 --port COMx
+   ```
+
+En producción: `FC_LINK_USB=0` (MAVLink por UART1, GPIO12/13 → FC real).
+
+> **Estado verificado:** el **líder** recibe MAVLink real de SITL por USB (`LINK TO FC OK`) y
+> transmite posiciones reales por LoRa. El **seguidor (COMx) no enlaza por USB** (su RX PC→ESP no
+> entrega datos) → pendiente comprobar cable/puerto/placa.
+
 ---
 
 ## 4. Roadmap
@@ -64,10 +91,13 @@ ninguno entra en EMERGENCY. Salida `PASS`/`FAIL` (código 0/1).
   - Web: `/api/stats` y WebSocket con `lost_packets`, `packet_loss`, `distance`, `state`; panel HTML con Pérdidas/Distancia/Estado.
 
 ### Fase B — Integración con FC real (`FC_EMULATION 0`)
-- [ ] **B5** Verificar/ajustar el baud del UART1 (posible desfase por cristal).
+- [x] **B5a** Enlace de pruebas con SITL por USB (`FC_LINK_USB=1`): líder verificado; seguidor
+  pendiente por el RX de COMx. Añadidos `tools/sitl_bridge.py` y entornos `*-sitl`.
+- [ ] **B5b** Verificar/ajustar el baud del UART1 con FC real (posible desfase por cristal).
 - [ ] **B6** Validar MAVLink real: RX (HEARTBEAT/GLOBAL_POSITION_INT), `request_data_streams`,
-  `nav_waypoint` en GUIDED, `do_change_speed`.
-- [ ] **B7** Robustez de conexión: sysid/compid configurables, reconexión y timeouts.
+  `nav_waypoint` en GUIDED, `do_change_speed`. **Requiere el FC en modo GUIDED** para seguir.
+- [ ] **B7** Robustez de conexión: sysid/compid configurables, reconexión (hoy `check_link` hace
+  `detach()` del ticker y no reintenta) y timeouts.
 
 ### Fase C — Algoritmo de seguimiento
 - [ ] **C8** Afinar predicción/filtro y offsets de formación.

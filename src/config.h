@@ -533,10 +533,16 @@ public:
 #define SIMULATION_UPDATE_RATE 100    // Actualización simulación (ms)
 #define SIMULATION_NOISE_LEVEL 0.1f   // Nivel de ruido en simulación
 
-// --- Emulación de FC (banco de pruebas sin autopiloto) ---
-// 1 = el ESP32 sintetiza telemetría válida (GPS en movimiento) en APdata y NO usa el UART1.
-// El enlace LoRa real sigue funcionando: útil para validar comunicación líder/seguidor sin FC.
+// --- Enlace de FC para pruebas ---
+// FC_EMULATION=1: el ESP32 sintetiza telemetría válida en APdata (sin UART). Modo banco.
+// FC_LINK_USB=1 : el MAVLink del FC se lee/escribe por el USB (UART0) en lugar del UART1.
+//                 Para pruebas con SITL (puente serie <-> TCP). NO usar junto a FC_EMULATION.
+#ifndef FC_EMULATION
 #define FC_EMULATION 1
+#endif
+#ifndef FC_LINK_USB
+#define FC_LINK_USB 0
+#endif
 
 // --- Enumeraciones de Menú ---
 enum MenuState {

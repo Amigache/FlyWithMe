@@ -189,7 +189,7 @@
 #define FOLL_MODE_CH 7
 #define ALT_OFFSET 10 // m
 #define SPEED_OFFSET 10 // % (sobre-velocidad al recuperar distancia; menor = mas suave)
-#define DIST_OFFSET 92 //m - distancia comandada (la separacion real queda ~100 m por el retraso de la ley)
+#define DIST_OFFSET 96 //m - distancia comandada (la separacion real queda ~100 m por el retraso de la ley)
 
 // Set by target
 #ifdef MASTER_BUILD_FLAG

@@ -142,9 +142,38 @@ ESP32, por eso el GCS usa SERIAL1.)
   `detach()` del ticker y no reintenta) y timeouts.
 
 ### Fase C — Algoritmo de seguimiento
-- [ ] **C8** Afinar predicción/filtro y offsets de formación.
-- [ ] **C9** Control de velocidad/altitud (`calculate_dynamic_speed`, `ALT_OFFSET`).
+- [x] **C8** Afinar predicción/filtro y offsets de formación.
+- [x] **C9** Control de velocidad/altitud: **guiado por rumbo cross-track** (§4.1).
 - [ ] **C10** Tasa adaptativa del líder (hoy usa 500 m fijos).
+
+### Fase C.1 — Nuevo guiado por rumbo (2026-10, validado en SITL)
+
+Se sustituye el reposicionamiento "carrot"/`DO_REPOSITION` por un **guiado por rumbo
+cross-track** (estilo `plane_follow.lua`), que elimina el loiter y el zigzag:
+
+- **Rumbo**: `MAV_CMD_GUIDED_CHANGE_HEADING` (43002, dentro de `COMMAND_INT`) = dirección de la
+  traza del líder (de `vx/vy` del paquete) **+ corrección proporcional al error lateral**
+  (`CROSS_TRACK_GAIN_DEG_PER_M`, tope `MAX_HEADING_CORR_DEG`).
+- **Velocidad**: `MAV_CMD_GUIDED_CHANGE_SPEED` (43000). ⚠️ ArduPlane **solo admite airspeed**
+  (`param1=0`); con groundspeed responde `DENIED`. Corrección por error longitudinal
+  (`ALONG_GAIN_CMS_PER_M`).
+- **Altitud**: cada `GUIDED_ALT_REFRESH_MS` se envía un `DO_REPOSITION` al punto de formación, que
+  fija `next_WP_loc` (la altitud objetivo). `GUIDED_CHANGE_ALTITUDE` (43001) **no** funciona en
+  Plane GUIDED (depende de `guided_state.target_location`, que nunca se inicializa). El **rumbo se
+  reafirma cada ciclo y manda sobre la posición**.
+- **Formación**: TRAIL/LEFT/RIGHT a la **misma altitud** que el líder; `ALT_OFFSET` solo en
+  ABOVE/BELOW.
+
+Validación end-to-end (firmware real + LoRa, SITL ArduPlane, `tools/hil_sitl_validate.py`):
+
+| Prueba | Distancia líder-seguidor | `|roll|` en régimen | Resultado |
+|---|---|---|---|
+| Recta | 105–112 m (objetivo 100) | 0–3° | **PASS**, sin loiter |
+| Giro 90° | 102–118 m | 0–11° (pico en el giro) | **PASS**, sin zigzag |
+
+Herramientas: `tools/bench_restart.ps1` (SITL+bridges), `tools/follow_law_test.py` (afinado de la
+ley en PC sin reflashear), `tools/hil_sitl_validate.py` (recta + `--target2` giro, alabeo y
+velocidades). `tools/sitl_takeoff.py` robusto (reintentos de armado + streams).
 
 ### Fase D — Interfaz y observabilidad
 - [ ] **D11** Web: telemetría en vivo, config persistente, descarga de logs.

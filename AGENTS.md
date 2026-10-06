@@ -160,6 +160,11 @@ desarrollo consolidada: roadmap + Fases 1–4). Ver sección 7.
 | `USE_PREDICTION` / `PREDICTION_TIME_MS` | `1` / `1000` | Predicción de posición del líder. |
 | `USE_POSITION_FILTER` / `POSITION_FILTER_ALPHA` | `1` / `0.7` | Filtro paso bajo de posición. |
 | `DEFAULT_FORMATION` | `0` (TRAIL) | 0=TRAIL, 1=LEFT, 2=RIGHT, 3=ABOVE, 4=BELOW. |
+| `USE_HEADING_GUIDANCE` | `1` | 1 = guiado por rumbo cross-track (`GUIDED_CHANGE_*`); 0 = `DO_REPOSITION` (carrot). |
+| `CROSS_TRACK_GAIN_DEG_PER_M` / `MAX_HEADING_CORR_DEG` | `0.5` / `25` | Corrección de rumbo por error lateral (grados por metro / tope). |
+| `ALONG_GAIN_CMS_PER_M` / `MAX_SPEED_SLOW` | `12` / `400` | Corrección de velocidad por error longitudinal (cm/s por m / frenado máximo). |
+| `GUIDED_ALT_REFRESH_MS` | `2000` | Cada cuánto se envía `DO_REPOSITION` para fijar la altitud (`next_WP_loc`). |
+| `GUIDED_AIRSPEED_MIN` / `GUIDED_AIRSPEED_MAX` | `10` / `30` | Topes de la airspeed comandada (m/s). |
 | `MAX_FOLLOW_DISTANCE` | `5000` | m — límite de seguridad. |
 | `MIN_SAFE_ALTITUDE` | `50000` | mm (50 m) — altitud mínima. |
 | `AUTO_CALIBRATE_LORA` | `0` | Auto-calibración LoRa al inicio. |

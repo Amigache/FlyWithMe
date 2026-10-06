@@ -34,7 +34,7 @@ pio run -e ttgo-lora32-v1-slave
 pio run -e ttgo-lora32-v1-master -t upload
 pio run -e ttgo-lora32-v1-slave  -t upload
 
-# Monitor serie (38400 baudios; ver nota más abajo)
+# Monitor serie (57600 baudios; ver nota más abajo)
 pio device monitor
 
 # Limpieza
@@ -43,9 +43,12 @@ pio run -t clean
 
 - Los puertos serie están en `platformio.ini`: `COMx` (master) y `COMx` (slave). **Ajustar**
   `monitor_port`/`upload_port` al entorno real antes de flashear.
-- `monitor_speed = 38400`. **No es 57600:** estas placas usan cristal de **26 MHz** y el core 3.x
-  genera el baud real ≈ x0.66 (configurar 57600 produce ~38400 en el cable). Si se cambia la placa,
-  verificar el baud con un escaneo.
+- `monitor_speed = 57600`. ⚠️ Estas placas (TTGO LoRa32 V1.0) llevan cristal de **26 MHz**, así que
+  el firmware **debe compilarse con `-DF_XTAL_MHZ=26`** (ya está en `platformio.ini`). Ese define
+  hace que el core de Arduino fije el cristal y reconfigue los relojes en `app_main()`; sin él el
+  core asume 40 MHz, la UART sale ×0.65 (~37440) y **la WiFi/BT queda fuera de banda** (no emite AP
+  ni escanea redes). Con la flag, baud correcto (57600) y WiFi operativa. El LoRa no se ve afectado
+  (SX1276 con cristal propio). No confundir con el `monitor_speed`: con el cristal corregido, 57600.
 - ⚠️ **En Windows, flashear requiere UTF-8**: sin `PYTHONIOENCODING=utf-8` PlatformIO crashea con
   `UnicodeEncodeError` (cp1252) y la subida queda colgada. Usar:
   `$env:PYTHONIOENCODING='utf-8'; pio run -e ... -t upload`.
@@ -154,6 +157,7 @@ desarrollo consolidada: roadmap + Fases 1–4). Ver sección 7.
 | `LORA_BAND` | `866E6` | Frecuencia (Europa). 433E6 Asia / 915E6 Norteamérica. |
 | `LORA_SPREADING_FACTOR` | `12` | SF LoRa. |
 | `LORA_TX_POWER` | `20` | dBm. |
+| `F_XTAL_MHZ` (build flag) | `26` | Cristal de la TTGO LoRa32 V1.0. **Imprescindible** (`-DF_XTAL_MHZ=26`): sin él el core asume 40 MHz → UART ×0.65 y **WiFi/BT muertas**. |
 | `USE_COMPRESSED_PACKETS` | `1` | Paquete comprimido (15 B) vs normal (27 B). |
 | `ADAPTIVE_RATE` | `1` | Tasa de TX según distancia (2 s / 1 s / 0.5 s). |
 | `MAX_LORA_RETRIES` | `3` | Reintentos con backoff en el envío. |

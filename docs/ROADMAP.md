@@ -26,14 +26,15 @@ plan de trabajo por fases. Actualizar al completar cada tarea.
 | 2 | Crash al arrancar (IntegerDivideByZero) | `LoRa.setSignalBandwidth()` antes de `LoRa.begin()`; `setLdoFlag()` divide por cero | Setters **después** de `begin()` |
 | 3 | GPS basura sin FC | `APdata` sin inicializar | `memset` en constructor de `Telem` (A1) |
 | 4 | Diluvio de errores I2C | Botones del menú (12/13/14/15) chocan con UART/LoRa RST/OLED SCL | `USE_INTERACTIVE_MENU 0` |
-| 5 | Baud equivocado | Cristal 26 MHz; el core 3.x genera ~38400 al configurar 57600 | `monitor_speed = 38400` |
+| 5 | Baud equivocado y **WiFi muerta** | Cristal 26 MHz de la TTGO LoRa32 V1.0; el core asumía 40 MHz → UART ×0.65 y RF de WiFi/BT fuera de banda | Compilar con **`-DF_XTAL_MHZ=26`** (fija el cristal y reconfigura los relojes en `app_main()`) → UART 57600 y WiFi operativa |
 | 6 | **El seguidor no enlazaba** (error ~100 km) | Compresión truncaba hacia cero: longitudes negativas mal reconstruidas | `floor()` en `compressPacket` |
 | 7 | FSM bloqueada | `SEARCHING/LOST_LINK → FOLLOWING` no permitidas | Ampliadas transiciones válidas |
 | 8 | Logs ilegibles (`2f`, `1fm`) | ArduinoLog no soporta `%f` | Formatear como enteros escalados |
 
 ## 3. Entorno y notas de banco
 
-- **Baud serie: 38400** (no 57600). Cristal de 26 MHz → el core genera ~x0.66.
+- **Baud serie: 57600**. La placa lleva cristal de **26 MHz**; con `-DF_XTAL_MHZ=26` el core ajusta el
+  reloj y el baud es correcto. Sin esa flag saldría ~37440 (×0.65) **y la WiFi/BT no funcionarían**.
 - **Flashear en Windows:** `$env:PYTHONIOENCODING='utf-8'; pio run -e <env> -t upload`.
 - **Puertos actuales:** `COMx` (master) / `COMx` (slave). **USB inestable** (cable/puerto).
 - **`FC_EMULATION = 1`**: sintetiza telemetría en `APdata` sin UART1 y **mantiene el LoRa real**.
@@ -193,6 +194,13 @@ giro, alabeo y velocidades). `tools/sitl_takeoff.py` robusto (reintentos de arma
 `prediction` y `filter` en caliente y los **persiste en NVS** (`FWM::setFormation/...`);
 `GET /api/config` los devuelve y la página web los carga al abrir. AP del seguidor:
 `FWM AP 2` / `http://192.168.4.1`.
+
+**Fix del cristal (WiFi):** las placas TTGO LoRa32 V1.0 llevan cristal de **26 MHz**. El core de
+Arduino 3.x asumía 40 MHz → la **WiFi/BT quedaban fuera de banda** (no emitían AP ni escaneaban).
+La solución es compilar con **`-DF_XTAL_MHZ=26`** (ya en `platformio.ini`): el core lo aplica en
+`app_main()` antes de `initArduino()`/WiFi, fija el cristal y reconfigura los relojes. Validado
+end-to-end: la placa **escanea 16 redes** y el PC ve/conecta a `FWM AP 2`; `GET/POST /api/config`
+funcionan y la formación **persiste** tras reiniciar. (No requiere recompilar las libs.)
 
 > ⚠️ **Pendiente de banco:** al terminar las pruebas el puerto `COMx` (CP210x) quedó bloqueado
 > (`semaphore timeout`), así que la placa seguidora conserva el firmware de la prueba BELOW. El

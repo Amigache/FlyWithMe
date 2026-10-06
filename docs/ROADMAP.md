@@ -52,37 +52,50 @@ ninguno entra en EMERGENCY. Salida `PASS`/`FAIL` (código 0/1).
 
 ### SITL (FC simulado) — MAVLink por USB
 
-Prueba con un autopiloto **simulado** (Mission Planner SITL) sin cablear el UART del FC.
+Prueba con autopilotos **simulados** (Mission Planner SITL) sin cablear el UART del FC. El proyecto
+es para **aviones**, así que se usa `ArduPlane.exe` (no ArduCopter).
 
-1. Lanzar uno o varios vehículos SITL (nativo Windows, en `Documents\Mission Planner\sitl`):
+1. Lanzar los vehículos SITL (nativo Windows, en `Documents\Mission Planner\sitl`):
    ```
-   ArduCopter.exe --instance 0 --serial0 tcp:5760 -M+ -s1 --home -35.363261,149.165230,584,353
-   ArduCopter.exe --instance 1 --serial0 tcp:5770 -M+ -s1 --home -35.3633006,149.165230,584,353
+   ArduPlane.exe --instance 0 --serial0 tcp:5760 -M+ -s1 --home -35.363261,149.165230,584,353 -P SERIAL1_PROTOCOL=2 -P SERIAL2_PROTOCOL=2
+   ArduPlane.exe --instance 1 --serial0 tcp:5770 -M+ -s1 --home -35.3633006,149.165230,584,353 -P SERIAL1_PROTOCOL=2 -P SERIAL2_PROTOCOL=2
    ```
-   Instancia N → TCP `5760 + 10*N`.
+   Puertos por instancia: SERIAL0 `5760+10N` (ESP32), SERIAL1 `+2` (Mission Planner), SERIAL2 `+3` (control).
 2. Flashear la placa con el entorno SITL (`FC_LINK_USB=1`, MAVLink por USB/UART0):
    ```
-   pio run -e ttgo-lora32-v1-master-sitl -t upload
-   pio run -e ttgo-lora32-v1-slave-sitl  -t upload
+   pio run -e ttgo-lora32-v1-master-sitl -t upload        # COMx (líder)
+   pio run -e ttgo-lora32-v1-slave-sitl  -t upload        # COMx (seguidor)
    ```
 3. Puente serie ↔ TCP (uno por placa):
    ```
    .\.platformio\penv\Scripts\python.exe tools\sitl_bridge.py --tcp 127.0.0.1:5760 --port COMx
    .\.platformio\penv\Scripts\python.exe tools\sitl_bridge.py --tcp 127.0.0.1:5770 --port COMx
    ```
+4. Automatización (pymavlink): poner el seguidor en **GUIDED** y, opcional, despegar el líder:
+   ```
+   python tools\sitl_guided.py  --conn tcp:127.0.0.1:5773 --mode 15   # seguidor -> GUIDED
+   python tools\sitl_takeoff.py --conn tcp:127.0.0.1:5763 --alt 120   # líder: GUIDED+arm+takeoff
+   ```
 
 En producción: `FC_LINK_USB=0` (MAVLink por UART1, GPIO12/13 → FC real).
 
-> **Estado verificado (ambas placas):** los dos reciben MAVLink real de SITL por USB (`LINK TO FC OK`),
-> transmiten/reciben por LoRa (`BEACON LOCK`) y calculan `dist` en metros. El líder transmite
-> posiciones reales. Para ver `FOLLOWING` hay que poner el FC del seguidor en **GUIDED**.
+#### Ver en Mission Planner en tiempo real
+Mission Planner → **Connection: TCP** → host `127.0.0.1`:
+- **Líder:** puerto **5762** · **Seguidor:** puerto **5772**.
+
+Verás un **avión** (ArduPlane) con mapa/HUD/parámetros en vivo. (SERIAL0 lo ocupa el puente del
+ESP32, por eso el GCS usa SERIAL1.)
+
+> **Estado verificado (ArduPlane, ambas placas):** reciben MAVLink real por USB (`LINK TO FC OK`),
+> enlazan por LoRa (`BEACON LOCK`), y el seguidor pasa a **FOLLOWING** al poner su FC en GUIDED
+> (`STATE_TRANSITION from=SEARCHING,to=FOLLOWING`). En tierra, el safety `Leader altitude too low`
+> impide calcular la formación (correcto); para ver `Formation position` hay que **despegar el líder**
+> (o bajar `MIN_SAFE_ALTITUDE` en el entorno SITL).
 >
-> ⚠️ **sysid:** SITL emite `sysid=1`, pero el firmware filtra por `TARGET_SYSID` (el seguidor espera
-> `2`). Por eso el entorno `slave-sitl` añade `-D TARGET_SYSID=1`. En producción el FC debe usar el
-> sysid que espera cada rol (o hacer el filtro configurable — ver B7).
+> ⚠️ **sysid:** SITL emite `sysid=1`; el seguidor espera `TARGET_SYSID=2`, por eso `slave-sitl`
+> añade `-D TARGET_SYSID=1`.
 >
-> Nota: los puertos USB de estas placas reenumeran (COMx→21→22); comprobar el puerto antes de cada
-> prueba.
+> Nota: los puertos USB reenumeran (COMx→21→22); comprobar el puerto antes de cada prueba.
 
 ---
 

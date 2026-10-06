@@ -4,8 +4,9 @@ param(
     [string]$Exe = "$env:USERPROFILE\Documents\Mission Planner\sitl\ArduPlane.exe",
     [string]$MasterCom = "COMx",
     [string]$SlaveCom = "COMx",
-    [string]$LeaderHome = "0.000000,0.000000,302,0",
-    [string]$FollowerHome = "0.000000,0.000000,302,0",
+    # yaw 180 => despegue hacia el SUR (evita las montanas que hay al norte)
+    [string]$LeaderHome = "0.000000,0.000000,302,180",
+    [string]$FollowerHome = "0.000000,0.000000,302,180",
     [string]$Python = "$env:USERPROFILE\.platformio\penv\Scripts\python.exe",
     [int]$Baud = 38400
 )

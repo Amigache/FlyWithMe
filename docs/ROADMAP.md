@@ -67,6 +67,12 @@ es para **aviones**, así que se usa `ArduPlane.exe` (no ArduCopter).
    Los `plane.parm` marcan el INS como calibrado (`INS_ACC*`, `INS_GYR_CAL 0`) → **arma sin calibrar**.
    ⚠️ Usar **`--model plane`**. El flag `-M+` de Mission Planner pone el modelo a `"+"` (inválido) y
    el avión **rebota en el suelo** (`SIM Hit ground`) sin despegar.
+   El `yaw` del `--home` (4º campo) fija el rumbo de despegue: **180 = sur** (al norte hay montañas).
+   `tools/sitl_start.ps1` ya lo hace por defecto.
+
+   **Seguimiento (validado):** el firmware usa `MAV_CMD_DO_REPOSITION` (ArduPlane GUIDED ignora
+   `NAV_WAYPOINT`). Los paquetes van **sin comprimir** (`USE_COMPRESSED_PACKETS 0`): el formato
+   comprimido cuantiza lat/lon a ~1/255° (**~436 m**), lo que hacía el seguimiento errático.
 2. Flashear la placa con el entorno SITL (`FC_LINK_USB=1`, MAVLink por USB/UART0):
    ```
    pio run -e ttgo-lora32-v1-master-sitl -t upload        # COMx (líder)

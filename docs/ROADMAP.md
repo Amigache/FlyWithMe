@@ -208,7 +208,8 @@ funcionan y la formación **persiste** tras reiniciar. (No requiere recompilar l
 > `-e ttgo-lora32-v1-slave-sitl` cuando el puerto se libere.
 
 ### Fase D — Interfaz y observabilidad
-- [ ] **D11** Web: telemetría en vivo, config persistente, descarga de logs.
+- [ ] **D11** Web: config en **tierra** (AP solo en tierra + tabla de parámetros). Ver plan en
+  `docs/PLAN_CONFIG_TIERRA.md`. Telemetría en vivo plegada al WebSocket (diagnóstico en tierra).
 - [ ] **D12** Menú OLED: reasignar botones a GPIOs libres (o encoder).
 - [ ] **D13** Pantalla: estado de enlace, modo, distancia.
 

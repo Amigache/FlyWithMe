@@ -452,12 +452,8 @@ void Telem::do_change_speed(uint16_t speed)
  */
 void Telem::nav_waypoint(int32_t lat, int32_t lon, int32_t alt)
 {
-
-    // Altitude offset
-    if (ALT_OFFSET != 0)
-    {
-        alt = alt + (ALT_OFFSET * 1000);
-    }
+    // P2: la altitud objetivo ya incluye el offset de formacion (calculateFormationPosition);
+    // no volver a sumar ALT_OFFSET aqui (antes se aplicaba dos veces => +20 m).
 
     // ArduPlane en GUIDED ignora MISSION_ITEM (NAV_WAYPOINT) para guiado; el comando correcto es
     // MAV_CMD_DO_REPOSITION (COMMAND_INT). Antes enviabamos mission_item_int y el avion no se movia.
@@ -497,13 +493,7 @@ void Telem::nav_waypoint(int32_t lat, int32_t lon, int32_t alt)
  */
 void Telem::do_reposition(int32_t lat, int32_t lon, float alt, uint16_t hdg)
 {
-
-    // Altitude offset
-    if (ALT_OFFSET != 0)
-    {
-        alt = alt + (ALT_OFFSET * 1000);
-    }
-
+    // P2: no aplicar ALT_OFFSET aqui (se aplicaba tambien en CalculateFormationPosition).
     mavlink_message_t msg;
     mavlink_msg_command_int_pack(
         SYSID,                             // Sender system ID
@@ -742,64 +732,72 @@ bool Telem::isSafeToFollow(LoraPacket_t leaderData)
  * @param futureTime uint32_t - Tiempo futuro en ms (millis())
  * @return PredictedPosition - Posición predicha
  */
-PredictedPosition Telem::predictLeaderPosition(LoraPacket_t current, uint32_t futureTime)
+PredictedPosition Telem::predictLeaderPosition(LoraPacket_t current)
 {
     PredictedPosition predicted;
-    predicted.timestamp = futureTime;
-    
-    // Calcular tiempo de predicción en segundos
-    float deltaTime = (futureTime - millis()) / 1000.0;
-    
-    // Si el tiempo es negativo o muy grande, no predecir
-    if (deltaTime < 0 || deltaTime > 5.0)
+    predicted.timestamp = millis();
+
+    // P1: edad real del dato = tiempo desde que el lider lo envio (su millis()) + horizonte.
+    float age = 0.0f;
+    if (current.timestamp != 0)
+    {
+        age = (millis() - current.timestamp) / 1000.0f;
+    }
+    float horizon = PREDICTION_TIME_MS / 1000.0f;
+    float dt = age + horizon;
+
+    // Si la edad es negativa (desbordamiento) o absurda, no predecir
+    if (dt < 0.0f || dt > 5.0f)
     {
         predicted.lat = current.lat;
         predicted.lon = current.lon;
         predicted.alt = current.relative_alt;
-        predicted.confidence = 0.0;
+        predicted.confidence = 0.0f;
         return predicted;
     }
-    
-    // Calcular distancia recorrida en el tiempo de predicción
-    // ground_speed está en cm/s
-    float distanceTraveled = (current.ground_speed / 100.0) * deltaTime; // metros
-    
-    // Convertir heading a radianes (hdg está en grados * 100)
-    float headingRad = (current.hdg / 100.0) * PI / 180.0;
-    
-    // Calcular cambios en latitud y longitud
-    // Aproximación: 1 grado lat ≈ 111320 metros
-    // 1 grado lon ≈ 111320 * cos(lat) metros
+
+    // Velocidad NED (vx/vy/vz en cm/s). Si no viene, usar ground_speed + hdg.
+    float vn, ve, vd;
+    if (current.vx != 0 || current.vy != 0)
+    {
+        vn = current.vx / 100.0f; // norte (m/s)
+        ve = current.vy / 100.0f; // este (m/s)
+        vd = current.vz / 100.0f; // abajo (m/s)
+    }
+    else
+    {
+        float speed = current.ground_speed / 100.0f;
+        float headingRad = (current.hdg / 100.0f) * PI / 180.0f;
+        vn = speed * cos(headingRad);
+        ve = speed * sin(headingRad);
+        vd = 0.0f;
+    }
+
     double lat_degrees = current.lat / 1E7;
-    double lon_degrees = current.lon / 1E7;
-    
-    // Componentes norte y este del movimiento
-    float deltaLat_m = distanceTraveled * cos(headingRad);  // metros norte
-    float deltaLon_m = distanceTraveled * sin(headingRad);  // metros este
-    
-    // Convertir a grados
-    float deltaLat_deg = deltaLat_m / 111320.0;
-    float deltaLon_deg = deltaLon_m / (111320.0 * cos(lat_degrees * PI / 180.0));
-    
-    // Calcular nueva posición
+    float deltaLat_deg = (vn * dt) / 111320.0;
+    float deltaLon_deg = (ve * dt) / (111320.0 * cos(lat_degrees * PI / 180.0));
+
     predicted.lat = current.lat + (int32_t)(deltaLat_deg * 1E7);
     predicted.lon = current.lon + (int32_t)(deltaLon_deg * 1E7);
-    predicted.alt = current.relative_alt; // Mantener altitud (o podría predecir con vz)
-    
-    // Calcular confianza basada en velocidad y tiempo
-    // Mayor velocidad y menor tiempo = mayor confianza
-    if (current.ground_speed < 100) // < 1 m/s
-        predicted.confidence = 0.3;
-    else if (current.ground_speed < 500) // < 5 m/s
-        predicted.confidence = 0.6;
-    else if (deltaTime < 2.0)
-        predicted.confidence = 0.9;
+    // vz positivo = hacia abajo; la altitud relativa (mm) sube cuando vz es negativo
+    predicted.alt = current.relative_alt - (int32_t)(vd * dt * 1000.0f);
+
+    // Confianza: alta si hay velocidad NED y la edad+horizonte es corta
+    float speed = sqrtf(vn * vn + ve * ve);
+    if (speed < 1.0f)
+        predicted.confidence = 0.3f;
+    else if (dt < 1.5f)
+        predicted.confidence = 0.9f;
+    else if (dt < 3.0f)
+        predicted.confidence = 0.7f;
     else
-        predicted.confidence = 0.7;
-    
-    Log.verbose("Predicted position: lat=%d, lon=%d, confidence=%d" CR, 
-               predicted.lat, predicted.lon, (int)(predicted.confidence * 100));
-    
+        predicted.confidence = 0.5f;
+    if (current.timestamp == 0)
+        predicted.confidence = 0.5f; // sin timestamp no podemos compensar latencia
+
+    Log.verbose("Predicted position: lat=%d, lon=%d, dt=%dms confidence=%d" CR,
+                predicted.lat, predicted.lon, (int)(dt * 1000), (int)(predicted.confidence * 100));
+
     return predicted;
 }
 

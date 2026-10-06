@@ -209,6 +209,11 @@ void FWM::send_packet_ticker_callback()
         packet.relative_alt = self->mav->APdata.relative_alt;
         packet.ground_speed = self->mav->APdata.ground_speed;
         packet.hdg = self->mav->APdata.hdg;
+        // P1: timestamp + velocidad NED (cm/s) para que el seguidor compense la latencia
+        packet.timestamp = millis();
+        packet.vx = self->mav->APdata.vx;
+        packet.vy = self->mav->APdata.vy;
+        packet.vz = self->mav->APdata.vz;
         packet.checksum = 0; // Se calcula en el momento de enviar el paquete
 
         packet.checksum = self->comm->calChecksum(packet);

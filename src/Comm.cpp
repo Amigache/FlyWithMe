@@ -168,8 +168,7 @@ void Comm::run()
                 
                 #if USE_PREDICTION
                 // Predecir posición futura del líder
-                PredictedPosition predicted = fwm->mav->predictLeaderPosition(
-                    incomingPacket, millis() + PREDICTION_TIME_MS);
+                PredictedPosition predicted = fwm->mav->predictLeaderPosition(incomingPacket);
                 
                 // Usar posición predicha si la confianza es suficiente
                 if (predicted.confidence > 0.5)
@@ -208,7 +207,8 @@ void Comm::run()
                 fwm->mav->nav_waypoint(targetLat, targetLon, targetAlt);
                 
                 // Get dynamic speed
-                uint16_t dynamic_speed = fwm->mav->calculate_dynamic_speed(incomingPacket.ground_speed, fwm->mav->APdata.wp_dist);
+                // P2: wp_dist viene en cm; calculate_dynamic_speed espera metros (DIST_OFFSET en m)
+                uint16_t dynamic_speed = fwm->mav->calculate_dynamic_speed(incomingPacket.ground_speed, fwm->mav->APdata.wp_dist / 100.0f);
 
                 // Change speed
                 fwm->mav->do_change_speed(dynamic_speed);
@@ -256,8 +256,7 @@ void Comm::run()
               
               #if USE_PREDICTION
               // Predecir posición futura del líder
-              PredictedPosition predicted = fwm->mav->predictLeaderPosition(
-                  commData.lastValidPacket, millis() + PREDICTION_TIME_MS);
+              PredictedPosition predicted = fwm->mav->predictLeaderPosition(commData.lastValidPacket);
               
               // Usar posición predicha si la confianza es suficiente
               if (predicted.confidence > 0.5)
@@ -293,7 +292,8 @@ void Comm::run()
               fwm->mav->nav_waypoint(targetLat, targetLon, targetAlt);
               
               // Get dynamic speed
-              uint16_t dynamic_speed = fwm->mav->calculate_dynamic_speed(commData.lastValidPacket.ground_speed, fwm->mav->APdata.wp_dist);
+              // P2: wp_dist viene en cm; calculate_dynamic_speed espera metros (DIST_OFFSET en m)
+              uint16_t dynamic_speed = fwm->mav->calculate_dynamic_speed(commData.lastValidPacket.ground_speed, fwm->mav->APdata.wp_dist / 100.0f);
 
               // Change speed
               fwm->mav->do_change_speed(dynamic_speed);
@@ -542,7 +542,12 @@ LoraPacket_t Comm::decompressPacket(CompressedLoraPacket_t compressed)
   // Ground speed y heading sin cambios
   packet.ground_speed = compressed.ground_speed;
   packet.hdg = compressed.hdg;
-  
+  // P1: el paquete comprimido no lleva timestamp ni velocidad NED
+  packet.timestamp = 0;
+  packet.vx = 0;
+  packet.vy = 0;
+  packet.vz = 0;
+
   // Recalcular checksum del paquete descomprimido
   packet.checksum = calChecksum(packet);
   

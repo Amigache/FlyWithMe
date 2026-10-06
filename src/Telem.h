@@ -40,7 +40,7 @@ public:
   bool isSafeToFollow(LoraPacket_t leaderData);
   
   // FASE 3: Predicción y formaciones
-  PredictedPosition predictLeaderPosition(LoraPacket_t current, uint32_t futureTime);
+  PredictedPosition predictLeaderPosition(LoraPacket_t current);
   void calculateFormationPosition(LoraPacket_t leader, FormationType formation, 
                                    int32_t &targetLat, int32_t &targetLon, int32_t &targetAlt);
   const char* getFormationName(FormationType formation);

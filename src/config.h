@@ -28,7 +28,9 @@
 // Intervals
 #define HEARTBEAT_INTERVAL 1000 ///< ms 1 vez por segundo
 #define BEACON_CHECK_INTERVAL 1000 ///< ms 1 vez por segundo
+#ifndef SEND_PACKET_INTERVAL
 #define SEND_PACKET_INTERVAL 1000
+#endif
 #define LINK_METRICS_LOG_INTERVAL_MS 5000 ///< A4: periodo de log de métricas de enlace
 
 // OTHER config ------------------------------------------------------------------------------------------
@@ -73,8 +75,12 @@
 #define RST 14
 #define DIO0 26
 
+#ifndef LORA_SIGNAL_BANDWIDTH
 #define LORA_SIGNAL_BANDWIDTH 125000 ///< 125kHz
-#define LORA_SPREADING_FACTOR 12     ///< SF12
+#endif
+#ifndef LORA_SPREADING_FACTOR
+#define LORA_SPREADING_FACTOR 12     ///< SF12 (mas alcance, mas latencia). Banco: -D LORA_SPREADING_FACTOR=7
+#endif
 #define LORA_CODING_RATE 5           ///< 4/5
 #define LORA_TX_POWER 20             ///< 20dBm
 #define LORA_SYNC_WORD 0x34          ///< 0x34
@@ -111,7 +117,9 @@
 // NOTA: el paquete comprimido actual cuantiza lat/lon a ~1/255 grado (~436 m de error), lo que
 // hace erratico el seguimiento. Desactivado hasta rediseñar la compresion (mas bits para lat/lon).
 #define USE_COMPRESSED_PACKETS 0       // 1 = usar paquetes comprimidos, 0 = usar paquetes normales
-#define ADAPTIVE_RATE 1                // 1 = tasa adaptativa, 0 = tasa fija
+#ifndef ADAPTIVE_RATE
+#define ADAPTIVE_RATE 1                // 1 = tasa adaptativa, 0 = tasa fija (SEND_PACKET_INTERVAL)
+#endif
 #define PACKET_RATE_CLOSE 2000         // ms - 0.5 Hz cuando está cerca (< 100m)
 #define PACKET_RATE_MEDIUM 1000        // ms - 1 Hz distancia media (100-500m)
 #define PACKET_RATE_FAR 500            // ms - 2 Hz cuando está lejos (> 500m)
@@ -215,6 +223,11 @@ typedef struct
   int32_t relative_alt;  ///< Altitude above ground in meters, expressed as * 1000 (millimeters)
   uint16_t ground_speed; ///< [cm/s] Ground speed;
   uint16_t hdg;          ///< Compass heading in degrees * 100, 0.0..359.99 degrees. If unknown, set to: 65535
+  // P1: para compensar la latencia del enlace (el lider ya se ha movido al recibir)
+  uint32_t timestamp;    ///< [ms] millis() del lider en el momento de enviar
+  int16_t vx;            ///< [cm/s] Velocidad NED: vx = norte
+  int16_t vy;            ///< [cm/s] vy = este
+  int16_t vz;            ///< [cm/s] vz = abajo (positivo hacia abajo)
   uint8_t checksum;      ///< Checksum
 } LoraPacket_t;
 

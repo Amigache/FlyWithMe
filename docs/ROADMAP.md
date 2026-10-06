@@ -189,6 +189,11 @@ Herramientas: `tools/bench_restart.ps1` (SITL+bridges), `tools/follow_law_test.p
 ley en PC sin reflashear; soporta las 5 formaciones), `tools/hil_sitl_validate.py` (recta + `--target2`
 giro, alabeo y velocidades). `tools/sitl_takeoff.py` robusto (reintentos de armado + streams).
 
+**Cambio de formación en vuelo (web):** la API `POST /api/config` aplica `formation` (0–4),
+`prediction` y `filter` en caliente y los **persiste en NVS** (`FWM::setFormation/...`);
+`GET /api/config` los devuelve y la página web los carga al abrir. AP del seguidor:
+`FWM AP 2` / `http://192.168.4.1`.
+
 > ⚠️ **Pendiente de banco:** al terminar las pruebas el puerto `COMx` (CP210x) quedó bloqueado
 > (`semaphore timeout`), así que la placa seguidora conserva el firmware de la prueba BELOW. El
 > **código del repo ya está en TRAIL por defecto**; reenchufar/rebootear y reflashear

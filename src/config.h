@@ -108,7 +108,9 @@
 #define MAX_VALID_GROUND_SPEED 30000   // cm/s - 300 m/s máximo
 
 // ADAPTIVE COMMUNICATION (FASE 2 - Optimización) -------------------------------------------------------
-#define USE_COMPRESSED_PACKETS 1       // 1 = usar paquetes comprimidos, 0 = usar paquetes normales
+// NOTA: el paquete comprimido actual cuantiza lat/lon a ~1/255 grado (~436 m de error), lo que
+// hace erratico el seguimiento. Desactivado hasta rediseñar la compresion (mas bits para lat/lon).
+#define USE_COMPRESSED_PACKETS 0       // 1 = usar paquetes comprimidos, 0 = usar paquetes normales
 #define ADAPTIVE_RATE 1                // 1 = tasa adaptativa, 0 = tasa fija
 #define PACKET_RATE_CLOSE 2000         // ms - 0.5 Hz cuando está cerca (< 100m)
 #define PACKET_RATE_MEDIUM 1000        // ms - 1 Hz distancia media (100-500m)

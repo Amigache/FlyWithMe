@@ -152,7 +152,10 @@ void Telem::run()
                         mavlink_msg_gps_raw_int_decode(&msg, &gps_raw_int);
 
                         // Capturamos datos para APdata
-                        APdata.ground_speed = (gps_raw_int.vel / 100);
+                        // GPS_RAW_INT.vel viene en cm/s: mantener cm/s (convencion de APdata/LoraPacket).
+                        // Antes se dividia entre 100 (=> m/s) pero el resto del codigo lo trata como
+                        // cm/s, lo que dejaba la prediccion de movimiento casi a cero.
+                        APdata.ground_speed = gps_raw_int.vel;
 
                         break;
                     }
@@ -426,7 +429,7 @@ void Telem::do_change_speed(uint16_t speed)
         MAV_CMD_DO_CHANGE_SPEED, // Command ID
         0,                       // Confirmation
         1,                       // Param 1: Speed type (0=Airspeed, 1=Ground Speed).
-        speed,                   // Param 2: Target speed (m/s). If airspeed, a value below or above min/max airspeed limits results in no change. a value of -2 uses :ref:`TRIM_ARSPD_CM`
+        (float)speed / 100.0f,   // Param 2: Target speed (m/s). `speed` llega en cm/s.
         -1,                      // Param 3: Throttle as a percentage (0-100%). A value of 0 or negative indicates no change.
         0,                       // Param 4: Empty
         0,                       // Param 5: Empty
@@ -456,26 +459,26 @@ void Telem::nav_waypoint(int32_t lat, int32_t lon, int32_t alt)
         alt = alt + (ALT_OFFSET * 1000);
     }
 
+    // ArduPlane en GUIDED ignora MISSION_ITEM (NAV_WAYPOINT) para guiado; el comando correcto es
+    // MAV_CMD_DO_REPOSITION (COMMAND_INT). Antes enviabamos mission_item_int y el avion no se movia.
     mavlink_message_t msg;
-    mavlink_msg_mission_item_int_pack(
-        SYSID,                             // ID del sistema (tu drone o vehículo)
-        COMPID,                            // ID del componente (componente del MAVLink)
-        &msg,                              // Puntero al mensaje
-        TARGET_SYSID,                      // ID del sistema al que envías el comando
-        TARGET_COMPID,                     // ID del componente (por ejemplo, el autopiloto)
-        1,                                 // Sequence
+    mavlink_msg_command_int_pack(
+        SYSID,                             // Sender system ID
+        COMPID,                            // Sender component ID
+        &msg,                              // MAVLink message
+        TARGET_SYSID,                      // Target system ID
+        TARGET_COMPID,                     // Target component ID
         MAV_FRAME_GLOBAL_RELATIVE_ALT_INT, // Frame
-        MAV_CMD_NAV_WAYPOINT,              // Command
-        2,                                 // current
-        1,                                 // autocontinue
-        0,                                 // Param 1 Delay
-        0,                                 // Param 2 Empty
-        0,                                 // Param 3 Empty
-        0,                                 // Param 4 Empty
-        lat,                               // Latitude
-        lon,                               // Longitude
-        (alt / 1000),                      // Altitude
-        MAV_MISSION_TYPE_MISSION           // Mission type
+        MAV_CMD_DO_REPOSITION,             // Command
+        0,                                 // current
+        0,                                 // autocontinue
+        -1,                                // param1: velocidad (-1 = por defecto)
+        0,                                 // param2: flags
+        0,                                 // param3: radio
+        0,                                 // param4: yaw
+        lat,                               // x: latitud (* 1E7)
+        lon,                               // y: longitud (* 1E7)
+        (alt / 1000.0f)                    // z: altitud (m, relativa)
     );
 
     send_to_fc(msg);

@@ -1,9 +1,15 @@
 #include "Telem.h"
 
+#include <cstring>
+
 Telem *Telem::self = nullptr;
 
 Telem::Telem(FWM *fwm) : SerialPort(1)
 {
+    // A1: APdata debe partir de un estado conocido. Sin esto, si no llega MAVLink
+    // (o antes del primer mensaje) los campos contienen basura y se transmiten
+    // coordenadas inválidas que el seguidor descarta.
+    memset(&APdata, 0, sizeof(APdata));
     APdata.armed = false;
 
     this->fwm = fwm;

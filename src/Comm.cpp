@@ -5,6 +5,8 @@ Comm *Comm::self = nullptr;
 Comm::Comm(FWM *fwm)
 {
   self = this;
+  // A1: estado de comunicación conocido desde el arranque
+  memset(&commData, 0, sizeof(commData));
   this->fwm = fwm;
 }
 

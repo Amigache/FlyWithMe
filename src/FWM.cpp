@@ -111,6 +111,12 @@ void FWM::run()
         lastTelemetryLog = millis();
     }
     
+    // A2: recuperación tras emergencia (histéresis: se reintenta pasado el cooldown)
+    if (currentState == STATE_EMERGENCY && (millis() - stateEntryTime) > EMERGENCY_RECOVERY_MS)
+    {
+        transitionState(STATE_SEARCHING);
+    }
+
     // State machine
     if (follow_mode == FOLL_MODE_FOLLOWER) // Only work if we are on follower mode
     {
@@ -354,6 +360,7 @@ void FWM::transitionState(SystemState newState)
         
         previousState = currentState;
         currentState = newState;
+        stateEntryTime = millis();
         onStateEntry(newState);
     }
     else
@@ -391,10 +398,10 @@ bool FWM::isValidStateTransition(SystemState from, SystemState to)
         return (to == STATE_LOST_LINK || to == STATE_LANDING || to == STATE_SEARCHING);
         
     case STATE_LOST_LINK:
-        return (to == STATE_SEARCHING || to == STATE_CONNECTING || to == STATE_LANDING);
+        return (to == STATE_FOLLOWING || to == STATE_SEARCHING || to == STATE_CONNECTING || to == STATE_LANDING);
         
     case STATE_EMERGENCY:
-        return (to == STATE_LANDING);
+        return (to == STATE_SEARCHING || to == STATE_LANDING);
         
     case STATE_LANDING:
         return (to == STATE_SEARCHING); // Puede volver a buscar después de aterrizar

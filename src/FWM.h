@@ -42,6 +42,7 @@ public:
     // FASE 1: State Machine
     SystemState currentState = STATE_INIT;
     SystemState previousState = STATE_INIT;
+    uint32_t stateEntryTime = 0; // A2: momento de entrada al estado actual (histéresis)
     void transitionState(SystemState newState);
     bool isValidStateTransition(SystemState from, SystemState to);
     void onStateEntry(SystemState state);

@@ -173,6 +173,8 @@ desarrollo consolidada: roadmap + Fases 1–4). Ver sección 7.
 | `README.md` | Presentación | ✅ Completo: descripción, hardware, arquitectura, build, config, tests y licencia. |
 | `AGENTS.md` | Guía para agentes | Este documento. |
 | `docs/FLYWITHME.md` | Documentación de desarrollo | **Consolidado**: roadmap (`MEJORAS_RECOMENDADAS`) + informes Fases 1–4. Alineado con el código. |
+| `docs/ROADMAP.md` | Estado y plan vivo | Validación en banco, fallos corregidos y fases A–E. **Actualizar al completar tareas.** |
+| `tools/hil_test.py` | Arnés de pruebas HIL | Valida el enlace líder/seguidor por serial (ver §2). |
 
 > Los antiguos `MEJORAS_RECOMENDADAS.md` y `FASE{1..4}_IMPLEMENTADA.md` se fusionaron en
 > `docs/FLYWITHME.md` y se eliminaron de la raíz.

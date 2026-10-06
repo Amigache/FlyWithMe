@@ -142,6 +142,7 @@ distancia, validación, predicción y compresión).
 | Documento | Contenido |
 |---|---|
 | [`docs/FLYWITHME.md`](docs/FLYWITHME.md) | Documentación de desarrollo consolidada: roadmap y Fases 1–4. |
+| [`docs/ROADMAP.md`](docs/ROADMAP.md) | **Estado y roadmap vivo** (validación, fallos corregidos, fases A–E). |
 | [`AGENTS.md`](AGENTS.md) | Guía para agentes de código / desarrolladores. |
 
 ---

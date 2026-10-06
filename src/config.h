@@ -168,8 +168,8 @@
 #define GUIDED_AIRSPEED_MAX 30.0f      // m/s - tope superior de airspeed comandada
 // Ley cross-track (seguimiento de la traza del lider): rumbo = traza + correccion por error
 // lateral; velocidad = la del lider + correccion por error longitudinal. Evoluciona suave, sin zigzag.
-#define CROSS_TRACK_GAIN_DEG_PER_M 0.5f  // deg de correccion por metro de error lateral
-#define MAX_HEADING_CORR_DEG 25.0f       // deg - tope de correccion de rumbo
+#define CROSS_TRACK_GAIN_DEG_PER_M 0.6f  // deg de correccion por metro de error lateral
+#define MAX_HEADING_CORR_DEG 40.0f       // deg - tope de correccion de rumbo
 #define ALONG_GAIN_CMS_PER_M 12.0f       // cm/s de correccion por metro de error longitudinal
 #define MAX_SPEED_SLOW 400               // cm/s (4 m/s) de frenado maximo
 #define SPEED_DEADBAND_M 2.0f            // m - error longitudinal que no corrige (evita caza de velocidad)
@@ -189,7 +189,7 @@
 #define FOLL_MODE_CH 7
 #define ALT_OFFSET 10 // m
 #define SPEED_OFFSET 10 // % (sobre-velocidad al recuperar distancia; menor = mas suave)
-#define DIST_OFFSET 100 //m
+#define DIST_OFFSET 92 //m - distancia comandada (la separacion real queda ~100 m por el retraso de la ley)
 
 // Set by target
 #ifdef MASTER_BUILD_FLAG

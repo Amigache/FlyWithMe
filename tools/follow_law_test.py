@@ -1,30 +1,36 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Banco de pruebas de la LEY DE SEGUIMIENTO (sin reflashear).
+"""Banco de pruebas de la LEY DE SEGUIMIENTO cross-track (sin reflashear).
 
 Conecta a dos SITL (lider 5763 / seguidor 5773), despega ambos, mueve al lider
-por una ruta (recta + giro) y ejecuta en el PC la ley de guiado del seguidor
-enviando GUIDED_CHANGE_HEADING/SPEED (+ DO_REPOSITION periodico para la altitud).
+por una ruta (recta + giro opcional) y ejecuta en el PC la misma ley que el
+firmware (cross-track + velocidad longitudinal), enviando
+GUIDED_CHANGE_HEADING/SPEED + DO_REPOSITION periodico para la altitud.
 
-Registra la pista del seguidor y metricas de zigzag (error de cruce / distancia).
+Permite elegir la formacion y los parametros de la ley para afinar sin reflashear.
 
 Uso:
-  python tools/follow_law_test.py --seconds 120 --law cross
+  python tools/follow_law_test.py --formation trail --seconds 90
+  python tools/follow_law_test.py --formation left --along-gain 12 --deadband 2 --quant 50
 """
 import argparse
 import math
-import sys
 import time
 
 from pymavlink import mavutil
 
-R = 6371000.0
 DIST_OFFSET = 100.0     # m de retraso (TRAIL)
-ALT_REFRESH = 2.0       # s entre DO_REPOSITION (altitud)
-LAW_RATE_HZ = 5.0
+LATERAL = 50.0          # m (LEFT/RIGHT)
+VERTICAL = 20.0         # m (ABOVE/BELOW)
+ALT_REFRESH = 2.0
+RATE_HZ = 5.0
 GUIDED_CHANGE_HEADING = 43002
 GUIDED_CHANGE_SPEED = 43000
-MAV_FRAME_REL = mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT
+MAX_HEADING_CORR = 25.0
+MAX_SPEED_BOOST = 600
+MAX_SPEED_SLOW = 400
+AIRSPD_MIN, AIRSPD_MAX = 10.0, 30.0
+FRAME = mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT
 
 
 def connect(conn, sysid):
@@ -44,7 +50,7 @@ def drain(conn):
     return d
 
 
-def takeoff(conn, alt):
+def takeoff(conn):
     tgt = conn.target_system
     for _ in range(3):
         conn.mav.param_set_send(tgt, 1, b'ARMING_CHECK', 0, mavutil.mavlink.MAV_PARAM_TYPE_INT32)
@@ -52,8 +58,7 @@ def takeoff(conn, alt):
     conn.mav.set_mode_send(tgt, mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, 13)
     time.sleep(1)
     for _ in range(8):
-        conn.mav.command_long_send(tgt, 1, mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM, 0,
-                                   1, 0, 0, 0, 0, 0, 0)
+        conn.mav.command_long_send(tgt, 1, mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM, 0, 1, 0, 0, 0, 0, 0, 0)
         time.sleep(1)
         d = drain(conn)
         hb = d.get('HEARTBEAT')
@@ -70,157 +75,148 @@ def takeoff(conn, alt):
 
 
 def geo_offset(lat, lon, dist_m, brg_deg):
-    """Desplaza (lat,lon) dist_m en la marcacion brg_deg (grados)."""
     br = math.radians(brg_deg)
     dlat = dist_m * math.cos(br) / 111320.0
     dlon = dist_m * math.sin(br) / (111320.0 * math.cos(math.radians(lat)))
     return lat + dlat, lon + dlon
 
 
+def formation_point(llat, llon, lalt, hdg_deg, formation):
+    """Replica de calculateFormationPosition (punto objetivo + altitud)."""
+    if formation == 'trail':
+        plat, plon = geo_offset(llat, llon, DIST_OFFSET, hdg_deg + 180.0)
+        palt = lalt
+    elif formation == 'left':
+        plat, plon = geo_offset(llat, llon, LATERAL, hdg_deg - 90.0)
+        palt = lalt
+    elif formation == 'right':
+        plat, plon = geo_offset(llat, llon, LATERAL, hdg_deg + 90.0)
+        palt = lalt
+    elif formation == 'above':
+        plat, plon = llat, llon
+        palt = lalt + VERTICAL
+    elif formation == 'below':
+        plat, plon = llat, llon
+        palt = lalt - VERTICAL
+    return plat, plon, palt
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--leader', default='tcp:127.0.0.1:5763')
     ap.add_argument('--follower', default='tcp:127.0.0.1:5773')
-    ap.add_argument('--seconds', type=int, default=120)
-    ap.add_argument('--law', default='cross', choices=['point', 'cross'])
+    ap.add_argument('--seconds', type=int, default=90)
+    ap.add_argument('--formation', default='trail',
+                    choices=['trail', 'left', 'right', 'above', 'below'])
+    ap.add_argument('--turn', action='store_true')
     ap.add_argument('--alt', type=float, default=80)
-    ap.add_argument('--turn', action='store_true', help='ruta con un giro de 90 grados')
+    ap.add_argument('--cross-gain', type=float, default=0.5)
+    ap.add_argument('--cross-max', type=float, default=25.0)
+    ap.add_argument('--along-gain', type=float, default=12.0)
+    ap.add_argument('--along-i', type=float, default=0.0, help='cm/s por (m*s) - termino integral')
+    ap.add_argument('--deadband', type=float, default=2.0)
+    ap.add_argument('--quant', type=float, default=50.0)
+    ap.add_argument('--no-takeoff', action='store_true')
     args = ap.parse_args()
 
     lead = connect(args.leader, 255)
     fol = connect(args.follower, 253)
-    print("despegando...")
-    if not takeoff(lead, args.alt):
-        print("AVISO: lider no despego")
-    if not takeoff(fol, args.alt):
-        print("AVISO: seguidor no despego")
+    if not args.no_takeoff:
+        print("despegando...")
+        takeoff(lead)
+        takeoff(fol)
     print("en el aire")
 
-    tgt_l = lead.target_system
-    tgt_f = fol.target_system
-
-    def set_guided(conn):
-        conn.mav.set_mode_send(conn.target_system,
-                               mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, 15)
-
-    set_guided(lead)
-    set_guided(fol)
+    tgt_l, tgt_f = lead.target_system, fol.target_system
+    for c in (lead, fol):
+        c.mav.set_mode_send(c.target_system, mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, 15)
     time.sleep(2)
 
-    dl = drain(lead)
-    g = dl.get('GLOBAL_POSITION_INT')
+    g = drain(lead).get('GLOBAL_POSITION_INT')
     llat, llon = g.lat / 1e7, g.lon / 1e7
-    # Ruta del lider: 2 puntos (recta) o un giro de 90
     if args.turn:
-        route = [geo_offset(llat, llon, 4000, 180.0), geo_offset(llat, llon, 4000, 180.0)]
+        route = geo_offset(llat, llon, 4000, 180.0)
         route2 = geo_offset(llat, llon, 8000, 90.0)
     else:
-        route = [geo_offset(llat, llon, 6000, 180.0)]
+        route = geo_offset(llat, llon, 6000, 180.0)
         route2 = None
-
-    # Lanzar al lider al primer waypoint
-    lead.mav.command_int_send(tgt_l, 1, MAV_FRAME_REL,
-                              mavutil.mavlink.MAV_CMD_DO_REPOSITION, 0, 0,
-                              -1, 0, 0, 0, int(route[0][0] * 1e7), int(route[0][1] * 1e7),
-                              float(args.alt))
+    lead.mav.command_int_send(tgt_l, 1, FRAME, mavutil.mavlink.MAV_CMD_DO_REPOSITION, 0, 0,
+                              -1, 0, 0, 0, int(route[0] * 1e7), int(route[1] * 1e7), float(args.alt))
     route_t0 = time.time()
 
-    cross_errs = []
-    dists = []
-    track = []
+    alongs, crosses, dists = [], [], []
     t0 = time.time()
     last_alt = 0.0
     switched = False
-    print(f"\n t  dist  cross  north-raw  head  roll  gsl  gsf")
+    rows = []
+    integral = 0.0
+    dt = 1.0 / RATE_HZ
     while time.time() - t0 < args.seconds:
-        dl = drain(lead)
-        df = drain(fol)
-        gl = dl.get('GLOBAL_POSITION_INT')
-        gf = df.get('GLOBAL_POSITION_INT')
+        dl, df = drain(lead), drain(fol)
+        gl, gf = dl.get('GLOBAL_POSITION_INT'), df.get('GLOBAL_POSITION_INT')
         att = df.get('ATTITUDE')
-        huds = df.get('VFR_HUD')
-        hudl = dl.get('VFR_HUD')
         if not gl or not gf:
-            time.sleep(1.0 / LAW_RATE_HZ)
+            time.sleep(1.0 / RATE_HZ)
             continue
 
         llat, llon, lalt = gl.lat / 1e7, gl.lon / 1e7, gl.relative_alt / 1000.0
         flat, flon, falt = gf.lat / 1e7, gf.lon / 1e7, gf.relative_alt / 1000.0
-        vn, ve = gl.vx / 100.0, gl.vy / 100.0  # m/s
-        vmag = math.hypot(vn, ve)
-        if vmag < 1.0:
-            vmag = 1.0
+        vn, ve = gl.vx / 100.0, gl.vy / 100.0
+        vmag = math.hypot(vn, ve) or 1.0
         un, ue = vn / vmag, ve / vmag
+        theta = math.degrees(math.atan2(ue, un))
+        hdg = dl.get('VFR_HUD').heading if dl.get('VFR_HUD') else theta
 
-        # Punto de formacion (TRAIL): 100 m detras del lider
-        theta = math.degrees(math.atan2(ue, un))  # rumbo de la traza
-        plat, plon = geo_offset(llat, llon, DIST_OFFSET, theta + 180.0)
-        palt = lalt
-
-        # Errores relativos al punto de formacion en ejes de la traza
+        plat, plon, palt = formation_point(llat, llon, lalt, hdg, args.formation)
         dn = (flat - plat) * 111320.0
         de = (flon - plon) * 111320.0 * math.cos(math.radians(flat))
         along = dn * un + de * ue
-        cross = dn * (-ue) + de * un  # positivo = a la izquierda de la traza
+        cross = -dn * ue + de * un
 
-        # Ley de rumbo
-        if args.law == 'point':
-            # apuntar directo al punto (lo que hace el firmware actual)
-            brg = math.degrees(math.atan2(de, dn))
-            hcmd = brg
-        else:
-            # cross-track: traza + correccion proporcional al error lateral (signo que converge)
-            k = 0.5  # deg/m
-            corr = max(-25.0, min(25.0, -k * cross))
-            hcmd = theta + corr
-        hcmd = (hcmd + 360.0) % 360.0
+        corr = max(-args.cross_max, min(args.cross_max, -args.cross_gain * cross))
+        hcmd = (theta + corr) % 360.0
 
-        # Velocidad: traza del lider + correccion de distancia al punto
-        dist_point = math.hypot(dn, de)
-        along_err = along - 0.0  # queremos along=0 en el punto
-        base = hudl.groundspeed if hudl else 22.0
-        vcmd = base + max(-4.0, min(6.0, 0.12 * -along_err))
-        vcmd = max(12.0, min(28.0, vcmd))
+        along_dead = 0.0 if abs(along) < args.deadband else along
+        integral += along * dt
+        integral = max(-1000.0, min(1000.0, integral))
+        boost = max(-MAX_SPEED_SLOW, min(MAX_SPEED_BOOST, -along_dead * args.along_gain - args.along_i * integral))
+        base = (dl.get('VFR_HUD').groundspeed if dl.get('VFR_HUD') else 22.0)
+        vcmd = base + boost / 100.0
+        vcmd = max(AIRSPD_MIN, min(AIRSPD_MAX, vcmd))
+        vcmd = round(vcmd * 100.0 / args.quant) * args.quant / 100.0
 
-        fol.mav.command_int_send(tgt_f, 1, MAV_FRAME_REL, GUIDED_CHANGE_HEADING, 0, 0,
-                                 0.0, hcmd, 20.0, 0.0, 0, 0, 0.0)
-        fol.mav.command_int_send(tgt_f, 1, MAV_FRAME_REL, GUIDED_CHANGE_SPEED, 0, 0,
-                                 0.0, vcmd, 1.0, 0.0, 0, 0, 0.0)
+        fol.mav.command_int_send(tgt_f, 1, FRAME, GUIDED_CHANGE_HEADING, 0, 0, 0.0, hcmd, 20.0, 0.0, 0, 0, 0.0)
+        fol.mav.command_int_send(tgt_f, 1, FRAME, GUIDED_CHANGE_SPEED, 0, 0, 0.0, vcmd, 1.0, 0.0, 0, 0, 0.0)
         if time.time() - last_alt >= ALT_REFRESH:
-            fol.mav.command_int_send(tgt_f, 1, MAV_FRAME_REL, mavutil.mavlink.MAV_CMD_DO_REPOSITION,
-                                     0, 0, -1, 0, 0, 0, int(plat * 1e7), int(plon * 1e7), palt)
+            fol.mav.command_int_send(tgt_f, 1, FRAME, mavutil.mavlink.MAV_CMD_DO_REPOSITION, 0, 0,
+                                     -1, 0, 0, 0, int(plat * 1e7), int(plon * 1e7), palt)
             last_alt = time.time()
 
-        cross_errs.append(cross)
-        dists.append(dist_point)
-        track.append((flat, flon))
-        if int(time.time() - t0) % 2 == 0 and len(track) % 10 == 1:
-            yaw = math.degrees(att.yaw) if att else 0
-            roll = math.degrees(att.roll) if att else 0
-            gsf = huds.groundspeed if huds else 0
-            gsl = hudl.groundspeed if hudl else 0
-            print(f"{time.time()-t0:5.0f} {dist_point:6.0f} {cross:6.0f} {vn:6.0f} {yaw:6.0f} {roll:6.0f} {gsl:5.1f} {gsf:5.1f}")
+        # solo metricas en regimen (tras 30 s)
+        if time.time() - t0 > 30:
+            alongs.append(along)
+            crosses.append(cross)
+        dists.append(math.hypot((flat - llat) * 111320.0,
+                                (flon - llon) * 111320.0 * math.cos(math.radians(flat))))
+        rows.append((time.time() - t0, along, cross, flat, flon))
 
-        # cambiar de rumbo del lider a mitad (giro)
         if args.turn and not switched and time.time() - route_t0 > args.seconds * 0.5:
-            lead.mav.command_int_send(tgt_l, 1, MAV_FRAME_REL, mavutil.mavlink.MAV_CMD_DO_REPOSITION,
-                                      0, 0, -1, 0, 0, 0, int(route2[0] * 1e7), int(route2[1] * 1e7),
-                                      float(args.alt))
+            lead.mav.command_int_send(tgt_l, 1, FRAME, mavutil.mavlink.MAV_CMD_DO_REPOSITION, 0, 0,
+                                      -1, 0, 0, 0, int(route2[0] * 1e7), int(route2[1] * 1e7), float(args.alt))
             switched = True
             print("-> giro del lider")
 
-        time.sleep(1.0 / LAW_RATE_HZ)
+        time.sleep(1.0 / RATE_HZ)
 
     print("\n=== RESULTADO ===")
-    if dists:
-        abs_cross = [abs(c) for c in cross_errs]
-        print(f"dist media={sum(dists)/len(dists):.0f} m  min={min(dists):.0f} max={max(dists):.0f}")
-        print(f"|cross| media={sum(abs_cross)/len(abs_cross):.1f} m  max={max(abs_cross):.1f} m")
-        # pista
-        with open('tools/_follow_track.csv', 'w') as f:
-            for la, lo in track:
-                f.write(f"{la:.7f},{lo:.7f}\n")
-        print("pista -> tools/_follow_track.csv")
+    if alongs:
+        m = lambda v: sum(v) / len(v)
+        std = lambda v, mm: math.sqrt(sum((x - mm) ** 2 for x in v) / len(v))
+        print(f"formacion={args.formation}  cross-gain={args.cross_gain} along-gain={args.along_gain} "
+              f"deadband={args.deadband} quant={args.quant}")
+        print(f"along  medio={m(alongs):6.1f} m  std={std(alongs, m(alongs)):.1f}")
+        print(f"cross  medio={m(crosses):6.1f} m  std={std(crosses, m(crosses)):.1f}  |max|={max(abs(c) for c in crosses):.1f}")
+        print(f"dist lider-seguidor: media={m(dists):.0f} m  min={min(dists):.0f} max={max(dists):.0f}")
 
 
 if __name__ == '__main__':

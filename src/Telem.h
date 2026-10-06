@@ -34,6 +34,29 @@ public:
   static void heartbeat_ticker_callback();
 
   uint16_t calculate_dynamic_speed(float leader_speed, float distance);
+  
+  // FASE 1: Límites de seguridad
+  float calculateDistance(int32_t lat1, int32_t lon1, int32_t lat2, int32_t lon2);
+  bool isSafeToFollow(LoraPacket_t leaderData);
+  
+  // FASE 3: Predicción y formaciones
+  PredictedPosition predictLeaderPosition(LoraPacket_t current, uint32_t futureTime);
+  void calculateFormationPosition(LoraPacket_t leader, FormationType formation, 
+                                   int32_t &targetLat, int32_t &targetLon, int32_t &targetAlt);
+  const char* getFormationName(FormationType formation);
+  
+  // FASE 3: Variables de formación y filtrado
+  FormationType currentFormation = (FormationType)DEFAULT_FORMATION;
+  PositionFilter positionFilter;
+  PredictedPosition lastPrediction;
+  
+  // FASE 4: Simulación
+  #if SIMULATION_MODE
+  SimulatedData simulatedData;
+  void initSimulation();
+  void updateSimulation();
+  LoraPacket_t getSimulatedPacket();
+  #endif
 
   APdata_t APdata;
   boolean link = false;

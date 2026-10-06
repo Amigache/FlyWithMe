@@ -9,8 +9,8 @@
 #include "Screen.h"
 
 #include <Preferences.h>
-
 #include <Ticker.h>
+#include <esp_task_wdt.h>  // FASE 1: Watchdog
 
 class Screen;
 class Web;
@@ -38,6 +38,19 @@ public:
     int stage_follow = STAGE_IDLE;
     int follow_mode = FOLL_MODE;
     void changeFollowMode(uint8_t mode);
+
+    // FASE 1: State Machine
+    SystemState currentState = STATE_INIT;
+    SystemState previousState = STATE_INIT;
+    void transitionState(SystemState newState);
+    bool isValidStateTransition(SystemState from, SystemState to);
+    void onStateEntry(SystemState state);
+    const char* getStateName(SystemState state);
+    
+    // FASE 2: Control de flujo adaptativo y logging
+    void updateTransmissionRate();
+    float getDistanceToFollower();
+    Logger* logger = nullptr;
 
     // Params
     void resetParams();

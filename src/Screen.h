@@ -24,8 +24,42 @@ public:
 
     boolean connected_screen = false;
     
+    // FASE 4: Sistema de menú interactivo
+    #if USE_INTERACTIVE_MENU
+    void initMenu();
+    void updateMenu();
+    void handleButtonPress();
+    void showMenu();
+    void showFormationMenu();
+    void showSettingsMenu();
+    void showDiagnosticsMenu();
+    void showStatsScreen();
+    MenuState currentMenuState = MENU_MAIN;
+    int selectedOption = 0;
+    int menuOffset = 0;
+    SystemStats getSystemStats();
+    #endif
+    
 private:
-    // Params_t params_data;
     FWM *fwm;
+    
+    #if USE_INTERACTIVE_MENU
+    // Botones
+    uint32_t lastButtonPress[4] = {0, 0, 0, 0};
+    bool buttonState[4] = {false, false, false, false};
+    
+    // Opciones de menú
+    static const int MAX_MENU_ITEMS = 8;
+    MenuOption mainMenuOptions[MAX_MENU_ITEMS];
+    MenuOption formationMenuOptions[MAX_MENU_ITEMS];
+    MenuOption settingsMenuOptions[MAX_MENU_ITEMS];
+    int mainMenuSize;
+    int formationMenuSize;
+    int settingsMenuSize;
+    
+    // Helpers
+    bool isButtonPressed(int pin, int buttonIndex);
+    void executeMenuItem(MenuItem item);
+    #endif
 };
 #endif

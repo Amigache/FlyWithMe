@@ -1,7 +1,9 @@
 #include "Web.h"
 
-// Set web server port number
+// Set web server port number (legacy, usar AsyncWebServer en Fase 4)
+#if !USE_WEB_SERVER
 WiFiServer server(WEB_PORT);
+#endif
 
 // Variable to store the HTTP request
 String header;
@@ -13,14 +15,24 @@ Web::Web(FWM *fwm)
 
 void Web::begin()
 {
+  #if USE_WEB_SERVER
+  setupWebServer();
+  #endif
 }
 
 void Web::startAP()
 {
   // Start the server
   Log.notice("Init Access Point" CR);
+  
+  // IMPORTANTE: Configurar modo WiFi ANTES de iniciar AP
+  WiFi.mode(WIFI_AP);
+  delay(100);  // Dar tiempo al WiFi para inicializar
 
   WiFi.softAP(fwm->params.ssid, fwm->params.pass);
+  
+  // Esperar a que el AP esté completamente activo
+  delay(500);
 
   Log.notice("AP SSID: %s" CR, fwm->params.ssid);
   Log.notice("AP Password: %s" CR, fwm->params.pass);
@@ -29,22 +41,26 @@ void Web::startAP()
   Log.notice("AP IP address: %s" CR, host_ip.toString().c_str());
 
   Log.notice("Access Point Ready" CR);
+  
+  // Marcar servidor como activo (para ambos modos)
+  server_up = true;
 
+  #if !USE_WEB_SERVER
   Log.notice("Init WebServer" CR);
   server.begin();
-  server_up = true;
   Log.notice("Url: http://%s:%d" CR,host_ip.toString().c_str(), WEB_PORT);
   Log.notice("WebServer Ready" CR);
+  #endif
 }
 
 void Web::run()
 {
+  // Mostrar información del AP cuando hay linkTimeout
   if (fwm->mav->linkTimeout && !fwm->mav->lock_ap)
   {
-
     if (!server_up)
     {
-
+      // AP no iniciado - iniciar con mensajes
       fwm->screen->showCenterText("Not FC connection");
       delay(1000);
       fwm->screen->showCenterText("Starting AP Mode");
@@ -53,12 +69,23 @@ void Web::run()
       // Start the server
       startAP();
     }
+    #if WEB_START_AP_IMMEDIATELY
+    else if (server_up && !ap_info_shown)
+    {
+      // AP ya iniciado - solo mostrar mensajes una vez
+      fwm->screen->showCenterText("Not FC connection");
+      delay(1000);
+      fwm->screen->showCenterText("AP Mode Active");
+      delay(1000);
+      ap_info_shown = true;
+    }
+    #endif
     else
     {
-
       // Display server data
       fwm->screen->showServerData(fwm->params.ssid, fwm->params.pass, host_ip);
 
+      #if !USE_WEB_SERVER
       WiFiClient client = server.available(); // Listen for incoming clients
 
       if (client)
@@ -178,8 +205,14 @@ void Web::run()
         client.stop();
         Log.notice("Client disconnected." CR);
       }
+      #endif
     }
   }
+  
+  #if USE_WEB_SERVER && USE_WEBSOCKET
+  // Enviar telemetría por WebSocket si hay clientes conectados
+  sendTelemetryWebSocket();
+  #endif
 }
 
 // Función auxiliar para decodificar URL
@@ -233,3 +266,294 @@ String Web::getPostParam(String postBody, String paramName)
   // Decodifica el valor y lo retorna
   return urlDecode(rawValue);
 }
+
+// ============================================================================
+// FASE 4: Servidor Web y WebSocket
+// ============================================================================
+
+#if USE_WEB_SERVER
+
+void Web::setupWebServer()
+{
+  if (server != nullptr) return;
+  
+  server = new AsyncWebServer(WEB_SERVER_PORT);
+  
+  // Ruta principal - Panel de control HTML
+  server->on("/", HTTP_GET, [this](AsyncWebServerRequest *request){
+    request->send(200, "text/html", generateHTML());
+  });
+  
+  // API REST - Obtener configuración
+  server->on("/api/config", HTTP_GET, [this](AsyncWebServerRequest *request){
+    handleGetConfig();
+    request->send(200, "application/json", "{\"status\":\"ok\"}");
+  });
+  
+  // API REST - Establecer configuración
+  server->on("/api/config", HTTP_POST, [this](AsyncWebServerRequest *request){
+    // Manejar parámetros
+    if (request->hasParam("formation", true)) {
+      String formation = request->getParam("formation", true)->value();
+      // TODO: Actualizar formación
+    }
+    if (request->hasParam("prediction", true)) {
+      String pred = request->getParam("prediction", true)->value();
+      // TODO: Activar/desactivar predicción
+    }
+    request->send(200, "application/json", generateAPIResponse(true, "Config updated"));
+  });
+  
+  // API REST - Obtener estadísticas
+  server->on("/api/stats", HTTP_GET, [this](AsyncWebServerRequest *request){
+    String stats = "{";
+    stats += "\"uptime\":" + String(millis()) + ",";
+    stats += "\"rx_packets\":" + String(fwm->comm->commData.rx_packet_counter) + ",";
+    stats += "\"tx_packets\":" + String(fwm->comm->commData.tx_packet_counter) + ",";
+    stats += "\"rssi\":" + String(fwm->comm->commData.rssi) + ",";
+    stats += "\"snr\":" + String(fwm->comm->commData.snr);
+    stats += "}";
+    request->send(200, "application/json", stats);
+  });
+  
+  // API REST - Obtener logs
+  server->on("/api/logs", HTTP_GET, [this](AsyncWebServerRequest *request){
+    if (!SPIFFS.begin()) {
+      request->send(500, "text/plain", "SPIFFS error");
+      return;
+    }
+    
+    File logFile = SPIFFS.open("/flight.log", "r");
+    if (!logFile) {
+      request->send(404, "text/plain", "Log file not found");
+      return;
+    }
+    
+    String logs = "";
+    while (logFile.available()) {
+      logs += (char)logFile.read();
+    }
+    logFile.close();
+    
+    request->send(200, "text/plain", logs);
+  });
+  
+  // WebSocket para telemetría en tiempo real
+  setupWebSocket();
+  
+  server->begin();
+  Log.notice("Servidor web iniciado en puerto %d" CR, WEB_SERVER_PORT);
+}
+
+void Web::setupWebSocket()
+{
+  if (ws != nullptr) return;
+  
+  ws = new AsyncWebSocket("/ws");
+  
+  ws->onEvent([](AsyncWebSocket *server, AsyncWebSocketClient *client, 
+                 AwsEventType type, void *arg, uint8_t *data, size_t len){
+    if (type == WS_EVT_CONNECT) {
+      Log.notice("WebSocket client conectado: %u" CR, client->id());
+    } else if (type == WS_EVT_DISCONNECT) {
+      Log.notice("WebSocket client desconectado: %u" CR, client->id());
+    }
+  });
+  
+  server->addHandler(ws);
+  Log.notice("WebSocket iniciado en /ws" CR);
+}
+
+void Web::sendTelemetryWebSocket()
+{
+  if (ws == nullptr || ws->count() == 0) return;
+  
+  // Limitar frecuencia de envío
+  uint32_t now = millis();
+  if (now - lastWSBroadcast < 200) return;  // Máximo 5 Hz
+  lastWSBroadcast = now;
+  
+  // Crear mensaje JSON con telemetría
+  String telemetry = "{";
+  telemetry += "\"timestamp\":" + String(now) + ",";
+  telemetry += "\"lat\":" + String(fwm->mav->APdata.lat / 1e7, 7) + ",";
+  telemetry += "\"lon\":" + String(fwm->mav->APdata.lon / 1e7, 7) + ",";
+  telemetry += "\"alt\":" + String(fwm->mav->APdata.relative_alt / 1000.0, 2) + ",";
+  telemetry += "\"heading\":" + String(fwm->mav->APdata.hdg / 100.0, 2) + ",";
+  telemetry += "\"speed\":" + String(fwm->mav->APdata.ground_speed) + ",";
+  telemetry += "\"rssi\":" + String(fwm->comm->commData.rssi);
+  telemetry += "}";
+  
+  ws->textAll(telemetry);
+}
+
+String Web::generateHTML()
+{
+  String html = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FlyWithMe Control Panel</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; background: #f0f0f0; }
+    .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; }
+    h1 { color: #333; text-align: center; }
+    .section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+    .stat { display: flex; justify-content: space-between; margin: 10px 0; }
+    .stat-label { font-weight: bold; }
+    .stat-value { color: #007bff; }
+    button { padding: 10px 20px; margin: 5px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; }
+    button:hover { background: #0056b3; }
+    select, input { padding: 8px; margin: 5px; border-radius: 5px; border: 1px solid #ddd; }
+    #map { height: 400px; width: 100%; border: 1px solid #ddd; margin: 10px 0; }
+    .status-ok { color: green; }
+    .status-error { color: red; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🛸 FlyWithMe Control Panel</h1>
+    
+    <div class="section">
+      <h2>Estado del Sistema</h2>
+      <div class="stat"><span class="stat-label">Uptime:</span><span class="stat-value" id="uptime">-</span></div>
+      <div class="stat"><span class="stat-label">Packets RX:</span><span class="stat-value" id="rx">-</span></div>
+      <div class="stat"><span class="stat-label">Packets TX:</span><span class="stat-value" id="tx">-</span></div>
+      <div class="stat"><span class="stat-label">RSSI:</span><span class="stat-value" id="rssi">-</span></div>
+      <div class="stat"><span class="stat-label">SNR:</span><span class="stat-value" id="snr">-</span></div>
+    </div>
+    
+    <div class="section">
+      <h2>Configuración</h2>
+      <div>
+        <label>Formación:</label>
+        <select id="formation">
+          <option value="0">Trail</option>
+          <option value="1">Left</option>
+          <option value="2">Right</option>
+          <option value="3">Above</option>
+          <option value="4">Below</option>
+        </select>
+      </div>
+      <div>
+        <label>Predicción: <input type="checkbox" id="prediction"></label>
+        <label>Filtro: <input type="checkbox" id="filter"></label>
+      </div>
+      <button onclick="saveConfig()">Guardar Config</button>
+    </div>
+    
+    <div class="section">
+      <h2>Telemetría en Tiempo Real</h2>
+      <div class="stat"><span class="stat-label">Latitud:</span><span class="stat-value" id="lat">-</span></div>
+      <div class="stat"><span class="stat-label">Longitud:</span><span class="stat-value" id="lon">-</span></div>
+      <div class="stat"><span class="stat-label">Altitud:</span><span class="stat-value" id="alt">-</span></div>
+      <div class="stat"><span class="stat-label">Velocidad:</span><span class="stat-value" id="speed">-</span></div>
+    </div>
+    
+    <div class="section">
+      <h2>Acciones</h2>
+      <button onclick="calibrateLora()">Calibrar LoRa</button>
+      <button onclick="downloadLogs()">Descargar Logs</button>
+      <button onclick="resetStats()">Reset Estadísticas</button>
+    </div>
+  </div>
+  
+  <script>
+    // WebSocket para telemetría en tiempo real
+    let ws = new WebSocket('ws://' + window.location.hostname + ':81/ws');
+    
+    ws.onmessage = function(event) {
+      let data = JSON.parse(event.data);
+      document.getElementById('lat').textContent = data.lat.toFixed(7);
+      document.getElementById('lon').textContent = data.lon.toFixed(7);
+      document.getElementById('alt').textContent = data.alt.toFixed(2) + ' m';
+      document.getElementById('speed').textContent = data.speed + ' cm/s';
+    };
+    
+    // Actualizar estadísticas cada segundo
+    setInterval(updateStats, 1000);
+    
+    function updateStats() {
+      fetch('/api/stats')
+        .then(r => r.json())
+        .then(data => {
+          document.getElementById('uptime').textContent = (data.uptime / 1000).toFixed(0) + ' s';
+          document.getElementById('rx').textContent = data.rx_packets;
+          document.getElementById('tx').textContent = data.tx_packets;
+          document.getElementById('rssi').textContent = data.rssi + ' dBm';
+          document.getElementById('snr').textContent = data.snr;
+        });
+    }
+    
+    function saveConfig() {
+      let formation = document.getElementById('formation').value;
+      let prediction = document.getElementById('prediction').checked;
+      let filter = document.getElementById('filter').checked;
+      
+      let formData = new FormData();
+      formData.append('formation', formation);
+      formData.append('prediction', prediction);
+      formData.append('filter', filter);
+      
+      fetch('/api/config', {method: 'POST', body: formData})
+        .then(r => r.json())
+        .then(data => alert(data.message));
+    }
+    
+    function calibrateLora() {
+      alert('Calibrando LoRa... Por favor espera.');
+      // TODO: Implementar endpoint
+    }
+    
+    function downloadLogs() {
+      window.open('/api/logs', '_blank');
+    }
+    
+    function resetStats() {
+      if (confirm('¿Resetear todas las estadísticas?')) {
+        // TODO: Implementar endpoint
+      }
+    }
+    
+    // Inicializar
+    updateStats();
+  </script>
+</body>
+</html>
+)rawliteral";
+  
+  return html;
+}
+
+String Web::generateAPIResponse(bool success, const char* message)
+{
+  String response = "{";
+  response += "\"success\":" + String(success ? "true" : "false") + ",";
+  response += "\"message\":\"" + String(message) + "\"";
+  response += "}";
+  return response;
+}
+
+void Web::handleGetConfig()
+{
+  // TODO: Implementar obtener configuración actual
+}
+
+void Web::handleSetConfig()
+{
+  // TODO: Implementar guardar configuración
+}
+
+void Web::handleGetStats()
+{
+  // Implementado inline en setupWebServer()
+}
+
+void Web::handleGetLogs()
+{
+  // Implementado inline en setupWebServer()
+}
+
+#endif // USE_WEB_SERVER

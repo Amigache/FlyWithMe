@@ -32,6 +32,34 @@ FlightModeInfo flightModes[] = {
 Screen::Screen(FWM *fwm)
 {
   this->fwm = fwm;
+  
+  #if USE_INTERACTIVE_MENU
+  // Inicializar menú principal
+  mainMenuOptions[0] = {"Formacion", ITEM_FORMATION_TYPE};
+  mainMenuOptions[1] = {"Configuracion", ITEM_FILTER_TOGGLE};
+  mainMenuOptions[2] = {"Diagnostico", ITEM_VIEW_STATS};
+  mainMenuOptions[3] = {"Calibrar LoRa", ITEM_CALIBRATE_LORA};
+  mainMenuSize = 4;
+  
+  // Inicializar menú de formación
+  formationMenuOptions[0] = {"Trail", ITEM_FORMATION_TYPE};
+  formationMenuOptions[1] = {"Left", ITEM_FORMATION_TYPE};
+  formationMenuOptions[2] = {"Right", ITEM_FORMATION_TYPE};
+  formationMenuOptions[3] = {"Above", ITEM_FORMATION_TYPE};
+  formationMenuOptions[4] = {"Below", ITEM_FORMATION_TYPE};
+  formationMenuOptions[5] = {"Distancia", ITEM_FORMATION_DISTANCE};
+  formationMenuOptions[6] = {"Volver", ITEM_BACK};
+  formationMenuSize = 7;
+  
+  // Inicializar menú de configuración
+  settingsMenuOptions[0] = {"Prediccion", ITEM_PREDICTION_TOGGLE};
+  settingsMenuOptions[1] = {"Filtro", ITEM_FILTER_TOGGLE};
+  settingsMenuOptions[2] = {"Alpha Filtro", ITEM_FILTER_ALPHA};
+  settingsMenuOptions[3] = {"Tasa Adapt.", ITEM_ADAPTIVE_RATE};
+  settingsMenuOptions[4] = {"Compresion", ITEM_COMPRESSION};
+  settingsMenuOptions[5] = {"Volver", ITEM_BACK};
+  settingsMenuSize = 6;
+  #endif
 }
 
 void Screen::begin()
@@ -67,10 +95,286 @@ void Screen::begin()
 
   delay(2000);
   Log.notice("Display Ready" CR);
+  
+  #if USE_INTERACTIVE_MENU
+  initMenu();
+  #endif
 }
+
+#if USE_INTERACTIVE_MENU
+void Screen::initMenu()
+{
+  // Inicializar pines de botones
+  pinMode(BUTTON_UP_PIN, INPUT_PULLUP);
+  pinMode(BUTTON_DOWN_PIN, INPUT_PULLUP);
+  pinMode(BUTTON_SELECT_PIN, INPUT_PULLUP);
+  pinMode(BUTTON_BACK_PIN, INPUT_PULLUP);
+  
+  Log.notice("Menu interactivo inicializado" CR);
+}
+
+bool Screen::isButtonPressed(int pin, int buttonIndex)
+{
+  bool currentState = (digitalRead(pin) == LOW);
+  uint32_t now = millis();
+  
+  // Anti-rebote
+  if (currentState && !buttonState[buttonIndex])
+  {
+    if (now - lastButtonPress[buttonIndex] > BUTTON_DEBOUNCE_MS)
+    {
+      lastButtonPress[buttonIndex] = now;
+      buttonState[buttonIndex] = true;
+      return true;
+    }
+  }
+  else if (!currentState)
+  {
+    buttonState[buttonIndex] = false;
+  }
+  
+  return false;
+}
+
+void Screen::handleButtonPress()
+{
+  // Botón UP
+  if (isButtonPressed(BUTTON_UP_PIN, 0))
+  {
+    if (selectedOption > 0) {
+      selectedOption--;
+    }
+  }
+  
+  // Botón DOWN
+  if (isButtonPressed(BUTTON_DOWN_PIN, 1))
+  {
+    int maxOptions = mainMenuSize;
+    if (currentMenuState == MENU_FORMATION) maxOptions = formationMenuSize;
+    if (currentMenuState == MENU_SETTINGS) maxOptions = settingsMenuSize;
+    
+    if (selectedOption < maxOptions - 1) {
+      selectedOption++;
+    }
+  }
+  
+  // Botón SELECT
+  if (isButtonPressed(BUTTON_SELECT_PIN, 2))
+  {
+    if (currentMenuState == MENU_MAIN) {
+      executeMenuItem(mainMenuOptions[selectedOption].item);
+    }
+    else if (currentMenuState == MENU_FORMATION) {
+      executeMenuItem(formationMenuOptions[selectedOption].item);
+    }
+    else if (currentMenuState == MENU_SETTINGS) {
+      executeMenuItem(settingsMenuOptions[selectedOption].item);
+    }
+  }
+  
+  // Botón BACK
+  if (isButtonPressed(BUTTON_BACK_PIN, 3))
+  {
+    if (currentMenuState != MENU_MAIN) {
+      currentMenuState = MENU_MAIN;
+      selectedOption = 0;
+    }
+  }
+}
+
+void Screen::executeMenuItem(MenuItem item)
+{
+  switch(item) {
+    case ITEM_FORMATION_TYPE:
+      currentMenuState = MENU_FORMATION;
+      selectedOption = 0;
+      break;
+      
+    case ITEM_FILTER_TOGGLE:
+      currentMenuState = MENU_SETTINGS;
+      selectedOption = 0;
+      break;
+      
+    case ITEM_VIEW_STATS:
+      currentMenuState = MENU_DIAGNOSTICS;
+      selectedOption = 0;
+      break;
+      
+    case ITEM_CALIBRATE_LORA:
+      #if AUTO_CALIBRATE_LORA
+      showCenterText("Calibrando...");
+      fwm->comm->autoCalibrate();
+      delay(2000);
+      #endif
+      break;
+      
+    case ITEM_BACK:
+      currentMenuState = MENU_MAIN;
+      selectedOption = 0;
+      break;
+      
+    default:
+      break;
+  }
+}
+
+void Screen::showMenu()
+{
+  display.clearDisplay();
+  display.setCursor(0, 0);
+  display.setTextSize(1);
+  
+  // Título según menú actual
+  const char* title = "MENU PRINCIPAL";
+  if (currentMenuState == MENU_FORMATION) title = "FORMACION";
+  if (currentMenuState == MENU_SETTINGS) title = "CONFIG";
+  if (currentMenuState == MENU_DIAGNOSTICS) title = "DIAGNOSTICO";
+  
+  display.println(title);
+  display.drawLine(0, 10, 128, 10, SSD1306_WHITE);
+  
+  // Mostrar opciones
+  MenuOption* options = mainMenuOptions;
+  int optionCount = mainMenuSize;
+  
+  if (currentMenuState == MENU_FORMATION) {
+    options = formationMenuOptions;
+    optionCount = formationMenuSize;
+  } else if (currentMenuState == MENU_SETTINGS) {
+    options = settingsMenuOptions;
+    optionCount = settingsMenuSize;
+  }
+  
+  // Calcular offset para scroll
+  const int maxVisible = 3;
+  if (selectedOption >= menuOffset + maxVisible) {
+    menuOffset = selectedOption - maxVisible + 1;
+  } else if (selectedOption < menuOffset) {
+    menuOffset = selectedOption;
+  }
+  
+  // Mostrar opciones visibles
+  for (int i = 0; i < maxVisible && (menuOffset + i) < optionCount; i++) {
+    int index = menuOffset + i;
+    display.setCursor(5, 15 + (i * 10));
+    
+    if (index == selectedOption) {
+      display.print(">");
+    } else {
+      display.print(" ");
+    }
+    
+    display.print(options[index].label);
+  }
+  
+  // Indicador de scroll
+  if (menuOffset > 0) {
+    display.setCursor(120, 15);
+    display.print("^");
+  }
+  if (menuOffset + maxVisible < optionCount) {
+    display.setCursor(120, 35);
+    display.print("v");
+  }
+  
+  display.display();
+}
+
+void Screen::showStatsScreen()
+{
+  SystemStats stats = getSystemStats();
+  
+  display.clearDisplay();
+  display.setCursor(0, 0);
+  display.setTextSize(1);
+  
+  display.println("ESTADISTICAS");
+  display.drawLine(0, 10, 128, 10, SSD1306_WHITE);
+  display.setCursor(0, 15);
+  
+  display.print("Uptime: ");
+  display.print(stats.uptime / 1000);
+  display.println("s");
+  
+  display.print("RX: ");
+  display.println(stats.totalPacketsRx);
+  
+  display.print("TX: ");
+  display.println(stats.totalPacketsTx);
+  
+  display.print("Lost: ");
+  display.print(stats.packetsLost);
+  display.print(" (");
+  display.print(stats.packetLossRate, 1);
+  display.println("%)");
+  
+  display.print("RSSI: ");
+  display.print(stats.avgRSSI);
+  display.println("dBm");
+  
+  display.display();
+}
+
+SystemStats Screen::getSystemStats()
+{
+  SystemStats stats;
+  stats.uptime = millis();
+  stats.totalPacketsRx = fwm->comm->commData.rx_packet_counter;
+  stats.totalPacketsTx = fwm->comm->commData.tx_packet_counter;
+  stats.packetsLost = fwm->comm->commData.lost_packet_counter;
+  
+  if (stats.totalPacketsRx > 0) {
+    stats.packetLossRate = (stats.packetsLost * 100.0f) / (stats.totalPacketsRx + stats.packetsLost);
+  } else {
+    stats.packetLossRate = 0.0f;
+  }
+  
+  stats.avgRSSI = fwm->comm->commData.rssi;
+  stats.totalDistance = 0; // TODO: calcular distancia total recorrida
+  stats.stateChanges = 0;
+  stats.safetyViolations = 0;
+  
+  return stats;
+}
+
+void Screen::updateMenu()
+{
+  handleButtonPress();
+  
+  if (currentMenuState == MENU_DIAGNOSTICS) {
+    showStatsScreen();
+  } else {
+    showMenu();
+  }
+}
+#endif
 
 void Screen::run()
 {
+  #if USE_INTERACTIVE_MENU
+  // Comprobar si algún botón está presionado para entrar al menú
+  if (digitalRead(BUTTON_SELECT_PIN) == LOW && 
+      millis() - lastButtonPress[2] > 2000) {
+    // Mantener SELECT por 2s entra al menú
+    while(true) {
+      updateMenu();
+      
+      // Salir del menú si se mantiene BACK presionado
+      if (digitalRead(BUTTON_BACK_PIN) == LOW) {
+        delay(500);
+        if (digitalRead(BUTTON_BACK_PIN) == LOW) {
+          currentMenuState = MENU_MAIN;
+          selectedOption = 0;
+          break;
+        }
+      }
+      
+      delay(50);
+    }
+    lastButtonPress[2] = millis();
+  }
+  #endif
+  
   // buscamos el modo de vuelo
   String flightModeName = "Unknown";
   for (int i = 0; i < sizeof(flightModes) / sizeof(flightModes[0]); i++)

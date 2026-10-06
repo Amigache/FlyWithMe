@@ -35,6 +35,23 @@ public:
     void sendPacket(LoraPacket_t packet);
     bool validateChecksum(LoraPacket_t packet);
     uint8_t calChecksum(LoraPacket_t packet);
+    bool validatePacket(LoraPacket_t packet); // FASE 1: Validación completa de paquete
+    
+    // FASE 2: Compresión y optimización
+    CompressedLoraPacket_t compressPacket(LoraPacket_t packet);
+    LoraPacket_t decompressPacket(CompressedLoraPacket_t compressed);
+    bool sendPacketWithRetry(LoraPacket_t packet, uint8_t maxRetries = MAX_LORA_RETRIES);
+    uint8_t calChecksumCompressed(CompressedLoraPacket_t packet);
+    bool validateChecksumCompressed(CompressedLoraPacket_t packet);
+    
+    // FASE 3: Calibración automática
+    void autoCalibrate();
+    int measureAverageRSSI(int samples = 10);
+    
+    // FASE 4: Simulación
+    #if SIMULATION_MODE
+    uint32_t lastSimulatedPacket = 0;
+    #endif
 
     unsigned long time_lora_send = 0;
     unsigned long time_beacon = 0;

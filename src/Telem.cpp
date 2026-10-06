@@ -596,3 +596,318 @@ void Telem::check_link()
         }
     }
 }
+
+// ============================================================================================================
+// FASE 1: LÍMITES DE SEGURIDAD
+// ============================================================================================================
+
+/**
+ * @brief Calcula la distancia entre dos puntos GPS usando fórmula de Haversine
+ * 
+ * @param lat1 int32_t - Latitud punto 1 (* 1E7)
+ * @param lon1 int32_t - Longitud punto 1 (* 1E7)
+ * @param lat2 int32_t - Latitud punto 2 (* 1E7)
+ * @param lon2 int32_t - Longitud punto 2 (* 1E7)
+ * @return float - Distancia en metros
+ */
+float Telem::calculateDistance(int32_t lat1, int32_t lon1, int32_t lat2, int32_t lon2)
+{
+    // Convertir a grados
+    double lat1_deg = lat1 / 1E7;
+    double lon1_deg = lon1 / 1E7;
+    double lat2_deg = lat2 / 1E7;
+    double lon2_deg = lon2 / 1E7;
+    
+    // Convertir a radianes
+    double lat1_rad = lat1_deg * PI / 180.0;
+    double lat2_rad = lat2_deg * PI / 180.0;
+    double delta_lat = (lat2_deg - lat1_deg) * PI / 180.0;
+    double delta_lon = (lon2_deg - lon1_deg) * PI / 180.0;
+    
+    // Fórmula de Haversine
+    double a = sin(delta_lat / 2.0) * sin(delta_lat / 2.0) +
+               cos(lat1_rad) * cos(lat2_rad) *
+               sin(delta_lon / 2.0) * sin(delta_lon / 2.0);
+    
+    double c = 2.0 * atan2(sqrt(a), sqrt(1.0 - a));
+    
+    // Radio de la Tierra en metros
+    const double EARTH_RADIUS = 6371000.0;
+    
+    double distance = EARTH_RADIUS * c;
+    
+    return (float)distance;
+}
+
+/**
+ * @brief Verifica si es seguro seguir al líder
+ * 
+ * @param leaderData LoraPacket_t - Datos del líder
+ * @return bool - true si es seguro seguir
+ */
+bool Telem::isSafeToFollow(LoraPacket_t leaderData)
+{
+    // 1. Calcular distancia al líder
+    float distance = calculateDistance(APdata.lat, APdata.lon, 
+                                      leaderData.lat, leaderData.lon);
+    
+    if (distance > MAX_FOLLOW_DISTANCE)
+    {
+        Log.warning("Leader too far: %.2f m (max: %d m)" CR, distance, MAX_FOLLOW_DISTANCE);
+        status_text("Leader too far - aborting");
+        
+        // FASE 1: Transición a estado de emergencia
+        fwm->transitionState(STATE_EMERGENCY);
+        return false;
+    }
+    
+    // 2. Verificar altitud mínima del líder
+    if (leaderData.relative_alt < MIN_SAFE_ALTITUDE)
+    {
+        Log.warning("Leader altitude too low: %d mm (min: %d mm)" CR, 
+                   leaderData.relative_alt, MIN_SAFE_ALTITUDE);
+        status_text("Leader altitude too low");
+        return false;
+    }
+    
+    // 3. Verificar velocidad del líder
+    if (leaderData.ground_speed > MAX_FOLLOW_SPEED)
+    {
+        Log.warning("Leader speed too high: %d cm/s (max: %d cm/s)" CR, 
+                   leaderData.ground_speed, MAX_FOLLOW_SPEED);
+        status_text("Leader speed too high");
+        return false;
+    }
+    
+    // 4. Verificar nuestra propia altitud
+    if (APdata.relative_alt < MIN_SAFE_ALTITUDE)
+    {
+        Log.warning("Own altitude too low: %d mm (min: %d mm)" CR, 
+                   APdata.relative_alt, MIN_SAFE_ALTITUDE);
+        status_text("Altitude too low");
+        return false;
+    }
+    
+    // Todas las verificaciones pasaron
+    return true;
+}
+
+// ============================================================================================================
+// FASE 3: PREDICCIÓN DE MOVIMIENTO
+// ============================================================================================================
+
+/**
+ * @brief Predice la posición futura del líder basándose en velocidad y rumbo actual
+ * 
+ * @param current LoraPacket_t - Datos actuales del líder
+ * @param futureTime uint32_t - Tiempo futuro en ms (millis())
+ * @return PredictedPosition - Posición predicha
+ */
+PredictedPosition Telem::predictLeaderPosition(LoraPacket_t current, uint32_t futureTime)
+{
+    PredictedPosition predicted;
+    predicted.timestamp = futureTime;
+    
+    // Calcular tiempo de predicción en segundos
+    float deltaTime = (futureTime - millis()) / 1000.0;
+    
+    // Si el tiempo es negativo o muy grande, no predecir
+    if (deltaTime < 0 || deltaTime > 5.0)
+    {
+        predicted.lat = current.lat;
+        predicted.lon = current.lon;
+        predicted.alt = current.relative_alt;
+        predicted.confidence = 0.0;
+        return predicted;
+    }
+    
+    // Calcular distancia recorrida en el tiempo de predicción
+    // ground_speed está en cm/s
+    float distanceTraveled = (current.ground_speed / 100.0) * deltaTime; // metros
+    
+    // Convertir heading a radianes (hdg está en grados * 100)
+    float headingRad = (current.hdg / 100.0) * PI / 180.0;
+    
+    // Calcular cambios en latitud y longitud
+    // Aproximación: 1 grado lat ≈ 111320 metros
+    // 1 grado lon ≈ 111320 * cos(lat) metros
+    double lat_degrees = current.lat / 1E7;
+    double lon_degrees = current.lon / 1E7;
+    
+    // Componentes norte y este del movimiento
+    float deltaLat_m = distanceTraveled * cos(headingRad);  // metros norte
+    float deltaLon_m = distanceTraveled * sin(headingRad);  // metros este
+    
+    // Convertir a grados
+    float deltaLat_deg = deltaLat_m / 111320.0;
+    float deltaLon_deg = deltaLon_m / (111320.0 * cos(lat_degrees * PI / 180.0));
+    
+    // Calcular nueva posición
+    predicted.lat = current.lat + (int32_t)(deltaLat_deg * 1E7);
+    predicted.lon = current.lon + (int32_t)(deltaLon_deg * 1E7);
+    predicted.alt = current.relative_alt; // Mantener altitud (o podría predecir con vz)
+    
+    // Calcular confianza basada en velocidad y tiempo
+    // Mayor velocidad y menor tiempo = mayor confianza
+    if (current.ground_speed < 100) // < 1 m/s
+        predicted.confidence = 0.3;
+    else if (current.ground_speed < 500) // < 5 m/s
+        predicted.confidence = 0.6;
+    else if (deltaTime < 2.0)
+        predicted.confidence = 0.9;
+    else
+        predicted.confidence = 0.7;
+    
+    Log.verbose("Predicted position: lat=%d, lon=%d, confidence=%.2f" CR, 
+               predicted.lat, predicted.lon, predicted.confidence);
+    
+    return predicted;
+}
+
+// ============================================================================================================
+// FASE 3: FORMACIONES DINÁMICAS
+// ============================================================================================================
+
+/**
+ * @brief Calcula la posición objetivo basándose en el tipo de formación
+ * 
+ * @param leader LoraPacket_t - Datos del líder
+ * @param formation FormationType - Tipo de formación
+ * @param targetLat int32_t& - Latitud objetivo (salida)
+ * @param targetLon int32_t& - Longitud objetivo (salida)
+ * @param targetAlt int32_t& - Altitud objetivo (salida)
+ */
+void Telem::calculateFormationPosition(LoraPacket_t leader, FormationType formation,
+                                       int32_t &targetLat, int32_t &targetLon, int32_t &targetAlt)
+{
+    // Distancias de offset configurables
+    float offsetDistance = DIST_OFFSET; // metros (desde config.h)
+    float lateralOffset = FORMATION_LATERAL_OFFSET; // metros
+    float verticalOffset = FORMATION_VERTICAL_OFFSET; // metros
+    
+    // Convertir heading a radianes
+    float headingRad = (leader.hdg / 100.0) * PI / 180.0;
+    
+    // Conversión aproximada metros a grados
+    double lat_degrees = leader.lat / 1E7;
+    const float LAT_M_TO_DEG = 1.0 / 111320.0;
+    const float LON_M_TO_DEG = 1.0 / (111320.0 * cos(lat_degrees * PI / 180.0));
+    
+    float deltaLat_m = 0, deltaLon_m = 0;
+    int32_t deltaAlt = 0;
+    
+    switch (formation)
+    {
+    case FORMATION_TRAIL:
+        // Posición detrás del líder
+        deltaLat_m = -offsetDistance * cos(headingRad);
+        deltaLon_m = -offsetDistance * sin(headingRad);
+        deltaAlt = (ALT_OFFSET * 1000); // ALT_OFFSET está en metros, convertir a mm
+        Log.verbose("Formation: TRAIL, offset=%.1fm" CR, offsetDistance);
+        break;
+        
+    case FORMATION_LEFT:
+        // Posición a la izquierda del líder (perpendicular al rumbo, -90°)
+        deltaLat_m = lateralOffset * cos(headingRad - PI/2);
+        deltaLon_m = lateralOffset * sin(headingRad - PI/2);
+        deltaAlt = (ALT_OFFSET * 1000);
+        Log.verbose("Formation: LEFT, offset=%.1fm" CR, lateralOffset);
+        break;
+        
+    case FORMATION_RIGHT:
+        // Posición a la derecha del líder (perpendicular al rumbo, +90°)
+        deltaLat_m = lateralOffset * cos(headingRad + PI/2);
+        deltaLon_m = lateralOffset * sin(headingRad + PI/2);
+        deltaAlt = (ALT_OFFSET * 1000);
+        Log.verbose("Formation: RIGHT, offset=%.1fm" CR, lateralOffset);
+        break;
+        
+    case FORMATION_ABOVE:
+        // Posición arriba del líder (misma posición horizontal)
+        deltaLat_m = 0;
+        deltaLon_m = 0;
+        deltaAlt = (verticalOffset * 1000); // Offset positivo hacia arriba
+        Log.verbose("Formation: ABOVE, offset=%.1fm" CR, verticalOffset);
+        break;
+        
+    case FORMATION_BELOW:
+        // Posición abajo del líder (misma posición horizontal)
+        deltaLat_m = 0;
+        deltaLon_m = 0;
+        deltaAlt = -(verticalOffset * 1000); // Offset negativo hacia abajo
+        Log.verbose("Formation: BELOW, offset=%.1fm" CR, verticalOffset);
+        break;
+    }
+    
+    // Aplicar offsets
+    targetLat = leader.lat + (int32_t)(deltaLat_m * LAT_M_TO_DEG * 1E7);
+    targetLon = leader.lon + (int32_t)(deltaLon_m * LON_M_TO_DEG * 1E7);
+    targetAlt = leader.relative_alt + deltaAlt;
+    
+    // Asegurar que la altitud no sea negativa
+    if (targetAlt < 0) targetAlt = leader.relative_alt;
+    
+    Log.verbose("Formation position: lat=%d, lon=%d, alt=%d" CR, 
+               targetLat, targetLon, targetAlt);
+}
+
+/**
+ * @brief Obtiene el nombre de un tipo de formación
+ * 
+ * @param formation FormationType - Tipo de formación
+ * @return const char* - Nombre de la formación
+ */
+const char* Telem::getFormationName(FormationType formation)
+{
+    switch (formation)
+    {
+    case FORMATION_TRAIL: return "TRAIL";
+    case FORMATION_LEFT:  return "LEFT";
+    case FORMATION_RIGHT: return "RIGHT";
+    case FORMATION_ABOVE: return "ABOVE";
+    case FORMATION_BELOW: return "BELOW";
+    default:              return "UNKNOWN";
+    }
+}
+
+// ============================================================================
+// FASE 4: MODO SIMULACIÓN
+// ============================================================================
+
+#if SIMULATION_MODE
+
+void Telem::initSimulation()
+{
+  simulatedData.init();
+  Log.notice("Modo simulación inicializado" CR);
+  Log.notice("Posición inicial: lat=%.6f, lon=%.6f, alt=%.1f" CR,
+             simulatedData.lat, simulatedData.lon, simulatedData.alt);
+}
+
+void Telem::updateSimulation()
+{
+  simulatedData.update();
+}
+
+LoraPacket_t Telem::getSimulatedPacket()
+{
+  LoraPacket_t packet;
+  
+  // Convertir de float a formato MAVLink (int32 * 1e7 para lat/lon)
+  packet.lat = (int32_t)(simulatedData.lat * 1e7);
+  packet.lon = (int32_t)(simulatedData.lon * 1e7);
+  packet.alt = (int32_t)(simulatedData.alt * 100.0f);  // cm
+  packet.relative_alt = (int32_t)(simulatedData.alt * 100.0f);
+  
+  packet.heading = (uint16_t)simulatedData.heading;
+  packet.ground_speed = (uint16_t)simulatedData.groundSpeed;
+  packet.climb = (int16_t)(simulatedData.climb * 100.0f);
+  
+  packet.sysid = 1;
+  packet.custom_mode = 10;  // Auto mode
+  packet.base_mode = 81;
+  
+  return packet;
+}
+
+#endif // SIMULATION_MODE

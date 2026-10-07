@@ -629,6 +629,8 @@ class Suite:
             ("safety", self.test_safety, 65),
         ]
         todo = [(n, f) for n, f, _ in scenarios if not only or n in only]
+        if not getattr(self.args, "netid_test", False):
+            todo = [(n, f) for n, f in todo if n != "netid"]   # disruptivo: solo con --netid-test
         eta = sum(d for n, _, d in scenarios if not only or n in only)
         self.log(f"== Escenarios: {', '.join(n for n, _ in todo)} ==")
         self.log(f"== Duracion estimada: ~{eta // 60}m {eta % 60}s ==")
@@ -677,6 +679,8 @@ def main():
                     help="fijar dist_offset EN TIERRA (m) para probar vuelo cercano (p. ej. 10)")
     ap.add_argument("--netid", type=int, default=4660,
                     help="netid ('frase') a alinear en AMBAS placas antes de probar (default 4660)")
+    ap.add_argument("--netid-test", action="store_true",
+                    help="incluir el escenario 'netid' (cambia el netid y lo restaura; disruptivo)")
     ap.add_argument("--leader-tap", type=int, default=5790, help="puerto del tap del lider")
     ap.add_argument("--follower-tap", type=int, default=5791, help="puerto del tap del seguidor")
     ap.add_argument("--only", default=None,

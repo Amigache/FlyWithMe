@@ -40,6 +40,7 @@ BASE = dict(
     tau_hdg=2.0,                                  # constante de tiempo del lazo de rumbo (s)
     # Guarda de rumbo de colision (frente a frente). guard_range=0 -> desactivada.
     guard_range=0.0,       # m - distancia bajo la cual actua la guarda
+    guard_ttc=0.0,         # s - tiempo-de-colision bajo el cual actua la guarda (0=off)
     guard_face=120.0,      # deg - |ang(lider, marcacion hacia el)| > esto = "viene de cara"
     guard_turn=90.0,       # deg - giro de ruptura (a la derecha)
     guard_slow=10.0,       # m/s - velocidad a la que frenar durante la guarda
@@ -146,10 +147,22 @@ def law(le, fo, formation, p):
 
     # --- Guarda frente a frente: solo si el LIDER mira hacia el seguidor (viene de cara) ---
     guard = False
-    if p.get("guard_range", 0.0) > 0.0:
+    if p.get("guard_range", 0.0) > 0.0 or p.get("guard_ttc", 0.0) > 0.0:
         rng = dist_m(fo.lat, fo.lon, le.lat, le.lon)
         face = abs(angle_diff(le.hdg, bearing(fo, le)))   # ~180 => el lider viene de cara
-        if rng < p["guard_range"] and face > p["guard_face"]:
+        trig = False
+        if p.get("guard_range", 0.0) > 0.0 and rng < p["guard_range"]:
+            trig = True
+        if p.get("guard_ttc", 0.0) > 0.0 and rng > 1.0:
+            r = math.radians
+            losn = (le.lat - fo.lat) * 111320.0 / rng
+            lose = (le.lon - fo.lon) * 111320.0 * math.cos(r(fo.lat)) / rng
+            lvn, lve = le.speed * math.cos(r(le.hdg)), le.speed * math.sin(r(le.hdg))
+            fvn, fve = fo.speed * math.cos(r(fo.hdg)), fo.speed * math.sin(r(fo.hdg))
+            closing = -((lvn - fvn) * losn + (lve - fve) * lose)
+            if closing > 0.5 and rng / closing < p["guard_ttc"]:
+                trig = True
+        if trig and face > p["guard_face"]:
             guard = True
             # Ruptura PERPENDICULAR a la visual: maxima tasa de separacion (salir de la proa).
             hcmd = (bearing(fo, le) + p["guard_turn"]) % 360.0
@@ -195,6 +208,10 @@ def run(scenario="trail", formation="trail", p=None, latency=0.5, update_period=
     elif scenario == "lateral":
         dlat, dlon = geo_delta(le.lat, gap, lead_hdg + 90.0)
         fo = Follower(le.lat + dlat, le.lon + dlon, lead_hdg, 20.0)
+    elif scenario == "crossing":
+        # seguidor a un lado, rumbo perpendicular hacia la derrota del lider
+        dlat, dlon = geo_delta(le.lat, gap, lead_hdg + 90.0)
+        fo = Follower(le.lat + dlat, le.lon + dlon, (lead_hdg - 90.0) % 360.0, 20.0)
     elif scenario == "behind_offset":
         dlat, dlon = geo_delta(le.lat, gap, le.hdg + 180.0)
         fo = Follower(le.lat + dlat, le.lon + dlon, lead_hdg + fo_hdg, 20.0)
@@ -243,7 +260,7 @@ def fmt(r):
 def main():
     ap = argparse.ArgumentParser(description="Simulador de la ley de seguimiento")
     ap.add_argument("--scenario", default="trail",
-                    choices=["trail", "head_on", "lateral", "behind_offset"])
+                    choices=["trail", "head_on", "lateral", "crossing", "behind_offset"])
     ap.add_argument("--formation", default="trail",
                     choices=["trail", "left", "right", "above", "below"])
     ap.add_argument("--dist-offset", type=float, default=BASE["dist_offset"])
@@ -261,6 +278,8 @@ def main():
                     help="tasa rapida cuando cerca (propuesta), en vez de la actual")
     ap.add_argument("--guard-range", type=float, default=0.0,
                     help="m - distancia de actuacion de la guarda frente a frente (0=off)")
+    ap.add_argument("--guard-ttc", type=float, default=0.0,
+                    help="s - tiempo-de-colision de actuacion de la guarda (0=off)")
     ap.add_argument("--guard-face", type=float, default=BASE["guard_face"],
                     help="deg - umbral de 'el lider viene de cara'")
     ap.add_argument("--guard-turn", type=float, default=BASE["guard_turn"],
@@ -276,6 +295,7 @@ def main():
     p["along_gain"] = args.along_gain
     p["turn_rate"] = args.turn_rate
     p["guard_range"] = args.guard_range
+    p["guard_ttc"] = args.guard_ttc
     p["guard_face"] = args.guard_face
     p["guard_turn"] = args.guard_turn
 
@@ -298,7 +318,7 @@ def main():
         print("\n-- MATRIZ DE SEGURIDAD (min separacion; dist_offset=20m, latency=1.0s) --")
         p2 = dict(p); p2["dist_offset"] = 20.0
         pg = dict(p2); pg["guard_range"] = 500.0
-        for sc in ("trail", "head_on", "lateral", "behind_offset"):
+        for sc in ("trail", "head_on", "lateral", "crossing", "behind_offset"):
             r0, _ = run(sc, "trail", p2, 1.0, 1.0, args.seconds)
             r1, _ = run(sc, "trail", pg, 1.0, 1.0, args.seconds)
             print(f"{sc:>14}: sin guarda min={r0['sep_min']:6.1f} m   "

@@ -23,7 +23,7 @@ public:
 
   void send_to_fc(mavlink_message_t msg);
   void heartbeat(uint8_t system_id, uint8_t component_id, uint8_t type, uint8_t autopilot, uint8_t base_mode, uint32_t custom_mode, uint8_t system_status);
-  void status_text(const char * text);
+  void status_text(const char *text, uint8_t severity = MAV_SEVERITY_INFO);
   void request_data_streams(uint8_t req_stream_id, uint16_t req_message_rate, uint8_t start_stop);
   void do_change_speed(uint16_t speed);
   void do_reposition(int32_t lat, int32_t lon, float alt, uint16_t hdg);

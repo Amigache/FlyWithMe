@@ -21,7 +21,13 @@ enum LoraMsgType : uint8_t
   LORA_MSG_JOIN = 3    ///< seguidor -> lider (peticion de sesion; el lider empieza a emitir)
 };
 
-typedef struct
+enum LoraPacketFlags : uint8_t
+{
+  LORA_FLAG_NONE = 0,
+  LORA_FLAG_REPLY_SLOT = 1 << 0 ///< líder reserva la ventana de retorno para un JOIN/REPLY
+};
+
+typedef struct __attribute__((packed))
 {
   uint8_t version;       ///< PROTOCOL_VERSION
   uint8_t type;          ///< LoraMsgType
@@ -39,8 +45,15 @@ typedef struct
   int16_t vx;            ///< [cm/s] velocidad NED: norte
   int16_t vy;            ///< [cm/s] velocidad NED: este
   int16_t vz;            ///< [cm/s] velocidad NED: abajo
+  uint8_t flags;         ///< LoraPacketFlags
   uint8_t checksum;      ///< Checksum
 } LoraPacket_t;
+
+// This is a wire format, not an in-memory ABI: prohibit implicit padding from entering the checksum
+// or the transmitted frame. Keep this assertion so layout regressions fail the firmware build.
+static_assert(offsetof(LoraPacket_t, checksum) == sizeof(LoraPacket_t) - 1,
+              "LoraPacket_t checksum must be the final wire byte");
+static_assert(sizeof(LoraPacket_t) == 40, "Unexpected FlyWithMe protocol v2 frame size");
 
 // Checksum por suma de bytes (excluye el propio checksum).
 inline uint8_t loraPacketChecksum(const LoraPacket_t &p)
@@ -62,6 +75,12 @@ inline uint8_t loraPacketChecksum(const LoraPacket_t &p)
 inline bool loraChecksumOk(const LoraPacket_t &p) { return loraPacketChecksum(p) == p.checksum; }
 inline bool loraVersionOk(const LoraPacket_t &p) { return p.version == PROTOCOL_VERSION; }
 inline bool loraNetidOk(const LoraPacket_t &p, uint16_t netid) { return p.netid == netid; }
+
+// Comparación modular de seq: soporta wrap 65535 -> 0 y rechaza repetidos/paquetes atrasados.
+inline bool loraSeqIsNewer(uint16_t candidate, uint16_t previous)
+{
+  return static_cast<int16_t>(candidate - previous) > 0;
+}
 
 // Sync word de radio (1 byte) derivado del netid; debe coincidir en ambos extremos.
 inline uint8_t loraSyncWordFor(uint16_t netid) { return (uint8_t)(0x10 | (netid & 0x0F)); }

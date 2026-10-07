@@ -60,42 +60,29 @@ void Comm::begin()
   }
   #endif
 
-  // TICKER -----------------------------------------------------------------------------------------------
-  if (!MAV_BRIDGE)
-  {
-    beacon_ticker.attach_ms(BEACON_CHECK_INTERVAL, Comm::beacon_ticker_callback);
-  }
 }
 
-// Static member function definition
-void Comm::beacon_ticker_callback()
+void Comm::markBeaconReceived()
 {
-  if (self)
+  last_beacon = millis();
+  if (!commData.have_beacon)
   {
-    // Only work if we are on follower mode
-    if (self->fwm->follow_mode == FOLL_MODE_FOLLOWER)
-    {
-      // Calculamos tiempo pasado desde el último beacon
-      unsigned long now = millis() / 1000;
-      unsigned long last_bc = self->last_beacon / 1000;
-      int dif = now - last_bc;
-
-      if (dif >= LOST_TIME_BEACON)
-      { // PERDEMOS LINK
-        Log.warning("WAITING BEACON" CR);
-        self->commData.have_beacon = false;
-      }
-      else if (dif <= 1 && !self->commData.have_beacon)
-      { // RECUPERAMOS LINK
-        Log.notice("BEACON LOCK" CR);
-        self->commData.have_beacon = true;
-      }
-    }
+    Log.notice("BEACON LOCK" CR);
+    commData.have_beacon = true;
   }
 }
 
 void Comm::run()
 {
+#if NETID_USE_SYNCWORD
+  // Las escrituras de parámetros pueden venir de Web/core0; el SX1276 solo lo toca este loop.
+  if (syncWordPending)
+  {
+    syncWordPending = false;
+    LoRa.setSyncWord(loraSyncWordFor(fwm->params.netid));
+  }
+#endif
+
   // FASE 4: Modo simulación - generar packets sintéticos
   #if SIMULATION_MODE
   if (fwm->follow_mode == FOLL_MODE_FOLLOWER)
@@ -132,9 +119,31 @@ void Comm::run()
     }
     return;  // No procesar LoRa real en modo simulación
   }
-  #endif
+#endif
 
-  // v2: el LIDER escucha los REPLY/JOIN del seguidor (sesion + OSD).
+  // Beacon timeout en el mismo loop/propietario del enlace: sin Ticker concurrente sobre commData.
+  if (!MAV_BRIDGE && fwm->follow_mode == FOLL_MODE_FOLLOWER && commData.have_beacon &&
+      last_beacon != 0 && (uint32_t)(millis() - (uint32_t)last_beacon) >= LOST_TIME_BEACON * 1000u)
+  {
+    Log.warning("WAITING BEACON" CR);
+    commData.have_beacon = false;
+    last_beacon = 0;
+    lastRxSeqInitialized = false; // permitir reinicio del líder (seq vuelve a cero) tras timeout.
+    replyPending = false;
+  }
+
+#if FOLLOWER_REPLY
+  // Ejecutar el REPLY en el mismo loop que recibe LoRa. Nunca transmitir desde otro ticker/task.
+  if (fwm->follow_mode == FOLL_MODE_FOLLOWER && replyPending &&
+      (int32_t)(millis() - replyDueMs) >= 0)
+  {
+    replyPending = false;
+    sendReplyPacket();
+  }
+#endif
+
+  // RX/TX del líder se ejecutan secuencialmente en este loop (el callback del Ticker solo marca due).
+#if FOLLOWER_REPLY
   if (fwm->follow_mode == FOLL_MODE_LEADER)
   {
     if (LoRa.parsePacket())
@@ -145,8 +154,10 @@ void Comm::run()
       {
         LoraPacket_t p;
         LoRa.readBytes((uint8_t *)&p, sizeof(p));
-        if (validatePacket(p) && (p.type == LORA_MSG_REPLY || p.type == LORA_MSG_JOIN))
+        if (validatePacket(p) && (FWM_PEER_SYSID == 0 || p.sysid == FWM_PEER_SYSID) &&
+            (p.type == LORA_MSG_REPLY || p.type == LORA_MSG_JOIN) && acceptSequence(p.seq))
         {
+          commData.rx_packet_counter++;
           fwm->onFollowerReply(p);
         }
       }
@@ -157,18 +168,6 @@ void Comm::run()
           LoRa.read();
         }
       }
-    }
-  }
-
-  // v2: el SEGUIDOR emite su REPLY/JOIN a cadencia fija (enlace de vuelta). Solo si hay FC.
-#if FOLLOWER_REPLY
-  if (fwm->follow_mode == FOLL_MODE_FOLLOWER && !MAV_BRIDGE)
-  {
-    uint32_t now = millis();
-    if (now - lastReplyMs >= FOLLOWER_REPLY_MS)
-    {
-      lastReplyMs = now;
-      sendReplyPacket();
     }
   }
 #endif
@@ -279,7 +278,7 @@ void Comm::run()
             }
 
             // Time to get
-            last_beacon = millis();
+            markBeaconReceived();
           }
           else
           {
@@ -296,46 +295,56 @@ void Comm::run()
       #endif
       if (packetSize == sizeof(LoraPacket_t))
       {
-        // Paquete normal (backward compatibility)
+        // Trama normal del protocolo v2.
         LoraPacket_t incomingPacket;
         LoRa.readBytes((uint8_t *)&incomingPacket, sizeof(incomingPacket));
 
         // FASE 1: Validación completa del paquete (checksum + datos GPS)
-        if (validatePacket(incomingPacket))
+        if (validatePacket(incomingPacket) && incomingPacket.type == LORA_MSG_BEACON &&
+            (FWM_PEER_SYSID == 0 || incomingPacket.sysid == FWM_PEER_SYSID))
         {
+          if (!acceptSequence(incomingPacket.seq))
+          {
+            // No refrescar el timeout con un paquete duplicado/antiguo. Así, si el líder reinicia
+            // y su secuencia vuelve a cero, el enlace expira y el próximo beacon reinicializa seq.
+            return;
+          }
           // Actualizamos commData
           commData.lastValidPacket = incomingPacket;
           commData.lastValidPacketSize = sizeof(commData.lastValidPacket);
           commData.rx_packet_counter++;
 
-          // v2: numero de secuencia -> detecta huecos (perdidas) y duplicados
-          uint16_t expected = (uint16_t)(lastRxSeq + 1);
-          if (incomingPacket.seq != expected)
+#if FOLLOWER_REPLY
+          if (incomingPacket.flags & LORA_FLAG_REPLY_SLOT)
           {
-            if (incomingPacket.seq == lastRxSeq)
-            {
-              Log.trace("Duplicado seq=%d" CR, incomingPacket.seq);
-            }
-            else
-            {
-              commData.lost_packet_counter += (uint16_t)(incomingPacket.seq - expected);
-            }
+            replyPending = true;
+            replyDueMs = millis() + REPLY_SLOT_DELAY_MS;
           }
-          lastRxSeq = incomingPacket.seq;
+#endif
 
           // v2 (Idea 2): en distancia de aproximacion, exigir que el lider este en modo ESTABLE.
           float dLead = fwm->mav->calculateDistance(fwm->mav->APdata.lat, fwm->mav->APdata.lon,
                                                     incomingPacket.lat, incomingPacket.lon);
+          static bool modeGateActive = false;
           if (dLead < fwm->params.approach_dist && !isLeaderModeStable(incomingPacket.mode))
           {
             static uint32_t lastGateMsg = 0;
             if (millis() - lastGateMsg > 2000)
             {
-              fwm->mav->status_text("Leader mode unstable - holding");
+              Log.warning("Leader mode unstable (%d) at %dm: follow update suspended" CR,
+                          incomingPacket.mode, (int)dLead);
+              fwm->mav->status_text("Leader mode unstable - follow suspended");
               lastGateMsg = millis();
             }
-            last_beacon = millis(); // el enlace esta vivo; no es perdida de beacon
+            modeGateActive = true;
+            markBeaconReceived(); // el enlace esta vivo; no es perdida de beacon
             return;
+          }
+          if (modeGateActive)
+          {
+            Log.notice("Leader mode gate released; follow updates resumed" CR);
+            fwm->mav->status_text("Leader stable - follow resumed");
+            modeGateActive = false;
           }
 
           // Update target if we are in approach stage
@@ -411,7 +420,7 @@ void Comm::run()
           }
 
           // Time to get
-          last_beacon = millis();
+          markBeaconReceived();
         }
         else
         {
@@ -476,7 +485,7 @@ void Comm::send_mavlink_lora(mavlink_message_t message)
   LoRa.endPacket();
 }
 
-void Comm::sendPacket(LoraPacket_t packet)
+void Comm::sendPacket(const LoraPacket_t &packet)
 {
   LoRa.beginPacket();
   LoRa.write((uint8_t *)&packet, sizeof(packet));
@@ -486,23 +495,40 @@ void Comm::sendPacket(LoraPacket_t packet)
   commData.tx_packet_counter++;
 }
 
-bool Comm::validateChecksum(LoraPacket_t packet)
+bool Comm::validateChecksum(const LoraPacket_t &packet)
 {
   return loraChecksumOk(packet);
 }
 
-uint8_t Comm::calChecksum(LoraPacket_t packet)
+uint8_t Comm::calChecksum(const LoraPacket_t &packet)
 {
   return loraPacketChecksum(packet);
+}
+
+bool Comm::acceptSequence(uint16_t seq)
+{
+  if (!lastRxSeqInitialized)
+  {
+    lastRxSeq = seq;
+    lastRxSeqInitialized = true;
+    return true;
+  }
+  if (!loraSeqIsNewer(seq, lastRxSeq))
+  {
+    Log.trace("Duplicate/old LoRa seq=%u last=%u" CR, (unsigned)seq, (unsigned)lastRxSeq);
+    return false;
+  }
+  const uint16_t delta = (uint16_t)(seq - lastRxSeq);
+  if (delta > 1)
+    commData.lost_packet_counter += (uint16_t)(delta - 1);
+  lastRxSeq = seq;
+  return true;
 }
 
 void Comm::applyNetid()
 {
 #if NETID_USE_SYNCWORD
-  if (fwm && fwm->params.netid)
-  {
-    LoRa.setSyncWord(loraSyncWordFor(fwm->params.netid));
-  }
+  syncWordPending = true;
 #endif
 }
 
@@ -520,7 +546,7 @@ void Comm::sendReplyPacket()
   p.netid = fwm->params.netid;
   p.sysid = SYSID;
   p.mode = (uint8_t)fwm->mav->APdata.custom_mode;
-  p.seq = ++txSeq;
+  p.seq = (uint16_t)(txSeq + 1);
   p.lat = fwm->mav->APdata.lat;
   p.lon = fwm->mav->APdata.lon;
   p.alt = fwm->mav->APdata.alt;
@@ -532,7 +558,8 @@ void Comm::sendReplyPacket()
   p.vy = fwm->mav->APdata.vy;
   p.vz = fwm->mav->APdata.vz;
   p.checksum = calChecksum(p);
-  sendPacket(p);
+  if (sendPacketWithRetry(p))
+    txSeq = p.seq;
 }
 
 // ============================================================================================================
@@ -545,7 +572,7 @@ void Comm::sendReplyPacket()
  * @param packet LoraPacket_t - Paquete a validar
  * @return bool - true si el paquete es válido
  */
-bool Comm::validatePacket(LoraPacket_t packet)
+bool Comm::validatePacket(const LoraPacket_t &packet)
 {
   // 0. Version + red (netid): descarta paquetes de otras versiones/sistemas (anti-cruce).
   if (!loraVersionOk(packet))
@@ -556,6 +583,11 @@ bool Comm::validatePacket(LoraPacket_t packet)
   if (fwm->params.netid != 0 && !loraNetidOk(packet, fwm->params.netid))
   {
     Log.trace("Netid mismatch (%d != %d)" CR, packet.netid, fwm->params.netid);
+    return false;
+  }
+  if (packet.type < LORA_MSG_BEACON || packet.type > LORA_MSG_JOIN)
+  {
+    Log.trace("Invalid LoRa message type (%d)" CR, packet.type);
     return false;
   }
 
@@ -736,7 +768,7 @@ bool Comm::validateChecksumCompressed(CompressedLoraPacket_t packet)
  * @param maxRetries uint8_t - Número máximo de intentos
  * @return bool - true si se envió exitosamente
  */
-bool Comm::sendPacketWithRetry(LoraPacket_t packet, uint8_t maxRetries)
+bool Comm::sendPacketWithRetry(const LoraPacket_t &packet, uint8_t maxRetries)
 {
   for (uint8_t attempt = 0; attempt < maxRetries; attempt++)
   {

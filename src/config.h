@@ -13,10 +13,8 @@
 
 // Reparto en dos nucleos del ESP32: core 1 = vuelo (LoRa+MAVLink+FSM), core 0 = web/pantalla/logger.
 // Poner 0 para volver al bucle unico (debug).
-// ⚠️ WIP: en banco el dual-core ROMPE el enlace LoRa (acceso concurrente al SX1276/SPI entre tareas).
-// Por defecto OFF hasta sincronizar el acceso a la radio (mutex + Ticker en el mismo core).
 #ifndef FWM_DUAL_CORE
-#define FWM_DUAL_CORE 0
+#define FWM_DUAL_CORE 1
 #endif
 
 // Red por defecto ("frase"/netid) para el protocolo v2; configurable por parametro y por la web.
@@ -54,7 +52,6 @@
 // MENSAJERIA MAVLINK (evitar saturar el FC/GCS) -------------------------------------------------------
 #define SPEED_CHANGE_THRESHOLD 200        ///< cm/s - solo enviar DO_CHANGE_SPEED si cambia mas que esto (2 m/s)
 #define SPEED_RESEND_MS 2000              ///< ms - reenviar la velocidad como maximo cada esto
-#define STATUS_TEXT_MIN_INTERVAL_MS 5000  ///< ms - no repetir el MISMO STATUSTEXT antes de esto
 #define STATUS_DISTANCE_INTERVAL_MS 5000  ///< ms - notificar distancia/estado de seguimiento cada esto
 
 // OTHER config ------------------------------------------------------------------------------------------
@@ -171,6 +168,7 @@
 // ADVANCED FOLLOWING (FASE 3 - Mejoras de Seguimiento) -------------------------------------------------
 #define USE_PREDICTION 1               // 1 = usar predicción de movimiento, 0 = desactivado
 #define PREDICTION_TIME_MS 1000        // ms - Tiempo de predicción adelantado
+#define PREDICTION_MAX_LEAD_FRACTION 0.25f // limitar el adelanto a 25% del offset TRAIL (seguridad en vuelo cercano)
 #define USE_POSITION_FILTER 1          // 1 = usar filtro de posición, 0 = desactivado
 #define POSITION_FILTER_ALPHA 0.3      // 0.0-1.0 - Factor de filtro (menor = más suave, más lag)
 #define DEFAULT_FORMATION 0            // 0=TRAIL, 1=LEFT, 2=RIGHT, 3=ABOVE, 4=BELOW
@@ -227,6 +225,8 @@
 #define SESSION_TIMEOUT_MS 10000   // ms - sin REPLY del seguidor, el lider deja de emitir beacons
 #define FOLLOWER_REPLY_MS 1500     // ms - cadencia del REPLY/JOIN del seguidor (enlace de vuelta)
 #define DISCOVERY_INTERVAL_MS 2000 // ms - sin sesion, beacon de DESCUBRIMIENTO lento (para que enganchen)
+#define REPLY_SLOT_DELAY_MS 30     // ms desde fin del beacon al TX del seguidor
+#define REPLY_WINDOW_MS 3000       // ms - ventana conservadora para SF altos; respuesta la cierra antes
 
 // --- Interruptores de diagnostico/validacion (default = config conocida-buena) ---
 #ifndef NETID_USE_SYNCWORD
@@ -236,7 +236,7 @@
 #define LORA_CRC 0                 // 1 = CRC de radio LoRa
 #endif
 #ifndef FOLLOWER_REPLY
-#define FOLLOWER_REPLY 0           // 1 = el seguidor emite REPLY/JOIN (WIP: rompe el RX del seguidor)
+#define FOLLOWER_REPLY 1           // JOIN/REPLY coordinado; SX1276 se opera desde un único loop
 #endif
 #define APPROACH_DIST_DEFAULT 300  // m - distancia bajo la cual se exige modo estable del lider
 
@@ -289,6 +289,14 @@ inline bool isLeaderModeStable(uint8_t mode)
 #define DEFAULT_PASS "12345678"
 #define FOLL_MODE FOLL_MODE_LEADER
 #define FOLL_MODE_CH 0
+#endif
+
+#if defined(MASTER_BUILD_FLAG)
+#define FWM_PEER_SYSID 2
+#elif defined(SLAVE_BUILD_FLAG)
+#define FWM_PEER_SYSID 1
+#else
+#define FWM_PEER_SYSID 0 // 0 = sin validación de peer en builds de test
 #endif
 
 #ifdef SLAVE_BUILD_FLAG

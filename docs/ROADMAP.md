@@ -200,8 +200,9 @@ expone un enlace **MAVLink directo a cada placa** por el mismo cable USB (el ben
 parámetros FWM del componente `158` y cambia la formación) **sin conectar el PC a la WiFi del ESP32**.
 Validado: lectura de los 11 parámetros y round-trip de `dist_offset` y `formation` por el tap.
 
-**Bench completo (`tools/bench_suite.py`):** escenarios `link`, `params`, `formations` (EN TIERRA,
-son *ground-only*), `takeoff`, `straight`, `turn`, `safety`; reporte MD+JSON y **series temporales
+**Bench completo (`tools/bench_suite.py`):** escenarios `preflight`, `link`, `setup`, `params`, `formations`
+(EN TIERRA, son *ground-only*), `takeoff`, `straight`, `turn`, `mode_gate`, `head_on`, `safety`;
+reporte MD+JSON y **series temporales
 CSV** por escenario, con escenarios aislados (un fallo no aborta el reporte). `lab.py` reinicia las
 placas por DTR/RTS al levantar el banco (las CP210x/ESP32 a veces se cuelgan entre sesiones).
 Incluye **preflight** (por el tap: comprueba que el líder tiene FC y no está en "No FC connection")
@@ -216,14 +217,29 @@ cross-track + un modelo de avión y la **latencia del enlace**. Hallazgos:
 - Para **10 m** de formación hace falta latencia ≲0.2 s (`TIGHT_FORMATION` + `LORA_SPREADING_FACTOR=7`);
   5 m es el límite físico con la tasa y precisión actuales. La guarda va tras un flag (default off).
 
-**Validación EN VUELO (SITL a 200 m, `dist_offset=20 m`):** recta **15–17 m ±7**, giro **19 m ±15**,
-`safety` OK. El **head-on** (media vuelta del líder) dio **min 0.5 m con `guard_hits=9`, `face_max=175`,
-`rng_min=0`** → la guarda **se activa pero NO evita** el casi-choque a 20 m (solo ~0.5 s de cierre).
-Con `dist_offset ≥ 96 m` no hay colisión. La ruptura **vertical** (trepar durante la guarda, modelada)
-mejora poco a corta distancia (falta tiempo). **Conclusión: en formación cerrada una media vuelta
-brusca del líder es intrínsecamente insegura** → mantener offset ≳100 m, o no invertir el rumbo
-apretado, o disparar la guarda mucho antes (por tiempo-de-colisión). Nota: el bench a **200 m** evita
-el relieve al norte del *home* (a 80 m se metía en la montaña).
+**Regresión del predictor TRAIL:** `millis()` del líder y del seguidor son relojes independientes; no se
+puede calcular la edad del paquete restando sus timestamps. Además, el horizonte de 1 s adelantaba
+20 m a 20 m/s y cancelaba exactamente `dist_offset=20 m` (la recta SITL llegó a **0.2 m**). Se eliminó
+esa resta de relojes y el avance predictivo en TRAIL queda limitado a `PREDICTION_MAX_LEAD_FRACTION`
+(0.25) del offset. `tools/follow_sim_test.py` → **5/5 PASS** (incluye la regresión sin cap y offsets
+5/10/20/96 m).
+
+**Validación SITL a 200 m:** con predictor capado, `dist_offset=20 m`: TAKEOFF a 200 m, recta
+**17.8 m media / 15.2 m mínimo**, roll máximo 3.6°, error medio de altitud 0.6 m; giro **16.0 m
+mínimo**, roll pico transitorio 44.6°. Los escenarios del banco ya imponen mínimo horizontal de 10 m
+para offset20 (no aceptar un casi-choque como PASS). El *home* evita el relieve al norte; rutas al sur.
+
+**Bisección del fallo de seguimiento:** el pre-v2 enlazaba; el v2 inicial tenía (1) `LoraPacket_t` con
+padding después del checksum (suma de un byte no inicializado; el autotest también fallaba su propia
+aserción de layout), y (2) `Comm::run()` llamaba `LoRa.parsePacket()` en el líder mientras el Ticker
+transmitía desde otra tarea, aunque el retorno estaba desactivado. La solución es trama **packed de
+40 bytes** con checksum como último byte (assert + selftest byte-a-byte), y escucha del líder solo bajo
+`FOLLOWER_REPLY`. Verificado en hardware: RX del seguidor **11→68 en 56 s**, RSSI −49…−56 dBm.
+
+**Matriz hardware (protocolo/base):** `netid` PASS (mismo ID enlaza, distinto congela RX, restore PASS);
+preflight/setup/params/formations PASS; modo ACRO cercano suspende actualizaciones y GUIDED reanuda;
+recta y giro a 200 m PASS. `tools/proto_sim.py` → **17/17**; `tools/follow_sim_test.py` → **8/8**.
+El test de netid es opt-in (`--netid-test`) porque cambia NVS durante la ejecución.
 
 **Progreso en vivo del bench:** `bench_suite.py` imprime con hora, `[i/N]` por escenario, ETA inicial
 y trazas periódicas (distancia/distancia mínima) durante recta/giro/head-on/safety.
@@ -231,29 +247,39 @@ y trazas periódicas (distancia/distancia mínima) durante recta/giro/head-on/sa
 **Hardening del banco:** `sitl_bridge.py` **reconecta** solo si el SITL cierra SERIAL0 (antes moría y
 dejaba a la placa sin FC → el líder dejaba de emitir beacons).
 
-**Protocolo v2 + `netid` (red/"frase"):** el paquete LoRa (`src/protocol.h`, header **puro** testeable)
-añade `version`, `type` (BEACON/REPLY/JOIN), `netid` y `mode` (modo de vuelo del emisor). El receptor
-**descarta** paquetes de otra versión/red (`validatePacket`); el **sync word** y el **CRC** de radio se
-derivan del `netid`. `netid` es parámetro (NVS) + campo en la WebUI. `src/selftest.h` corre un
-auto-test del protocolo al arrancar. **Validado en hardware:** con el mismo `netid` el seguidor recibe
-(`rx` sube); al poner uno distinto **deja de recibir** (escenario `netid` del banco, PASS).
+**Protocolo v2 + `netid`:** `src/protocol.h` define una trama wire **packed de 40 bytes**, con
+`version/type/netid/mode/seq` y checksum final. `netid` filtra en paquete; por defecto el radio usa
+el sync word fijo conocido-bueno y CRC de radio apagado (`NETID_USE_SYNCWORD=0`, `LORA_CRC=0`). El
+`netid` es parámetro NVS + WebUI. El autottest comprueba el layout y corrupción de cada byte.
 
-**Sesión/enlace de vuelta + gate de modo (v2):** el líder **solo emite si ha oído un REPLY/JOIN**
-dentro de `SESSION_TIMEOUT_MS` (10 s) → "transmitir solo cuando hace falta". El seguidor emite
-**REPLY** (enlazado) o **JOIN** (aún no) cada `FOLLOWER_REPLY_MS` (1.5 s), con **número de secuencia**
-(perdidas/duplicados). El líder conoce la distancia del seguidor (`onFollowerReply`) y la manda a su FC
-por `STATUSTEXT` → **OSD** ("FWM: follower Nm"). **Gate de modo:** si la distancia < `approach_dist`
-(300 m) y el líder no está en modo estable, el seguidor **no guía** (mensaje "Leader mode unstable").
-Todo con **timeouts y sin bloqueos**. **Simulador del protocolo** `tools/proto_sim.py` (matriz de
-casos/fallos: normal, pérdidas 30/60 %, blackout y recuperación, sin seguidor, gate de modo, lejos+
-inestable) → **12/12 checks OK**.
+**Gate de modo:** `approach_dist=300 m` param; cerca, el firmware suspende nuevas órdenes si el líder
+no está en FBWA/FBWB/CRUISE/AUTO/RTL/LOITER/TAKEOFF/GUIDED; bench ACRO→GUIDED PASS. Nota: actualmente
+la suspensión conserva el último setpoint del FC; aún falta decidir/validar un modo hold explícito.
 
-**Dual-core (`FWM_DUAL_CORE`):** el camino crítico de vuelo (LoRa + MAVLink con el FC + FSM + mensajería
-→ `FWM::runRt()`) corre en **core 1** (loopTask de Arduino, y todo el acceso a `Telem`/puerto del FC
-queda en el mismo core); la UI/logging (`FWM::runIo()`: web, pantalla, logger, AP gate) en **core 0**
-con una tarea propia. Reduce el *jitter* de LoRa (mejor seguimiento fino). El estado compartido
-(`APdata`, `commData`, `currentState`) se lee/escribe como escalares de 32 bits alineados (atómico en
-Xtensa); carreras benignas toleradas.
+**Sesión JOIN/REPLY + OSD del líder (activo):** el líder envía discovery cuando no hay sesión y pide
+una respuesta con `LORA_FLAG_REPLY_SLOT`. El REPLY/JOIN del seguidor se envía tras el slot; el líder
+abre una ventana RX limitada (`REPLY_WINDOW_MS`) y el beacon se difiere durante ella. El Ticker solo
+marca TX pendiente: **todas las operaciones SX1276 se ejecutan secuencialmente desde el loop de vuelo**.
+Si faltan REPLYs, `SESSION_TIMEOUT_MS` expira y vuelve discovery; al regresar el peer, re-JOIN/reactiva
+la tasa normal. Hardware SITL: reply bidireccional, timeout, discovery y rejoin **PASS**; el FC/GCS
+recibe `STATUSTEXT` del líder. El envío ya usa **deduplicación exacta** (texto prefijado + severidad):
+si no cambió, no vuelve a transmitirlo; si cambia distancia se actualiza. Los mensajes de distancia
+usan `MAV_SEVERITY_WARNING` (4), el umbral que Mission Planner muestra en el overlay HUD; mensajes
+informativos genéricos siguen en INFO. `src/selftest.h` prueba la deduplicación.
+
+> **Pendiente de verificación visual:** el GCS recibió el STATUSTEXT del FWM (SYSID 1, COMPID 158),
+> pero el líder COMx dejó de responder al bootloader/serie durante el último intento de reflasheo.
+> Por ello aún no pude confirmar visualmente el overlay HUD con la versión de severidad 4. El mensaje
+> sí aparece en Messages. Mission Planner puede filtrar el overlay por vehículo/componente activo.
+
+**Dual-core (`FWM_DUAL_CORE=1`, activo):** core 1 ejecuta el loop de vuelo y es propietario de LoRa;
+core 0 ejecuta web/pantalla/logger. `FWM::send_packet_ticker_callback` ya no toca SPI: solo pone una
+bandera byte-alineada que consume el core 1. Probado con REPLY por slot: RX crece, recta, giro y gate
+pasan. No habilitar `NETID_USE_SYNCWORD`/`LORA_CRC` sin volver a validar RF.
+
+**Simuladores:** `tools/proto_sim.py` → **17/17** (discovery, sesión, timeout, pérdidas, blackout,
+recuperación, netid y gate). `tools/follow_sim_test.py` → **8/8** (offset/predicción, cruce y head-on
+con/sin guarda).
 
 **Fix del cristal (WiFi):** las placas TTGO LoRa32 V1.0 llevan cristal de **26 MHz**. El core de
 Arduino 3.x asumía 40 MHz → la **WiFi/BT quedaban fuera de banda** (no emitían AP ni escaneaban).
@@ -262,10 +288,9 @@ La solución es compilar con **`-DF_XTAL_MHZ=26`** (ya en `platformio.ini`): el 
 end-to-end: la placa **escanea 16 redes** y el PC ve/conecta a `FWM AP 2`; `GET/POST /api/config`
 funcionan y la formación **persiste** tras reiniciar. (No requiere recompilar las libs.)
 
-> ⚠️ **Pendiente de banco:** al terminar las pruebas el puerto `COMx` (CP210x) quedó bloqueado
-> (`semaphore timeout`), así que la placa seguidora conserva el firmware de la prueba BELOW. El
-> **código del repo ya está en TRAIL por defecto**; reenchufar/rebootear y reflashear
-> `-e ttgo-lora32-v1-slave-sitl` cuando el puerto se libere.
+> **Puertos USB no son identidades:** los CP210x reenumeran/intercambian COM al reconectar. En la
+> última prueba se identificó líder=SYSID 1 en COMx y seguidor=SYSID 2 en COMx; identificar por
+> SYSID/tap antes de flashear, no asumir COM fijo.
 
 ### Fase D — Interfaz y observabilidad
 - [ ] **D11** Web: config en **tierra** (AP solo en tierra + tabla de parámetros). Ver plan en

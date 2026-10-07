@@ -37,6 +37,8 @@ BASE = dict(
     accel=1.0,                                    # GUIDED_SPEED_ACCEL (m/s^2)
     airspeed_min=10.0, airspeed_max=30.0,
     lead_m=0.0,                                   # FORMATION_LEAD_M
+    prediction_time=1.0,                           # PREDICTION_TIME_MS
+    prediction_max_lead_fraction=0.25,             # PREDICTION_MAX_LEAD_FRACTION
     tau_hdg=2.0,                                  # constante de tiempo del lazo de rumbo (s)
     # Guarda de rumbo de colision (frente a frente). guard_range=0 -> desactivada.
     guard_range=0.0,       # m - distancia bajo la cual actua la guarda
@@ -106,8 +108,18 @@ class Follower:
 
 def formation_target(le, formation, p):
     """Replica de calculateFormationPosition (devuelve lat, lon del punto objetivo)."""
+    base_lat, base_lon = le.lat, le.lon
+    # La predicción es respecto al movimiento del líder. En TRAIL se limita para que el
+    # adelanto no cancele el offset (1 s * 20 m/s cancelaba exactamente dist_offset=20 m).
+    pred_time = max(0.0, p.get("prediction_time", 0.0))
     if formation == "trail":
-        dlat, dlon = geo_delta(le.lat, p["dist_offset"], le.hdg + 180.0)
+        max_lead = p["dist_offset"] * p.get("prediction_max_lead_fraction", 1.0)
+        lead = min(le.speed * pred_time, max_lead)
+        dlat, dlon = geo_delta(le.lat, lead, le.hdg)
+        base_lat += dlat
+        base_lon += dlon
+    if formation == "trail":
+        dlat, dlon = geo_delta(base_lat, p["dist_offset"], le.hdg + 180.0)
     elif formation == "left":
         dlat, dlon = geo_delta(le.lat, p["lateral"], le.hdg - 90.0)
     elif formation == "right":
@@ -119,6 +131,8 @@ def formation_target(le, formation, p):
         lad, lod = geo_delta(le.lat, p["lead_m"], le.hdg)
         dlat += lad
         dlon += lod
+    if formation == "trail":
+        return base_lat + dlat, base_lon + dlon
     return le.lat + dlat, le.lon + dlon
 
 
@@ -277,6 +291,10 @@ def main():
     ap.add_argument("--dist-offset", type=float, default=BASE["dist_offset"])
     ap.add_argument("--latency", type=float, default=0.5, help="retardo del enlace (s)")
     ap.add_argument("--update-period", type=float, default=1.0, help="periodo de paquete (s)")
+    ap.add_argument("--prediction-time", type=float, default=BASE["prediction_time"],
+                    help="horizonte de prediccion (s), como PREDICTION_TIME_MS en el firmware")
+    ap.add_argument("--prediction-cap", type=float, default=BASE["prediction_max_lead_fraction"],
+                    help="fraccion maxima del offset TRAIL que puede adelantar la prediccion (0..1)")
     ap.add_argument("--seconds", type=float, default=120.0)
     ap.add_argument("--gap", type=float, default=100.0, help="separacion inicial (m)")
     ap.add_argument("--lead-hdg", type=float, default=0.0)
@@ -307,6 +325,8 @@ def main():
     p["hdg_corr_max"] = args.cross_max
     p["along_gain"] = args.along_gain
     p["turn_rate"] = args.turn_rate
+    p["prediction_time"] = args.prediction_time
+    p["prediction_max_lead_fraction"] = args.prediction_cap
     p["guard_range"] = args.guard_range
     p["guard_ttc"] = args.guard_ttc
     p["guard_face"] = args.guard_face
@@ -314,7 +334,8 @@ def main():
     p["guard_climb"] = args.guard_climb
 
     print(f"ley: cross_gain={p['cross_gain']} cross_max={p['hdg_corr_max']} "
-          f"along_gain={p['along_gain']} turn_rate={p['turn_rate']} dist_offset={p['dist_offset']}")
+          f"along_gain={p['along_gain']} turn_rate={p['turn_rate']} dist_offset={p['dist_offset']} "
+          f"prediction={p['prediction_time']}s cap={p['prediction_max_lead_fraction']:.2f}")
 
     if args.sweep == "distance":
         print("\n-- barrido de dist_offset (latency=0.5s, update=1.0s) --")

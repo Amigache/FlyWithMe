@@ -1,6 +1,8 @@
 #include "FWM.h"
 
 #include <esp_idf_version.h>
+#include <cstring>
+#include <cstdlib>
 
 FWM *FWM::self = nullptr;
 
@@ -177,35 +179,54 @@ void FWM::runRt()
 
     // Mensajeria (seguidor): notificar distancia de seguimiento al FC/GCS periodicamente
     static uint32_t lastFollowStatus = 0;
+    static int lastFollowAnnouncedDist = -1;
     if (follow_mode == FOLL_MODE_FOLLOWER && comm->commData.have_beacon &&
         (millis() - lastFollowStatus > STATUS_DISTANCE_INTERVAL_MS))
     {
         int dist = (int)getLinkDistance();
-        static int prevDist = -1;
         const char *trend = " holding";
-        if (prevDist >= 0)
+        if (lastFollowAnnouncedDist >= 0 && dist < lastFollowAnnouncedDist - 5) trend = " approaching";
+        else if (lastFollowAnnouncedDist >= 0 && dist > lastFollowAnnouncedDist + 5) trend = " falling behind";
+        if (dist >= 0 && (lastFollowAnnouncedDist < 0 || abs(dist - lastFollowAnnouncedDist) >= 5))
         {
-            if (dist < prevDist - 3) trend = " approaching";
-            else if (dist > prevDist + 3) trend = " falling behind";
+            char s[48];
+            snprintf(s, sizeof(s), "Follow %dm%s", dist, trend);
+            mav->status_text(s, MAV_SEVERITY_WARNING); // WARNING/4 aparece en HUD de Mission Planner
+            lastFollowAnnouncedDist = dist;
         }
-        prevDist = dist;
-        char s[48];
-        snprintf(s, sizeof(s), "Follow %dm%s", dist, trend);
-        mav->status_text(s);
         lastFollowStatus = millis();
+    }
+    else if (follow_mode != FOLL_MODE_FOLLOWER || !comm->commData.have_beacon)
+    {
+        lastFollowAnnouncedDist = -1; // al recuperar enlace, anunciar de nuevo
     }
 
     // v2 (Idea 1): OSD del LIDER -> dice a su FC quien le sigue y a que distancia
-    if (follow_mode == FOLL_MODE_LEADER && (millis() - lastFollowerMs) < SESSION_TIMEOUT_MS)
+    static uint32_t lastLeadStatus = 0;
+    static int lastLeadAnnouncedDist = -1;
+    static bool followerWasPresent = false;
+    bool followerPresent = follow_mode == FOLL_MODE_LEADER && lastFollowerMs != 0 &&
+                          (millis() - lastFollowerMs) < SESSION_TIMEOUT_MS;
+    if (followerPresent && (millis() - lastLeadStatus > STATUS_DISTANCE_INTERVAL_MS))
     {
-        static uint32_t lastLeadStatus = 0;
-        if (millis() - lastLeadStatus > STATUS_DISTANCE_INTERVAL_MS)
+        int dist = lastFollowerDistM;
+        if (dist >= 0 && (lastLeadAnnouncedDist < 0 || abs(dist - lastLeadAnnouncedDist) >= 5))
         {
             char s[40];
-            snprintf(s, sizeof(s), "FWM: follower %dm", lastFollowerDistM);
-            mav->status_text(s);
-            lastLeadStatus = millis();
+            // Telem::status_text ya añade el prefijo "FWM: ".
+            snprintf(s, sizeof(s), "Follower %dm", dist);
+            mav->status_text(s, MAV_SEVERITY_WARNING); // WARNING/4 se muestra en el HUD de MP
+            lastLeadAnnouncedDist = dist;
         }
+        followerWasPresent = true;
+        lastLeadStatus = millis();
+    }
+    else if (!followerPresent)
+    {
+        if (followerWasPresent && follow_mode == FOLL_MODE_LEADER)
+            mav->status_text("Follower link lost", MAV_SEVERITY_WARNING);
+        followerWasPresent = false;
+        lastLeadAnnouncedDist = -1;
     }
     
     // A2: recuperación tras emergencia (histéresis: se reintenta pasado el cooldown)
@@ -243,8 +264,9 @@ void FWM::runRt()
         stage_follow = STAGE_IDLE; // Not in follower mode
     }
 
-    // Run instances (flight-critical: LoRa + MAVLink con el FC)
+    // Run instances: toda operacion SX1276 se serializa en loopTask/core1.
     comm->run();
+    processSendPacket();
     mav->run();
 }
 
@@ -273,6 +295,7 @@ void FWM::bridgeRun()
 void FWM::onFollowerReply(const LoraPacket_t &p)
 {
     lastFollowerMs = millis();
+    replyWindowUntilMs = lastFollowerMs; // respuesta recibida: cerrar la ventana y poder transmitir
     if (mav)
     {
         lastFollowerDistM = (int)mav->calculateDistance(mav->APdata.lat, mav->APdata.lon, p.lat, p.lon);
@@ -283,68 +306,89 @@ void FWM::send_packet_ticker_callback()
 {
     if (self)
     {
-        // v2: sin seguidor (sin REPLY reciente) NO emitir -> ahorro hasta que pidan sesion (JOIN).
-        static uint32_t lastDiscovery = 0;
-        if (millis() - self->lastFollowerMs > SESSION_TIMEOUT_MS)
-        {
-            if (millis() - lastDiscovery < DISCOVERY_INTERVAL_MS)
-            {
-                return;
-            }
-            lastDiscovery = millis();
-        }
-        // No enviar packets si no hay conexión con FC (modo AP configuración)
-        if (self->mav->linkTimeout)
-        {
-            Log.trace("Packet send skipped: No FC connection (AP config mode)" CR);
-            return;
-        }
-        
-        LoraPacket_t packet;
-        packet.version = PROTOCOL_VERSION;
-        packet.type = LORA_MSG_BEACON;
-        packet.netid = self->params.netid;
-        packet.mode = (uint8_t)self->mav->APdata.custom_mode;
-        packet.sysid = SYSID;
-        packet.seq = ++self->comm->txSeq;
-        packet.lat = self->mav->APdata.lat;
-        packet.lon = self->mav->APdata.lon;
-        packet.alt = self->mav->APdata.alt;
-        packet.relative_alt = self->mav->APdata.relative_alt;
-        packet.ground_speed = self->mav->APdata.ground_speed;
-        packet.hdg = self->mav->APdata.hdg;
-        // P1: timestamp + velocidad NED (cm/s) para que el seguidor compense la latencia
-        packet.timestamp = millis();
-        packet.vx = self->mav->APdata.vx;
-        packet.vy = self->mav->APdata.vy;
-        packet.vz = self->mav->APdata.vz;
-        packet.checksum = 0; // Se calcula en el momento de enviar el paquete
-
-        packet.checksum = self->comm->calChecksum(packet);
-        
-        // FASE 2: Usar sendPacketWithRetry con reintentos
-        if (self->comm->sendPacketWithRetry(packet))
-        {
-            Log.notice("Send Packet: %d, %d, %d, %d, %d, %d, %d, %d" CR, 
-                      packet.sysid, packet.lat, packet.lon, packet.alt, 
-                      packet.relative_alt, packet.ground_speed, packet.hdg, packet.checksum);
-            
-            // FASE 2: Log del paquete enviado
-            if (self->logger)
-            {
-                self->logger->logPacket(packet, 0, 0);
-            }
-        }
-        else
-        {
-            Log.error("Failed to send packet after retries" CR);
-        }
-        
-        // FASE 2: Actualizar tasa de transmisión adaptativa
-        #if ADAPTIVE_RATE
-        self->updateTransmissionRate();
-        #endif
+        // El callback del Ticker NO toca SPI/LoRa. Solo deja una marca; el loop propietario del
+        // SX1276 procesa RX/TX secuencialmente en processSendPacket().
+        self->beaconDue = true;
     }
+}
+
+void FWM::processSendPacket()
+{
+    if (!beaconDue || follow_mode != FOLL_MODE_LEADER)
+        return;
+
+    uint32_t now = millis();
+#if FOLLOWER_REPLY
+    // Mientras esperamos un REPLY, no transmitir sobre la ventana RX del líder.
+    if ((int32_t)(now - replyWindowUntilMs) < 0)
+        return;
+
+    bool sessionActive = lastFollowerMs != 0 && (now - lastFollowerMs) < SESSION_TIMEOUT_MS;
+    static uint32_t lastDiscoveryMs = 0;
+    if (!sessionActive && lastFollowerMs != 0 && comm->lastRxSeqInitialized)
+    {
+        // El seguidor puede reiniciar su contador seq; después del timeout aceptar un nuevo JOIN.
+        comm->lastRxSeqInitialized = false;
+    }
+    if (!sessionActive && (now - lastDiscoveryMs) < DISCOVERY_INTERVAL_MS)
+        return; // conservar beaconDue para enviar el siguiente discovery al vencer el timeout
+#endif
+
+    beaconDue = false;
+    if (!mav || !comm || mav->linkTimeout)
+    {
+        Log.trace("Packet send skipped: No FC connection (AP config mode)" CR);
+        return;
+    }
+
+    LoraPacket_t packet = {};
+    packet.version = PROTOCOL_VERSION;
+    packet.type = LORA_MSG_BEACON;
+    packet.netid = params.netid;
+    packet.mode = (uint8_t)mav->APdata.custom_mode;
+    packet.sysid = SYSID;
+    packet.seq = (uint16_t)(comm->txSeq + 1);
+#if FOLLOWER_REPLY
+    bool requestReply = !sessionActive || (now - lastReplyRequestMs >= FOLLOWER_REPLY_MS);
+    packet.flags = requestReply ? LORA_FLAG_REPLY_SLOT : LORA_FLAG_NONE;
+#endif
+    packet.lat = mav->APdata.lat;
+    packet.lon = mav->APdata.lon;
+    packet.alt = mav->APdata.alt;
+    packet.relative_alt = mav->APdata.relative_alt;
+    packet.ground_speed = mav->APdata.ground_speed;
+    packet.hdg = mav->APdata.hdg;
+    packet.timestamp = millis();
+    packet.vx = mav->APdata.vx;
+    packet.vy = mav->APdata.vy;
+    packet.vz = mav->APdata.vz;
+    packet.checksum = comm->calChecksum(packet);
+
+    if (comm->sendPacketWithRetry(packet))
+    {
+        comm->txSeq = packet.seq;
+#if FOLLOWER_REPLY
+        if (requestReply)
+        {
+            lastReplyRequestMs = millis();
+            replyWindowUntilMs = lastReplyRequestMs + REPLY_WINDOW_MS;
+        }
+        if (!sessionActive)
+            lastDiscoveryMs = millis();
+#endif
+        Log.notice("Send Packet: sys=%d seq=%d lat=%d lon=%d alt=%d" CR,
+                   packet.sysid, packet.seq, packet.lat, packet.lon, packet.relative_alt);
+        if (logger)
+            logger->logPacket(packet, 0, 0);
+    }
+    else
+    {
+        Log.error("Failed to send packet after retries" CR);
+    }
+
+#if ADAPTIVE_RATE
+    updateTransmissionRate();
+#endif
 }
 
 /**

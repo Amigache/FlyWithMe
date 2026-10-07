@@ -1,8 +1,13 @@
 #include "Telem.h"
+#include "status_text.h"
 
 #include <cstring>
+#include <freertos/FreeRTOS.h>
+#include <freertos/portmacro.h>
 
 Telem *Telem::self = nullptr;
+static portMUX_TYPE s_statusTextMux = portMUX_INITIALIZER_UNLOCKED;
+static StatusTextDeduper s_statusTextDeduper;
 
 Telem::Telem(FWM *fwm) : SerialPort(1)
 {
@@ -464,22 +469,27 @@ void Telem::heartbeat(uint8_t system_id, uint8_t component_id, uint8_t type, uin
  *
  * @param text Pointer to the text that will be included in the status message.
  */
-void Telem::status_text(const char *text)
+void Telem::status_text(const char *text, uint8_t severity)
 {
-    // Mensajeria: no repetir el MISMO STATUSTEXT demasiado seguido (evita inundar Messages/OSD).
-    static char lastText[50] = "";
-    static uint32_t lastMs = 0;
-    if (strcmp(text, lastText) == 0 && (millis() - lastMs) < STATUS_TEXT_MIN_INTERVAL_MS)
+    if (text == nullptr)
     {
         return;
     }
-    strncpy(lastText, text, sizeof(lastText) - 1);
-    lastText[sizeof(lastText) - 1] = '\0';
-    lastMs = millis();
+
+    // MAVLink STATUSTEXT trae 50 bytes. Comparar el mensaje ya prefijado y truncado exactamente
+    // como se transmite: si no cambió texto ni severidad, no volver a inundar GCS/OSD nunca.
+    char wireText[MAVLINK_MSG_STATUSTEXT_FIELD_TEXT_LEN] = {};
+    snprintf(wireText, sizeof(wireText), "FWM: %s", text);
+    portENTER_CRITICAL(&s_statusTextMux);
+    const bool shouldSend = s_statusTextDeduper.shouldSend(wireText, severity);
+    portEXIT_CRITICAL(&s_statusTextMux);
+    if (!shouldSend)
+    {
+        return;
+    }
 
     mavlink_message_t msg;
-    std::string msgText = std::string("FWM: ") + text;
-    mavlink_msg_statustext_pack(SYSID, COMPID, &msg, 6, msgText.c_str(), 0, 0);
+    mavlink_msg_statustext_pack(SYSID, COMPID, &msg, severity, wireText, 0, 0);
     send_to_fc(msg);
 }
 
@@ -1038,16 +1048,9 @@ PredictedPosition Telem::predictLeaderPosition(LoraPacket_t current)
     PredictedPosition predicted;
     predicted.timestamp = millis();
 
-    // P1: edad real del dato = tiempo desde que el lider lo envio (su millis()) + horizonte.
-    float age = 0.0f;
-    if (current.timestamp != 0)
-    {
-        age = (millis() - current.timestamp) / 1000.0f;
-    }
-    float horizon = PREDICTION_TIME_MS / 1000.0f;
-    float dt = age + horizon;
-
-    // Si la edad es negativa (desbordamiento) o absurda, no predecir
+    // NO restar current.timestamp de millis(): son relojes de dos ESP32 distintos y no están
+    // sincronizados. La diferencia podía ser arbitraria (predicción desactivada o exagerada).
+    float dt = PREDICTION_TIME_MS / 1000.0f;
     if (dt < 0.0f || dt > 5.0f)
     {
         predicted.lat = current.lat;
@@ -1074,6 +1077,20 @@ PredictedPosition Telem::predictLeaderPosition(LoraPacket_t current)
         vd = 0.0f;
     }
 
+    // Seguridad geométrica para TRAIL cercano: no dejar que la predicción avance el punto objetivo
+    // hasta el líder (p. ej. 1 s * 20 m/s cancela un offset de 20 m y lleva al seguidor a 0 m).
+    // El adelanto queda limitado a una fracción configurable del offset deseado.
+    float horizontalSpeed = sqrtf(vn * vn + ve * ve);
+    if (currentFormation == FORMATION_TRAIL && horizontalSpeed > 0.1f)
+    {
+        float maxLead = fwm->params.dist_offset * PREDICTION_MAX_LEAD_FRACTION;
+        float predictedLead = horizontalSpeed * dt;
+        if (predictedLead > maxLead)
+        {
+            dt = maxLead / horizontalSpeed;
+        }
+    }
+
     double lat_degrees = current.lat / 1E7;
     float deltaLat_deg = (vn * dt) / 111320.0;
     float deltaLon_deg = (ve * dt) / (111320.0 * cos(lat_degrees * PI / 180.0));
@@ -1083,7 +1100,7 @@ PredictedPosition Telem::predictLeaderPosition(LoraPacket_t current)
     // vz positivo = hacia abajo; la altitud relativa (mm) sube cuando vz es negativo
     predicted.alt = current.relative_alt - (int32_t)(vd * dt * 1000.0f);
 
-    // Confianza: alta si hay velocidad NED y la edad+horizonte es corta
+    // Confianza: alta si hay velocidad NED y el horizonte de predicción es corto
     float speed = sqrtf(vn * vn + ve * ve);
     if (speed < 1.0f)
         predicted.confidence = 0.3f;
@@ -1093,9 +1110,6 @@ PredictedPosition Telem::predictLeaderPosition(LoraPacket_t current)
         predicted.confidence = 0.7f;
     else
         predicted.confidence = 0.5f;
-    if (current.timestamp == 0)
-        predicted.confidence = 0.5f; // sin timestamp no podemos compensar latencia
-
     Log.verbose("Predicted position: lat=%d, lon=%d, dt=%dms confidence=%d" CR,
                 predicted.lat, predicted.lon, (int)(dt * 1000), (int)(predicted.confidence * 100));
 

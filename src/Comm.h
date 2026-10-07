@@ -9,7 +9,6 @@
 #include <SPI.h>
 #include <LoRa.h>
 
-#include <Ticker.h>
 
 #include "FWM.h"
 
@@ -28,24 +27,28 @@ public:
     void receive_mavlink_lora();
     void send_mavlink_lora(mavlink_message_t message);
 
-    static void beacon_ticker_callback();
+    void markBeaconReceived();
 
     CommData_t commData;
 
-    void sendPacket(LoraPacket_t packet);
-    bool validateChecksum(LoraPacket_t packet);
-    uint8_t calChecksum(LoraPacket_t packet);
-    bool validatePacket(LoraPacket_t packet); // FASE 1: Validación completa de paquete
+    void sendPacket(const LoraPacket_t &packet);
+    bool validateChecksum(const LoraPacket_t &packet);
+    uint8_t calChecksum(const LoraPacket_t &packet);
+    bool validatePacket(const LoraPacket_t &packet); // FASE 1: Validación completa de paquete
+    bool acceptSequence(uint16_t seq);
     void applyNetid();                        // v2: re-fija el sync word de radio desde params.netid
     void sendReplyPacket();                   // v2: REPLY/JOIN del seguidor (enlace de vuelta)
-    uint32_t lastReplyMs = 0;
     uint16_t txSeq = 0;                        // v2: secuencia de TX (perdidas/duplicados)
     uint16_t lastRxSeq = 0;                    // v2: ultima secuencia RX valida
+    bool lastRxSeqInitialized = false;
+    bool replyPending = false;
+    uint32_t replyDueMs = 0;
+    volatile bool syncWordPending = false;
     
     // FASE 2: Compresión y optimización
     CompressedLoraPacket_t compressPacket(LoraPacket_t packet);
     LoraPacket_t decompressPacket(CompressedLoraPacket_t compressed);
-    bool sendPacketWithRetry(LoraPacket_t packet, uint8_t maxRetries = MAX_LORA_RETRIES);
+    bool sendPacketWithRetry(const LoraPacket_t &packet, uint8_t maxRetries = MAX_LORA_RETRIES);
     uint8_t calChecksumCompressed(CompressedLoraPacket_t packet);
     bool validateChecksumCompressed(CompressedLoraPacket_t packet);
     
@@ -63,8 +66,6 @@ public:
     unsigned long last_beacon = 0;
 
 private:
-
-    Ticker beacon_ticker;
 
     FWM *fwm;
 

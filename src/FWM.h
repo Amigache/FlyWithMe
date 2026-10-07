@@ -94,6 +94,10 @@ private:
     Preferences preferences;
     
     Ticker send_packet_ticker;
+    volatile bool beaconDue = false; // el Ticker solo marca; el loop propietario opera el SX1276
+    uint32_t replyWindowUntilMs = 0;
+    uint32_t lastReplyRequestMs = 0;
+    void processSendPacket();
     static void send_packet_ticker_callback();
 
 };

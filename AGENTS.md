@@ -172,23 +172,26 @@ desarrollo consolidada: roadmap + Fases 1–4). Ver sección 7.
 | `LORA_SPREADING_FACTOR` | `12` | SF LoRa. |
 | `LORA_TX_POWER` | `20` | dBm. |
 | `F_XTAL_MHZ` (build flag) | `26` | Cristal de la TTGO LoRa32 V1.0. **Imprescindible** (`-DF_XTAL_MHZ=26`): sin él el core asume 40 MHz → UART ×0.65 y **WiFi/BT muertas**. |
-| `USE_COMPRESSED_PACKETS` | `1` | Paquete comprimido (15 B) vs normal (27 B). |
+| `USE_COMPRESSED_PACKETS` | `0` | Protocolo v2 usa trama normal packed de 39 B; la compresión antigua aún no incorpora todos los campos v2. |
 | `ADAPTIVE_RATE` | `1` | Tasa de TX según distancia (2 s / 1 s / 0.5 s). |
 | `MAX_LORA_RETRIES` | `3` | Reintentos con backoff en el envío. |
-| `USE_PREDICTION` / `PREDICTION_TIME_MS` | `1` / `1000` | Predicción de posición del líder. |
-| `USE_POSITION_FILTER` / `POSITION_FILTER_ALPHA` | `1` / `0.7` | Filtro paso bajo de posición. |
+| `USE_PREDICTION` / `PREDICTION_TIME_MS` | `1` / `1000` | Predicción del líder; en TRAIL el adelanto se limita por `PREDICTION_MAX_LEAD_FRACTION`. |
+| `PREDICTION_MAX_LEAD_FRACTION` | `0.25` | Tope del adelanto predictivo como fracción del offset TRAIL: evita cancelar offsets cortos y acercar el objetivo al líder. |
+| `USE_POSITION_FILTER` / `POSITION_FILTER_ALPHA` | `1` / `0.3` | Filtro paso bajo de posición. |
 | `DEFAULT_FORMATION` | `0` (TRAIL) | 0=TRAIL, 1=LEFT, 2=RIGHT, 3=ABOVE, 4=BELOW. |
 | `USE_HEADING_GUIDANCE` | `1` | 1 = guiado por rumbo cross-track (`GUIDED_CHANGE_*`); 0 = `DO_REPOSITION` (carrot). |
-| `CROSS_TRACK_GAIN_DEG_PER_M` / `MAX_HEADING_CORR_DEG` | `0.5` / `25` | Corrección de rumbo por error lateral (grados por metro / tope). |
+| `CROSS_TRACK_GAIN_DEG_PER_M` / `MAX_HEADING_CORR_DEG` | `0.6` / `40` | Corrección de rumbo por error lateral (grados por metro / tope). |
 | `ALONG_GAIN_CMS_PER_M` / `MAX_SPEED_SLOW` | `12` / `400` | Corrección de velocidad por error longitudinal (cm/s por m / frenado máximo). |
 | `GUIDED_ALT_REFRESH_MS` | `2000` | Cada cuánto se envía `DO_REPOSITION` para fijar la altitud (`next_WP_loc`). |
 | `GUIDED_AIRSPEED_MIN` / `GUIDED_AIRSPEED_MAX` | `10` / `30` | Topes de la airspeed comandada (m/s). |
 | `MAX_FOLLOW_DISTANCE` | `5000` | m — límite de seguridad. |
 | `HEAD_ON_GUARD` | `0` | 1 = **guarda de colisión frente a frente**: si el líder viene de cara y < `HEAD_ON_RANGE` (500 m), rompe perpendicular a la visual y frena. Validado con `tools/follow_sim.py`. |
 | `TIGHT_FORMATION` | `0` | 1 = **tasa LoRa rápida cuando cerca** (200/500/1000 ms) para vuelo a 10–20 m. Emparejar con SF bajo (`-D LORA_SPREADING_FACTOR=7`). |
-| `netid` | `4660` (0x1234) | Red (**"frase"**) del protocolo v2: filtra tráfico de otros sistemas (sync word + campo en el paquete). Debe coincidir en ambos; configurable por parámetro y WebUI. |
+| `netid` | `4660` (0x1234) | Red del protocolo v2: filtra tráfico de otros sistemas **a nivel de paquete**. Debe coincidir en ambos; configurable por parámetro y WebUI. |
 | `approach_dist` | `300` | m — bajo esta distancia el seguidor **exige modo estable del líder** (FBWA/FBWB/CRUISE/AUTO/RTL/LOITER/TAKEOFF/GUIDED); por encima **acude igualmente** a buscarlo. |
-| `FWM_DUAL_CORE` | `1` | 1 = reparto en 2 núcleos: **core 1** vuelo (LoRa+MAVLink+FSM), **core 0** web/pantalla/logger. `0` = bucle único. |
+| `FWM_DUAL_CORE` | `1` | **Core 1** es propietario del loop de vuelo; **core 0** ejecuta UI/log. El callback Ticker solo marca TX pendiente; no toca SPI/LoRa. Validado en SITL. |
+| `FOLLOWER_REPLY` | `1` | REPLY/JOIN solo en slots solicitados por BEACON; líder abre ventana RX con timeout, follower responde desde el loop único. Validado con pérdida/timeout/rejoin en SITL. |
+| `NETID_USE_SYNCWORD` / `LORA_CRC` | `0` / `0` | Opciones RF experimentales. Default: sync word fijo conocido-bueno y filtro `netid`/checksum a nivel de paquete. |
 | `MIN_SAFE_ALTITUDE` | `50000` | mm (50 m) — altitud mínima. |
 | `AUTO_CALIBRATE_LORA` | `0` | Auto-calibración LoRa al inicio. |
 | `USE_INTERACTIVE_MENU` | `0` | Menú OLED por botones. **Desactivado** por conflicto de pines. |
@@ -217,9 +220,10 @@ desarrollo consolidada: roadmap + Fases 1–4). Ver sección 7.
 | `tools/lab.py` | Laboratorio (CLI) | Menú: 2 SITL + MAVProxy headless → UDP para Mission Planner; acciones y reportes. |
 | `tools/mp_launch.py` | Lanzador MAVProxy headless | Sin wxPython en Windows; aplica el parche UDP de pymavlink. |
 | `tools/sitl_bridge.py` | Puente SITL ↔ placa | Pipe serie↔TCP; `--tap-port N` expone un enlace **MAVLink directo a la placa** (config del periférico **sin WiFi**). |
-| `tools/bench_suite.py` | Bench completo | Escenarios (link/params/formations/takeoff/straight/turn/safety) + reporte MD/JSON + **CSV** por escenario. |
+| `tools/bench_suite.py` | Bench completo | Escenarios (preflight/link/setup/params/formations/takeoff/straight/turn/mode_gate/head_on/safety) + reporte MD/JSON + **CSV** por escenario. `netid` requiere `--netid-test`. |
 | `tools/follow_sim.py` | Simulador de la ley (sin hardware) | Replica la ley cross-track + modelo de avión y **latencia del enlace**; escenarios trail/head_on/lateral y barridos de distancia/latencia. |
-| `tools/proto_sim.py` | Simulador del **protocolo** (sin hardware) | Modela sesión JOIN/REPLY, timeouts, pérdidas, blackout, filtro netid y gate de modo; **matriz de casos/fallos** con aserciones. |
+| `tools/follow_sim_test.py` | Regresión del predictor/offset | Comprueba que la predicción no cancele offsets TRAIL de 5/10/20/96 m. |
+| `tools/proto_sim.py` | Simulador del **protocolo** (sin hardware) | Modela discovery por defecto, reply/sesión opcional, timeouts, pérdidas, blackout, filtro netid y gate de modo; **matriz de casos/fallos**. |
 
 > Los antiguos `MEJORAS_RECOMENDADAS.md` y `FASE{1..4}_IMPLEMENTADA.md` se fusionaron en
 > `docs/FLYWITHME.md` y se eliminaron de la raíz.

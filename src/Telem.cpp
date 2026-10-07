@@ -775,9 +775,8 @@ void Telem::guided_follow(LoraPacket_t leader, int32_t targetLat, int32_t target
             if (hb < 0.0f) hb += 360.0f;
             if (hb >= 360.0f) hb -= 360.0f;
             guided_change_heading(hb, GUIDED_TURN_RATE_DPS);
-                guided_change_speed(HEAD_ON_SPEED, GUIDED_SPEED_ACCEL);
-                return;
-            }
+            guided_change_speed(HEAD_ON_SPEED, GUIDED_SPEED_ACCEL);
+            return;
         }
     }
 #endif

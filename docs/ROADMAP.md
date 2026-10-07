@@ -216,6 +216,18 @@ cross-track + un modelo de avión y la **latencia del enlace**. Hallazgos:
 - Para **10 m** de formación hace falta latencia ≲0.2 s (`TIGHT_FORMATION` + `LORA_SPREADING_FACTOR=7`);
   5 m es el límite físico con la tasa y precisión actuales. La guarda va tras un flag (default off).
 
+**Validación EN VUELO (SITL a 200 m, `dist_offset=20 m`):** recta **15–17 m ±7**, giro **19 m ±15**,
+`safety` OK. El **head-on** (media vuelta del líder) dio **min 0.5 m con `guard_hits=9`, `face_max=175`,
+`rng_min=0`** → la guarda **se activa pero NO evita** el casi-choque a 20 m (solo ~0.5 s de cierre).
+Con `dist_offset ≥ 96 m` no hay colisión. La ruptura **vertical** (trepar durante la guarda, modelada)
+mejora poco a corta distancia (falta tiempo). **Conclusión: en formación cerrada una media vuelta
+brusca del líder es intrínsecamente insegura** → mantener offset ≳100 m, o no invertir el rumbo
+apretado, o disparar la guarda mucho antes (por tiempo-de-colisión). Nota: el bench a **200 m** evita
+el relieve al norte del *home* (a 80 m se metía en la montaña).
+
+**Progreso en vivo del bench:** `bench_suite.py` imprime con hora, `[i/N]` por escenario, ETA inicial
+y trazas periódicas (distancia/distancia mínima) durante recta/giro/head-on/safety.
+
 **Hardening del banco:** `sitl_bridge.py` **reconecta** solo si el SITL cierra SERIAL0 (antes moría y
 dejaba a la placa sin FC → el líder dejaba de emitir beacons).
 

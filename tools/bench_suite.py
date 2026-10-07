@@ -25,6 +25,7 @@ Uso:
 import argparse
 import json
 import math
+import re
 import socket
 import statistics
 import time
@@ -379,13 +380,17 @@ class Suite:
                 self.log(f"    head_on: {int(el)}/75s  {last}")
             time.sleep(0.5)
         guard_hits = taptext.count("HEAD_ON guard")
-        dbg = [l.strip() for l in taptext.splitlines() if "HO dbg" in l][-4:]
+        faces = [int(x) for x in re.findall(r"face=(\d+)", taptext)]
+        rngs = [int(x) for x in re.findall(r"rng=(\d+)m", taptext)]
         if tap:
             tap.close()
         d = _stats(dists)
         ok = bool(d) and d["min"] >= 20.0     # umbral de seguridad (guarda HEAD_ON)
         self.add("head_on", "PASS" if ok else "FAIL",
-                 {"dist": d, "roll_abs": _stats(rolls), "guard_hits": guard_hits, "dbg": dbg})
+                 {"dist": d, "roll_abs": _stats(rolls), "guard_hits": guard_hits,
+                  "face_max": max(faces) if faces else None,
+                  "rng_min": min(rngs) if rngs else None,
+                  "dbg_n": len(faces)})
 
     def test_safety(self):
         # Lider muy lejos: el seguidor debe mantenerse acotado (no diverger) y sin emergencia.

@@ -44,6 +44,8 @@ BASE = dict(
     guard_face=120.0,      # deg - |ang(lider, marcacion hacia el)| > esto = "viene de cara"
     guard_turn=90.0,       # deg - giro de ruptura (a la derecha)
     guard_slow=10.0,       # m/s - velocidad a la que frenar durante la guarda
+    guard_climb=0.0,       # m/s - ruptura VERTICAL: trepar durante la guarda (0=off)
+    climb_hold=8.0,        # s - tiempo que se mantiene el ascenso tras la guarda
 )
 
 # Tasa de paquetes actual (ADAPTIVE_RATE en config.h): NOTA: mas lento cuanto mas cerca.
@@ -71,6 +73,7 @@ class Leader:
     lon: float
     hdg: float          # grados (0=N)
     speed: float        # m/s
+    alt: float = 100.0  # m (relativa)
 
     def step(self, dt):
         dlat, dlon = geo_delta(self.lat, self.speed * dt, self.hdg)
@@ -87,6 +90,8 @@ class Follower:
     max_turn: float = BASE["turn_rate"]
     accel: float = BASE["accel"]
     tau: float = BASE["tau_hdg"]
+    alt: float = 100.0      # m (relativa)
+    max_climb: float = 5.0  # m/s
 
     def command(self, hcmd, vcmd, dt):
         err = ((hcmd - self.hdg + 180.0) % 360.0) - 180.0
@@ -221,6 +226,7 @@ def run(scenario="trail", formation="trail", p=None, latency=0.5, update_period=
     link = LinkModel(latency, update_period)
     rows, seps, min_sep = [], [], 1e9
     guard_on = 0
+    climb_until = -1.0
     t = 0.0
     while t < seconds:
         le.step(dt)
@@ -228,8 +234,13 @@ def run(scenario="trail", formation="trail", p=None, latency=0.5, update_period=
         hcmd, vcmd, along, cross, guard = law(seen, fo, formation, p)
         if guard:
             guard_on += 1
+            if p.get("guard_climb", 0.0) > 0.0:
+                climb_until = t + p.get("climb_hold", 8.0)
+        if t < climb_until and p.get("guard_climb", 0.0) > 0.0:
+            fo.alt += min(p["guard_climb"], fo.max_climb) * dt   # ruptura vertical
         fo.command(hcmd, vcmd, dt)
-        sep = dist_m(le.lat, le.lon, fo.lat, fo.lon)
+        sepH = dist_m(le.lat, le.lon, fo.lat, fo.lon)
+        sep = math.hypot(sepH, le.alt - fo.alt)                  # separacion 3D
         seps.append(sep)
         min_sep = min(min_sep, sep)
         rows.append((round(t, 2), round(sep, 1), round(along, 1), round(cross, 1),
@@ -284,6 +295,8 @@ def main():
                     help="deg - umbral de 'el lider viene de cara'")
     ap.add_argument("--guard-turn", type=float, default=BASE["guard_turn"],
                     help="deg - giro de ruptura de la guarda")
+    ap.add_argument("--guard-climb", type=float, default=0.0,
+                    help="m/s - ruptura VERTICAL: trepar durante la guarda (0=off)")
     ap.add_argument("--sweep", choices=["distance", "latency", "all"], default=None)
     ap.add_argument("--csv", default=None, help="volcar serie temporal del ultimo caso a CSV")
     args = ap.parse_args()
@@ -298,6 +311,7 @@ def main():
     p["guard_ttc"] = args.guard_ttc
     p["guard_face"] = args.guard_face
     p["guard_turn"] = args.guard_turn
+    p["guard_climb"] = args.guard_climb
 
     print(f"ley: cross_gain={p['cross_gain']} cross_max={p['hdg_corr_max']} "
           f"along_gain={p['along_gain']} turn_rate={p['turn_rate']} dist_offset={p['dist_offset']}")

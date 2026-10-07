@@ -10,3 +10,6 @@ mav.parm
 tools/reports/
 sitl/
 
+
+__pycache__/
+*.pyc

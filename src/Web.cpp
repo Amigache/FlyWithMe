@@ -27,7 +27,7 @@ void Web::startAP()
 
   // IMPORTANTE: Configurar modo WiFi ANTES de iniciar AP
   WiFi.mode(WIFI_AP);
-  delay(100);  // Dar tiempo al WiFi para inicializar
+  delay(300);  // Dar tiempo al WiFi para (re)inicializar
 
   WiFi.softAP(fwm->params.ssid, fwm->params.pass);
 
@@ -51,6 +51,15 @@ void Web::startAP()
   Log.notice("Url: http://%s:%d" CR,host_ip.toString().c_str(), WEB_PORT);
   Log.notice("WebServer Ready" CR);
   #endif
+}
+
+void Web::stopAP()
+{
+  // Apaga SOLO el softAP (sin tumbar el stack WiFi), para poder re-levantarlo luego.
+  WiFi.softAPdisconnect(true);
+  server_up = false;
+  ap_info_shown = false;
+  Log.notice("AP detenido (no en tierra)" CR);
 }
 
 void Web::run()
@@ -297,6 +306,11 @@ void Web::setupWebServer()
   
   // API REST - Establecer configuración
   server->on("/api/config", HTTP_POST, [this](AsyncWebServerRequest *request){
+    // Seguridad: no permitir cambios de configuracion en vuelo (solo en tierra / sin FC)
+    if (!fwm->isOnGround()) {
+      request->send(403, "application/json", generateAPIResponse(false, "Config bloqueada: vehiculo en vuelo"));
+      return;
+    }
     // Formación: 0=TRAIL, 1=LEFT, 2=RIGHT, 3=ABOVE, 4=BELOW
     if (request->hasParam("formation", true)) {
       fwm->setFormation((uint8_t)request->getParam("formation", true)->value().toInt());
@@ -326,7 +340,12 @@ void Web::setupWebServer()
     stats += "\"rssi\":" + String(fwm->comm->commData.rssi) + ",";
     stats += "\"snr\":" + String(fwm->comm->commData.snr) + ",";
     stats += "\"distance\":" + String((int)fwm->getLinkDistance()) + ",";
-    stats += "\"state\":\"" + String(fwm->getStateName(fwm->currentState)) + "\"";
+    stats += "\"state\":\"" + String(fwm->getStateName(fwm->currentState)) + "\",";
+    stats += "\"on_ground\":" + String(fwm->isOnGround() ? "true" : "false") + ",";
+    stats += "\"link_timeout\":" + String(fwm->mav->linkTimeout ? "true" : "false") + ",";
+    stats += "\"armed\":" + String((int)fwm->mav->APdata.armed) + ",";
+    stats += "\"gs_cms\":" + String((int)fwm->mav->APdata.ground_speed) + ",";
+    stats += "\"rel_alt_mm\":" + String((int)fwm->mav->APdata.relative_alt);
     stats += "}";
     request->send(200, "application/json", stats);
   });

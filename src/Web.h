@@ -23,6 +23,7 @@ public:
     Web(FWM *fwm);
     void begin();
     void startAP();
+    void stopAP();
     void run();
     
     String getPostParam(String body, String param);

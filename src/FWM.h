@@ -65,6 +65,10 @@ public:
     void setPrediction(bool on);
     void setFilter(bool on);
 
+    // AP/WiFi solo en tierra (configuracion); nunca en vuelo
+    bool isOnGround();
+    void updateApGate();
+
     // Variables
     Params_t params;
 

@@ -115,6 +115,14 @@ void FWM::run()
 {
     // FASE 1: Reset watchdog en cada ciclo
     esp_task_wdt_reset();
+
+    // AP/WiFi solo en tierra: comprobar periodicamente y levantar/apagar segun corresponda
+    static uint32_t lastApGate = 0;
+    if (millis() - lastApGate > WEB_AP_GATE_INTERVAL_MS)
+    {
+        updateApGate();
+        lastApGate = millis();
+    }
     
     // FASE 2: Log periódico de telemetría (cada 30 segundos)
     static uint32_t lastTelemetryLog = 0;
@@ -435,6 +443,64 @@ void FWM::setFilter(bool on)
     preferences.putBool("filter", on);
     preferences.end();
     Log.notice("Filter %s" CR, on ? "ON" : "OFF");
+}
+
+/**
+ * @brief ¿Esta el vehiculo en tierra? Habilita el AP/WiFi de configuracion solo en tierra.
+ * Sin FC (o sin telemetria) se asume tierra, para poder configurar en banco/montaje.
+ */
+bool FWM::isOnGround()
+{
+#if WEB_AP_FORCE
+    return true;
+#else
+    if (mav == nullptr)
+    {
+        return true;
+    }
+    // Sin enlace con el FC (linkTimeout o link caido): asumir tierra (configuracion en banco)
+    if (mav->linkTimeout || !mav->link)
+    {
+        return true;
+    }
+    if (mav->APdata.armed)
+    {
+        return false;
+    }
+    if (mav->APdata.ground_speed > WEB_AP_GS_MAX_CMS)
+    {
+        return false;
+    }
+    if (mav->APdata.relative_alt > WEB_AP_ALT_MAX_MM)
+    {
+        return false;
+    }
+    return true;
+#endif
+}
+
+/**
+ * @brief Levanta/apaga el AP segun "en tierra" (WEB_AP_GROUND_ONLY). Llamar periodicamente.
+ */
+void FWM::updateApGate()
+{
+#if USE_WEB_SERVER && WEB_AP_GROUND_ONLY
+    static bool lastGround = true;
+    bool ground = isOnGround();
+    if (ground != lastGround)
+    {
+        Log.notice("AP gate: %s" CR, ground ? "tierra -> AP ON" : "vuelo -> AP OFF");
+        lastGround = ground;
+    }
+    if (ground && !web->server_up)
+    {
+        web->startAP();
+    }
+    else if (!ground && web->server_up)
+    {
+        web->stopAP();
+    }
+#endif
 }
 
 // ============================================================================================================

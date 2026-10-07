@@ -592,6 +592,13 @@ public:
 #define WEBSOCKET_PORT 81             // Puerto WebSocket
 #define WEB_START_AP_IMMEDIATELY 1    // Iniciar AP al arrancar (1) o solo cuando no hay FC (0)
 
+// --- AP/WiFi solo en TIERRA (configuracion; nunca en vuelo) ---
+#define WEB_AP_GROUND_ONLY 1          // 1 = el AP se levanta solo en tierra (o sin FC) y se apaga al armar/moverse
+#define WEB_AP_FORCE 0                // 1 = forzar AP siempre (banco; ignora la deteccion de tierra)
+#define WEB_AP_GS_MAX_CMS 200         // cm/s - por encima se considera "en movimiento" (no tierra)
+#define WEB_AP_ALT_MAX_MM 3000        // mm (3 m) - por encima se considera "en vuelo"
+#define WEB_AP_GATE_INTERVAL_MS 1000  // periodo de comprobacion del gate del AP
+
 // --- Modo Simulación ---
 #define SIMULATION_MODE 0             // Activar modo simulación (sin hardware)
 #define SIMULATION_UPDATE_RATE 100    // Actualización simulación (ms)

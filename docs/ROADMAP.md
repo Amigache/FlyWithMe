@@ -231,6 +231,13 @@ y trazas periódicas (distancia/distancia mínima) durante recta/giro/head-on/sa
 **Hardening del banco:** `sitl_bridge.py` **reconecta** solo si el SITL cierra SERIAL0 (antes moría y
 dejaba a la placa sin FC → el líder dejaba de emitir beacons).
 
+**Protocolo v2 + `netid` (red/"frase"):** el paquete LoRa (`src/protocol.h`, header **puro** testeable)
+añade `version`, `type` (BEACON/REPLY/JOIN), `netid` y `mode` (modo de vuelo del emisor). El receptor
+**descarta** paquetes de otra versión/red (`validatePacket`); el **sync word** y el **CRC** de radio se
+derivan del `netid`. `netid` es parámetro (NVS) + campo en la WebUI. `src/selftest.h` corre un
+auto-test del protocolo al arrancar. **Validado en hardware:** con el mismo `netid` el seguidor recibe
+(`rx` sube); al poner uno distinto **deja de recibir** (escenario `netid` del banco, PASS).
+
 **Fix del cristal (WiFi):** las placas TTGO LoRa32 V1.0 llevan cristal de **26 MHz**. El core de
 Arduino 3.x asumía 40 MHz → la **WiFi/BT quedaban fuera de banda** (no emitían AP ni escaneaban).
 La solución es compilar con **`-DF_XTAL_MHZ=26`** (ya en `platformio.ini`): el core lo aplica en

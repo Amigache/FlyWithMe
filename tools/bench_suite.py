@@ -447,6 +447,47 @@ class Suite:
         self.add("setup", "PASS" if ok else "FAIL",
                  {"dist_offset_set": self.args.dist_offset, "readback": got})
 
+    def _follower_rx(self):
+        """Ultimo contador rx=N del log del seguidor (paquetes VALIDOS recibidos)."""
+        txt = read_tap_text(self.args.follower_tap, 4.0)
+        m = re.findall(r"rx=(\d+)", txt)
+        return int(m[-1]) if m else None
+
+    def test_netid(self):
+        """Filtro de red (netid): mismo id -> recibe beacons; distinto -> deja de recibirlos.
+
+        Se hace EN TIERRA (netid es ground-only). Mide el contador rx del seguidor por el tap.
+        """
+        try:
+            fl = FwmLink(f"tcp:127.0.0.1:{self.args.follower_tap}", 2)
+            ll = FwmLink(f"tcp:127.0.0.1:{self.args.leader_tap}", 1)
+        except Exception as e:  # noqa: BLE001
+            self.add("netid", "SKIP", {}, f"tap no disponible: {e}")
+            return
+        orig_l = ll.read_params().get("netid")
+        orig_f = fl.read_params().get("netid")
+        same = orig_l is not None and orig_l == orig_f
+        new = 0x2B2B
+        ll.set_param("netid", new); fl.set_param("netid", new)     # mismo id nuevo
+        time.sleep(6)
+        rx_a = self._follower_rx()
+        time.sleep(6)
+        rx_b = self._follower_rx()
+        linked = rx_a is not None and rx_b is not None and rx_b > rx_a
+        fl.set_param("netid", 0x2B2C)                              # id distinto en el seguidor
+        time.sleep(6)
+        rx_c = self._follower_rx()
+        time.sleep(6)
+        rx_d = self._follower_rx()
+        dropped = rx_c is not None and rx_d is not None and rx_d <= rx_c + 1
+        fl.set_param("netid", orig_f if orig_f is not None else new)
+        ll.set_param("netid", orig_l if orig_l is not None else new)
+        fl.close(); ll.close()
+        ok = same and linked and dropped
+        self.add("netid", "PASS" if ok else "FAIL",
+                 {"mismo_id": same, "id_nuevo": new, "enlaza": linked, "corta_al_cambiar": dropped,
+                  "rx": [rx_a, rx_b, rx_c, rx_d]})
+
     def test_params(self):
         """Round-trip de parametros FWM por MAVLink (tap): leer, escribir, releer y restaurar."""
         try:
@@ -516,6 +557,7 @@ class Suite:
             ("preflight", self.test_preflight, 8),
             ("link", self.test_link, 2),
             ("setup", self.test_setup, 10),
+            ("netid", self.test_netid, 30),
             ("params", self.test_params, 25),
             ("formations", self.test_formations, 45),
             ("takeoff", self.test_takeoff, 60),

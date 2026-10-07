@@ -108,9 +108,11 @@ class Lab:
 
         print("[lab] lanzando 2 SITL ArduPlane...")
         p0 = subprocess.Popen(self._sitl_args(0, 1, self.cfg["leader_home"], lparm),
-                              cwd=str(base / "l0"))
+                              cwd=str(base / "l0"),
+                              stdout=open(base / "l0/out.log", "w"), stderr=subprocess.STDOUT)
         p1 = subprocess.Popen(self._sitl_args(1, 2, self.cfg["follower_home"], fparm),
-                              cwd=str(base / "l1"))
+                              cwd=str(base / "l1"),
+                              stdout=open(base / "l1/out.log", "w"), stderr=subprocess.STDOUT)
         self.procs["sitl"] = [p0, p1]
         time.sleep(11)
 
@@ -205,6 +207,7 @@ MENU = """
  6) Benchmark: recta
  7) Benchmark: giro 90
  8) Parar bench
+ 9) BENCH COMPLETO (todos los tests + reporte)
  0) Salir
 =================================================
 """
@@ -256,6 +259,8 @@ def main():
             lab.save_report(f"bench_{kind}", rc, out)
         elif c == "8":
             lab.stop_bench()
+        elif c == "9":
+            subprocess.run([PY, str(TOOLS / "bench_suite.py")], cwd=str(ROOT))
         elif c == "0":
             break
         else:

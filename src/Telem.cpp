@@ -752,18 +752,29 @@ void Telem::guided_follow(LoraPacket_t leader, int32_t targetLat, int32_t target
         float dn2 = (float)((lLat - fLat) * 111320.0);
         float de2 = (float)((lLon - fLon) * 111320.0 * cosf(fLat * PI / 180.0));
         float rng = sqrtf(dn2 * dn2 + de2 * de2);
-        if (rng < HEAD_ON_RANGE)
+        float brg = atan2f(de2, dn2) * 180.0f / PI;           // marcacion seguidor -> lider
+        float lhdg = leader.hdg / 100.0f;                     // rumbo del lider (deg)
+        float diff = fmodf(fabsf(lhdg - brg), 360.0f);
+        if (diff > 180.0f) diff = 360.0f - diff;
+        static uint32_t lastDbg = 0;
+        if (rng < 800.0f && millis() - lastDbg > 1500)
         {
-            float brg = atan2f(de2, dn2) * 180.0f / PI;      // marcacion seguidor -> lider
-            float lhdg = leader.hdg / 100.0f;                // rumbo del lider (deg)
-            float diff = fmodf(fabsf(lhdg - brg), 360.0f);
-            if (diff > 180.0f) diff = 360.0f - diff;
-            if (diff > HEAD_ON_FACE_DEG)                     // el lider mira hacia nosotros
+            Log.notice("HO dbg rng=%dm face=%d lhdg=%d brg=%d" CR,
+                       (int)rng, (int)diff, (int)lhdg, (int)brg);
+            lastDbg = millis();
+        }
+        if (rng < HEAD_ON_RANGE && diff > HEAD_ON_FACE_DEG)   // el lider mira hacia nosotros
+        {
+            static uint32_t lastGuardLog = 0;
+            if (millis() - lastGuardLog > 1000)
             {
-                float hb = brg + HEAD_ON_BREAK_DEG;          // perpendicular a la visual
-                if (hb < 0.0f) hb += 360.0f;
-                if (hb >= 360.0f) hb -= 360.0f;
-                guided_change_heading(hb, GUIDED_TURN_RATE_DPS);
+                Log.warning("HEAD_ON guard: rng=%dm face=%d" CR, (int)rng, (int)diff);
+                lastGuardLog = millis();
+            }
+            float hb = brg + HEAD_ON_BREAK_DEG;          // perpendicular a la visual
+            if (hb < 0.0f) hb += 360.0f;
+            if (hb >= 360.0f) hb -= 360.0f;
+            guided_change_heading(hb, GUIDED_TURN_RATE_DPS);
                 guided_change_speed(HEAD_ON_SPEED, GUIDED_SPEED_ACCEL);
                 return;
             }

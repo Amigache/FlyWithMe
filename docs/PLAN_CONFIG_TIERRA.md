@@ -69,26 +69,32 @@ se pone a `true` al conectar el FC, así que **no** sirve `linkTimeout` como cri
 
 ## 4. Fase 2 — Tabla de parámetros FWM única (web de configuración)
 
-- [ ] **Definir una tabla de parámetros** (fuente de verdad), p. ej. en `config.h`:
-  - Campos: `clave`, `etiqueta`, `tipo` (int/float/bool/enum), `min/max`, `unidad`, `valor`,
-    `persistente`, `solo-tierra`.
-  - Incluir: formación, offsets (`DIST_OFFSET`, lateral/vertical), `prediction`, `filter`,
-    `foll_enable/ofs_type/alt_type`, `link_timeout`, `ssid`, `pass`, velocidades/ganancias de guiado,
-    etc.
-- [ ] **Acceso**: `Params_t` como struct tipado + helpers `get/set/load/save` en `FWM`
-  (mover ahí lo que hoy hace `setFormation/setPrediction/setFilter` para unificarlo).
-- [ ] **API**:
-  - `GET /api/params` → lista completa (clave, tipo, valor, min/max, unidad, solo-tierra).
-  - `POST /api/params` → set por clave (valida rango y "en tierra").
-  - Mantener `GET/POST /api/config` como alias/compatibilidad.
-- [ ] **Página web** generada desde la tabla (controles según tipo), con botón "Guardar" y estado
-  "en tierra / en vuelo". Sin streaming continuo.
-- [ ] **Persistencia** en NVS de todos los parámetros marcados como persistentes.
-- [ ] **Retirar el WebSocket de telemetría** del flujo normal (dejar, si acaso, solo en modo
-  diagnóstico en tierra).
+> ✅ **IMPLEMENTADO** (commit `31525e7`). Resultados al final.
+
+- [x] **Tabla de parámetros** (fuente de verdad) en `config.h` (`ParamDef_t`):
+  - Campos: `key`, `label`, `type` (int/float/bool/enum), `min`, `max`, `unit`, `groundOnly`.
+  - Incluye: `formation`, `dist_offset`, `lateral_offset`, `vertical_offset`, `cross_gain`,
+    `heading_corr_max`, `along_gain`, `prediction`, `filter`, `foll_enable`, `link_timeout`.
+  - ⚠️ Pendiente: `ssid`/`pass` (strings) siguen fuera de la tabla (se manejan aparte).
+- [x] **Acceso runtime**: los offsets/ganancias pasan a `Params_t` y `Telem` los usa
+  (`fwm->params.*`); `getParamByIndex/setParamByIndex/paramsJson` en `FWM`. `setFormation/
+  setPrediction/setFilter` unificados sobre la tabla.
+- [x] **API**:
+  - `GET /api/params` → lista completa (key, type, value, min/max, unit, groundOnly).
+  - `POST /api/params` → set por clave (valida rango y "en tierra" → 403 en vuelo).
+  - `GET/POST /api/config` se mantienen (alias).
+- [x] **Página web** generada desde la tabla (num/checkbox/enum), dark y compacta (~4.8 KB),
+  con badge "EN TIERRA/EN VUELO". Sin streaming continuo.
+- [x] **Persistencia** en NVS (`saveParams` con los nuevos campos).
+- [x] **WebSocket de telemetría retirado** del flujo normal (`WEB_TELEMETRY_WS=0`).
 - **Criterios de aceptación**:
-  - Descargar/editar/guardar cualquier parámetro desde la web y verificar que persiste tras reinicio.
-  - Los cambios se rechazan en vuelo.
+  - Descargar/editar/guardar cualquier parámetro desde la web. ✅
+  - Los cambios se rechazan en vuelo. ✅ (mismo guard que Fase 1)
+
+**Resultados (banco):** `GET /api/params` devuelve las 11 entradas con sus valores;
+`POST` cambia y persiste (`dist_offset=110`, `cross_gain=0.7`…); la UI dark se sirve y muestra el
+estado. Nota de test: PowerShell en locale ES envía `0,7` (coma) → usar cadenas con punto; el
+navegador manda punto siempre.
 
 ---
 

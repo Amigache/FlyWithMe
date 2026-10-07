@@ -211,7 +211,7 @@ funcionan y la formación **persiste** tras reiniciar. (No requiere recompilar l
 - [ ] **D11** Web: config en **tierra** (AP solo en tierra + tabla de parámetros). Ver plan en
   `docs/PLAN_CONFIG_TIERRA.md`. Telemetría en vivo plegada al WebSocket (diagnóstico en tierra).
   - [x] **Fase 1** — Gate del AP solo en tierra + bloqueo de cambios en vuelo (commit `bb97e60`).
-  - [ ] **Fase 2** — Tabla de parámetros FWM + `/api/params`.
+  - [x] **Fase 2** — Tabla de parámetros FWM + `/api/params` + UI dark generada (commit `31525e7`).
   - [ ] **Fase 3** (opcional) — Parámetros FWM por MAVLink (Mission Planner).
 - [ ] **D12** Menú OLED: reasignar botones a GPIOs libres (o encoder).
 - [ ] **D13** Pantalla: estado de enlace, modo, distancia.

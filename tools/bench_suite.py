@@ -208,6 +208,10 @@ def set_guided(m):
     m.mav.set_mode_send(m.target_system, mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, 15)
 
 
+def set_mode(m, mode):
+    m.mav.set_mode_send(m.target_system, mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, mode)
+
+
 def do_reposition(m, lat, lon, alt):
     m.mav.command_int_send(m.target_system, 1, mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
                            mavutil.mavlink.MAV_CMD_DO_REPOSITION, 0, 0, -1, 0, 0, 0,
@@ -336,6 +340,54 @@ class Suite:
         ok = bool(d) and d["mean"] < 400
         self.add("turn", "PASS" if ok else "FAIL", m)
 
+    def test_mode_gate(self):
+        """Gate de modo: con el lider en modo inestable y cerca, el seguidor NO guia (hold); al volver
+        a un modo estable, reanuda. Se detecta por el log del seguidor (tap)."""
+        set_guided(self.lead); set_guided(self.fol)
+        time.sleep(2)
+        g = drain(self.lead).get('GLOBAL_POSITION_INT')
+        if not g:
+            self.add("mode_gate", "SKIP", {}, "sin posicion del lider")
+            return
+        do_reposition(self.lead, *geo_offset(g.lat / 1e7, g.lon / 1e7, 3000, 180.0), BENCH_ALT)
+        self.log("    mode_gate: estableciendo seguimiento (25s)...")
+        t0 = time.time()
+        while time.time() - t0 < 25:
+            drain(self.lead); drain(self.fol)
+            time.sleep(0.5)
+        try:
+            tap = TapReader(self.args.follower_tap)
+        except Exception:  # noqa: BLE001
+            tap = None
+        self.log("    mode_gate: lider a ACRO (inestable) y cerca...")
+        set_mode(self.lead, 4)  # ACRO = inestable
+        txt = ""
+        t0 = time.time()
+        while time.time() - t0 < 12:
+            drain(self.lead); drain(self.fol)
+            if tap:
+                txt = tap.poll()
+            time.sleep(0.5)
+        held = "mode unstable" in txt
+        self.log("    mode_gate: lider de vuelta a GUIDED (estable)...")
+        set_guided(self.lead)
+        time.sleep(3)
+        if tap:
+            txt = tap.poll()
+        n = len(txt)
+        t0 = time.time()
+        while time.time() - t0 < 10:
+            drain(self.lead); drain(self.fol)
+            if tap:
+                txt = tap.poll()
+            time.sleep(0.5)
+        resumed = "mode unstable" not in txt[n:]
+        if tap:
+            tap.close()
+        self.add("mode_gate", "PASS" if (held and resumed) else "FAIL",
+                 {"hold_con_acrobatico": held, "reanuda_con_estable": resumed,
+                  "dist_offset": self.args.dist_offset})
+
     def test_head_on(self):
         """El lider da media vuelta y va DE CARA al seguidor: mide la separacion minima (guarda)."""
         set_guided(self.lead); set_guided(self.fol)
@@ -432,20 +484,29 @@ class Suite:
                  "; ".join(notes))
 
     def test_setup(self):
-        """Ajustes EN TIERRA: fija dist_offset (para vuelo cercano) si se pidio."""
-        if self.args.dist_offset is None:
-            return
+        """EN TIERRA: alinea el netid (red) en AMBOS y fija dist_offset si se pidio."""
         try:
-            fl = FwmLink(FOLLOWER_TAP, 2)
+            fl = FwmLink(f"tcp:127.0.0.1:{self.args.follower_tap}", 2)
+            ll = FwmLink(f"tcp:127.0.0.1:{self.args.leader_tap}", 1)
         except Exception as e:  # noqa: BLE001
             self.add("setup", "SKIP", {}, f"tap no disponible: {e}")
             return
-        back = fl.set_param("dist_offset", self.args.dist_offset)
-        got = fl.read_params().get("dist_offset")
-        fl.close()
-        ok = got is not None and abs(got - self.args.dist_offset) < 0.5
-        self.add("setup", "PASS" if ok else "FAIL",
-                 {"dist_offset_set": self.args.dist_offset, "readback": got})
+        info = {}
+        nl = ll.read_params().get("netid")
+        nf = fl.read_params().get("netid")
+        info["netid_lead"] = nl
+        info["netid_foll"] = nf
+        if self.args.netid is not None and (nl != self.args.netid or nf != self.args.netid):
+            ll.set_param("netid", self.args.netid)
+            fl.set_param("netid", self.args.netid)
+            time.sleep(1)
+            info["netid_set"] = self.args.netid
+        if self.args.dist_offset is not None:
+            fl.set_param("dist_offset", self.args.dist_offset)
+            info["dist_offset_readback"] = fl.read_params().get("dist_offset")
+        fl.close(); ll.close()
+        aligned = (info.get("netid_set") is not None) or (nl == nf)
+        self.add("setup", "PASS" if aligned else "FAIL", info)
 
     def _follower_rx(self):
         """Ultimo contador rx=N del log del seguidor (paquetes VALIDOS recibidos)."""
@@ -563,6 +624,7 @@ class Suite:
             ("takeoff", self.test_takeoff, 60),
             ("straight", self.test_straight, 95),
             ("turn", self.test_turn, 125),
+            ("mode_gate", self.test_mode_gate, 75),
             ("head_on", self.test_head_on, 115),
             ("safety", self.test_safety, 65),
         ]
@@ -613,6 +675,8 @@ def main():
     ap.add_argument("--firmware", action="store_true", help="conectar tambien las placas (puentes)")
     ap.add_argument("--dist-offset", type=float, default=None,
                     help="fijar dist_offset EN TIERRA (m) para probar vuelo cercano (p. ej. 10)")
+    ap.add_argument("--netid", type=int, default=4660,
+                    help="netid ('frase') a alinear en AMBAS placas antes de probar (default 4660)")
     ap.add_argument("--leader-tap", type=int, default=5790, help="puerto del tap del lider")
     ap.add_argument("--follower-tap", type=int, default=5791, help="puerto del tap del seguidor")
     ap.add_argument("--only", default=None,

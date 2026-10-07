@@ -35,9 +35,17 @@ void Comm::begin()
   LoRa.setSpreadingFactor(LORA_SPREADING_FACTOR); // SF12
   LoRa.setCodingRate4(LORA_CODING_RATE);          // 4/5
   LoRa.setTxPower(LORA_TX_POWER);                 // 20dBm
-  // Sync word derivado del netid ("frase"): ambos extremos deben tener el mismo netid.
-  LoRa.setSyncWord(fwm->params.netid ? loraSyncWordFor(fwm->params.netid) : LORA_SYNC_WORD);
-  LoRa.enableCrc();                               // CRC de radio (descarta tramas corruptas)
+  // Radio: sync word y CRC (config conocida-buena por defecto; ver flags en config.h).
+  LoRa.setSyncWord(LORA_SYNC_WORD);
+#if NETID_USE_SYNCWORD
+  if (fwm->params.netid)
+  {
+    LoRa.setSyncWord(loraSyncWordFor(fwm->params.netid));
+  }
+#endif
+#if LORA_CRC
+  LoRa.enableCrc();
+#endif
 
   delay(3000);
   Log.notice("LoRa Ready" CR);
@@ -153,6 +161,7 @@ void Comm::run()
   }
 
   // v2: el SEGUIDOR emite su REPLY/JOIN a cadencia fija (enlace de vuelta). Solo si hay FC.
+#if FOLLOWER_REPLY
   if (fwm->follow_mode == FOLL_MODE_FOLLOWER && !MAV_BRIDGE)
   {
     uint32_t now = millis();
@@ -162,6 +171,7 @@ void Comm::run()
       sendReplyPacket();
     }
   }
+#endif
 
   // Only work if we are on follower mode
   if (fwm->follow_mode == FOLL_MODE_FOLLOWER)
@@ -174,6 +184,12 @@ void Comm::run()
       
       // FASE 2: Detectar tipo de paquete por tamaño
       int packetSize = LoRa.available();
+      static uint32_t lastSzLog = 0;
+      if (packetSize != (int)sizeof(LoraPacket_t) && millis() - lastSzLog > 1000)
+      {
+        Log.warning("RX size=%d esperado=%d" CR, packetSize, (int)sizeof(LoraPacket_t));
+        lastSzLog = millis();
+      }
       
       #if USE_COMPRESSED_PACKETS
       if (packetSize == sizeof(CompressedLoraPacket_t))
@@ -482,10 +498,12 @@ uint8_t Comm::calChecksum(LoraPacket_t packet)
 
 void Comm::applyNetid()
 {
+#if NETID_USE_SYNCWORD
   if (fwm && fwm->params.netid)
   {
     LoRa.setSyncWord(loraSyncWordFor(fwm->params.netid));
   }
+#endif
 }
 
 // v2: REPLY (ya hay enlace) o JOIN (aun no) con la posicion del seguidor -> sesion + OSD del lider.

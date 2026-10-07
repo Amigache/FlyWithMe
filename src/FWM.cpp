@@ -284,9 +284,14 @@ void FWM::send_packet_ticker_callback()
     if (self)
     {
         // v2: sin seguidor (sin REPLY reciente) NO emitir -> ahorro hasta que pidan sesion (JOIN).
+        static uint32_t lastDiscovery = 0;
         if (millis() - self->lastFollowerMs > SESSION_TIMEOUT_MS)
         {
-            return;
+            if (millis() - lastDiscovery < DISCOVERY_INTERVAL_MS)
+            {
+                return;
+            }
+            lastDiscovery = millis();
         }
         // No enviar packets si no hay conexión con FC (modo AP configuración)
         if (self->mav->linkTimeout)

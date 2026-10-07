@@ -1,4 +1,7 @@
 #include "FWM.h"
+#if FWM_SELFTEST
+#include "selftest.h"
+#endif
 
 // FWM
 FWM fwm;
@@ -25,6 +28,13 @@ void setup()
 #endif
 
   // FWM ---------------------------------------------------------------------------------------------------
+#if FWM_SELFTEST
+  {
+    char msg[96];
+    int fails = protocolSelfTest(msg, sizeof(msg));
+    Log.notice("SELFTEST %s: %s" CR, fails ? "FAIL" : "PASS", msg);
+  }
+#endif
   fwm.begin();
 }
 

@@ -50,6 +50,7 @@ void FWM::begin()
         params.cross_gain = CROSS_TRACK_GAIN_DEG_PER_M;
         params.heading_corr_max = MAX_HEADING_CORR_DEG;
         params.along_gain = ALONG_GAIN_CMS_PER_M;
+        params.netid = NETID_DEFAULT;
 
         saveParams();
     }
@@ -249,6 +250,10 @@ void FWM::send_packet_ticker_callback()
         }
         
         LoraPacket_t packet;
+        packet.version = PROTOCOL_VERSION;
+        packet.type = LORA_MSG_BEACON;
+        packet.netid = self->params.netid;
+        packet.mode = (uint8_t)self->mav->APdata.custom_mode;
         packet.sysid = SYSID;
         packet.lat = self->mav->APdata.lat;
         packet.lon = self->mav->APdata.lon;
@@ -376,6 +381,7 @@ void FWM::saveParams()
     preferences.putFloat("cross_gain", params.cross_gain);
     preferences.putFloat("heading_corr_max", params.heading_corr_max);
     preferences.putFloat("along_gain", params.along_gain);
+    preferences.putInt("netid", (int)params.netid);
     if (mav != nullptr)
     {
         preferences.putInt("formation", (int)mav->currentFormation);
@@ -408,6 +414,7 @@ void FWM::loadParams()
     params.cross_gain = preferences.getFloat("cross_gain", CROSS_TRACK_GAIN_DEG_PER_M);
     params.heading_corr_max = preferences.getFloat("heading_corr_max", MAX_HEADING_CORR_DEG);
     params.along_gain = preferences.getFloat("along_gain", ALONG_GAIN_CMS_PER_M);
+    params.netid = (uint16_t)preferences.getInt("netid", NETID_DEFAULT);
 
     String ssid = preferences.getString("ssid", "");
     String pass = preferences.getString("pass", "");
@@ -526,6 +533,7 @@ static const ParamDef_t s_paramTable[] = {
     {"filter",           "Position filter",      PARAM_BOOL,  0.0f,  1.0f,   "",       1},
     {"foll_enable",      "Follow enable",        PARAM_BOOL,  0.0f,  1.0f,   "",       1},
     {"link_timeout",     "Link timeout",         PARAM_INT,   2.0f,  120.0f, "s",      1},
+    {"netid",            "Network ID",           PARAM_INT,   0.0f,  65535.0f,"",       1},
 };
 
 int FWM::paramCount()
@@ -569,6 +577,7 @@ float FWM::getParamByIndex(int idx)
     case 8: return (mav && mav->filterEnabled) ? 1.0f : 0.0f;
     case 9: return (float)params.foll_enable;
     case 10: return (float)params.link_timeout;
+    case 11: return (float)params.netid;
     default: return 0.0f;
     }
 }
@@ -595,6 +604,7 @@ bool FWM::setParamByIndex(int idx, float value, bool persist)
     case 8: if (mav) mav->filterEnabled = value >= 0.5f; break;
     case 9: params.foll_enable = (int32_t)value; break;
     case 10: params.link_timeout = (int32_t)value; break;
+    case 11: params.netid = (uint16_t)value; if (comm) comm->applyNetid(); break;
     default: return false;
     }
     if (persist)

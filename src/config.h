@@ -6,6 +6,16 @@
 #include <HardwareSerial.h>
 #include <string>  // FlightModeInfo usa std::string
 
+// Auto-test del protocolo al arrancar (barato; util en desarrollo). Ver src/selftest.h
+#ifndef FWM_SELFTEST
+#define FWM_SELFTEST 1
+#endif
+
+// Red por defecto ("frase"/netid) para el protocolo v2; configurable por parametro y por la web.
+#ifndef NETID_DEFAULT
+#define NETID_DEFAULT 4660 // 0x1234
+#endif
+
 // For mavlink sha256 redefinition error
 #ifdef F
 #undef F
@@ -264,6 +274,7 @@ typedef struct
   float cross_gain;        // deg/m - ganancia lateral del guiado
   float heading_corr_max;  // deg - tope de correccion de rumbo
   float along_gain;        // cm/s por m - ganancia longitudinal
+  uint16_t netid;          // red ("frase"): filtra trafico de otros sistemas (0 = deshabilitado)
 } Params_t;
 
 // --- Tabla de parametros configurables (Fase 2) ---
@@ -307,22 +318,8 @@ typedef struct
   uint8_t armed;           ///< System armed status
 } APdata_t;
 
-typedef struct
-{
-  uint8_t sysid;         ///< ID System
-  int32_t lat;           ///< Latitude, expressed as * 1E7
-  int32_t lon;           ///< Longitude, expressed as * 1E7
-  int32_t alt;           ///< Altitude in meters, expressed as * 1000 (millimeters), above MSL
-  int32_t relative_alt;  ///< Altitude above ground in meters, expressed as * 1000 (millimeters)
-  uint16_t ground_speed; ///< [cm/s] Ground speed;
-  uint16_t hdg;          ///< Compass heading in degrees * 100, 0.0..359.99 degrees. If unknown, set to: 65535
-  // P1: para compensar la latencia del enlace (el lider ya se ha movido al recibir)
-  uint32_t timestamp;    ///< [ms] millis() del lider en el momento de enviar
-  int16_t vx;            ///< [cm/s] Velocidad NED: vx = norte
-  int16_t vy;            ///< [cm/s] vy = este
-  int16_t vz;            ///< [cm/s] vz = abajo (positivo hacia abajo)
-  uint8_t checksum;      ///< Checksum
-} LoraPacket_t;
+// LoraPacket_t (protocolo v2: version/type/netid/mode) vive en protocol.h (header puro, testeable en host).
+#include "protocol.h"
 
 // FASE 2: Estructura de paquete comprimido (15 bytes vs 27 bytes)
 typedef struct __attribute__((packed))

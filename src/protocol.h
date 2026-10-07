@@ -1,0 +1,66 @@
+#pragma once
+// -----------------------------------------------------------------------------------------------------------
+// Protocolo LoRa FlyWithMe (v2) -- header PURO (sin dependencias de Arduino) para poder testear en host.
+//
+// Cambios v2:
+//   * version + type (BEACON/REPLY/JOIN) -> un mismo struct sirve para ambas direcciones.
+//   * netid ("frase"/red): el receptor DESCARTA paquetes de otras redes/sistemas (anti-cruce).
+//   * mode: modo de vuelo del emisor (ArduPlane custom_mode) -> el seguidor puede exigir modo estable.
+//
+// El checksum suma el struct entero (padding incluido), excluyendo el propio byte de checksum.
+// -----------------------------------------------------------------------------------------------------------
+#include <stddef.h>
+#include <stdint.h>
+
+#define PROTOCOL_VERSION 2
+
+enum LoraMsgType : uint8_t
+{
+  LORA_MSG_BEACON = 1, ///< lider -> aire (posicion/modo del lider)
+  LORA_MSG_REPLY = 2,  ///< seguidor -> lider (posicion del seguidor; para el OSD del lider)
+  LORA_MSG_JOIN = 3    ///< seguidor -> lider (peticion de sesion; el lider empieza a emitir)
+};
+
+typedef struct
+{
+  uint8_t version;       ///< PROTOCOL_VERSION
+  uint8_t type;          ///< LoraMsgType
+  uint16_t netid;        ///< red compartida ("frase"); filtra trafico de otros sistemas
+  uint8_t sysid;         ///< ID de sistema del emisor
+  uint8_t mode;          ///< ArduPlane custom_mode del emisor (modo de vuelo)
+  int32_t lat;           ///< Latitud * 1E7
+  int32_t lon;           ///< Longitud * 1E7
+  int32_t alt;           ///< Altitud MSL (mm)
+  int32_t relative_alt;  ///< Altitud sobre el terreno (mm)
+  uint16_t ground_speed; ///< [cm/s]
+  uint16_t hdg;          ///< rumbo * 100 (0..35999; 65535 = desconocido)
+  uint32_t timestamp;    ///< [ms] millis() del emisor al enviar
+  int16_t vx;            ///< [cm/s] velocidad NED: norte
+  int16_t vy;            ///< [cm/s] velocidad NED: este
+  int16_t vz;            ///< [cm/s] velocidad NED: abajo
+  uint8_t checksum;      ///< Checksum
+} LoraPacket_t;
+
+// Checksum por suma de bytes (excluye el propio checksum).
+inline uint8_t loraPacketChecksum(const LoraPacket_t &p)
+{
+  const uint8_t *b = reinterpret_cast<const uint8_t *>(&p);
+  const size_t n = sizeof(LoraPacket_t);
+  const size_t skip = offsetof(LoraPacket_t, checksum);
+  uint8_t c = 0;
+  for (size_t i = 0; i < n; ++i)
+  {
+    if (i != skip)
+    {
+      c += b[i];
+    }
+  }
+  return c;
+}
+
+inline bool loraChecksumOk(const LoraPacket_t &p) { return loraPacketChecksum(p) == p.checksum; }
+inline bool loraVersionOk(const LoraPacket_t &p) { return p.version == PROTOCOL_VERSION; }
+inline bool loraNetidOk(const LoraPacket_t &p, uint16_t netid) { return p.netid == netid; }
+
+// Sync word de radio (1 byte) derivado del netid; debe coincidir en ambos extremos.
+inline uint8_t loraSyncWordFor(uint16_t netid) { return (uint8_t)(0x10 | (netid & 0x0F)); }

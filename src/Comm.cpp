@@ -35,7 +35,9 @@ void Comm::begin()
   LoRa.setSpreadingFactor(LORA_SPREADING_FACTOR); // SF12
   LoRa.setCodingRate4(LORA_CODING_RATE);          // 4/5
   LoRa.setTxPower(LORA_TX_POWER);                 // 20dBm
-  LoRa.setSyncWord(LORA_SYNC_WORD);
+  // Sync word derivado del netid ("frase"): ambos extremos deben tener el mismo netid.
+  LoRa.setSyncWord(fwm->params.netid ? loraSyncWordFor(fwm->params.netid) : LORA_SYNC_WORD);
+  LoRa.enableCrc();                               // CRC de radio (descarta tramas corruptas)
 
   delay(3000);
   Log.notice("LoRa Ready" CR);
@@ -403,27 +405,20 @@ void Comm::sendPacket(LoraPacket_t packet)
 
 bool Comm::validateChecksum(LoraPacket_t packet)
 {
-  uint8_t calculated = calChecksum(packet);
-  return calculated == packet.checksum;
+  return loraChecksumOk(packet);
 }
 
 uint8_t Comm::calChecksum(LoraPacket_t packet)
 {
-  uint8_t checksum = 0;
-  const uint8_t *bytes = reinterpret_cast<const uint8_t *>(&packet);
-  size_t size = sizeof(packet);
+  return loraPacketChecksum(packet);
+}
 
-  // Excluir el campo 'checksum' del cálculo
-  size_t checksumIndex = offsetof(LoraPacket_t, checksum);
-  for (size_t i = 0; i < size; ++i)
+void Comm::applyNetid()
+{
+  if (fwm && fwm->params.netid)
   {
-    if (i != checksumIndex)
-    {
-      checksum += bytes[i];
-    }
+    LoRa.setSyncWord(loraSyncWordFor(fwm->params.netid));
   }
-
-  return checksum;
 }
 
 // ============================================================================================================
@@ -438,6 +433,18 @@ uint8_t Comm::calChecksum(LoraPacket_t packet)
  */
 bool Comm::validatePacket(LoraPacket_t packet)
 {
+  // 0. Version + red (netid): descarta paquetes de otras versiones/sistemas (anti-cruce).
+  if (!loraVersionOk(packet))
+  {
+    Log.trace("Proto version mismatch (%d)" CR, packet.version);
+    return false;
+  }
+  if (fwm->params.netid != 0 && !loraNetidOk(packet, fwm->params.netid))
+  {
+    Log.trace("Netid mismatch (%d != %d)" CR, packet.netid, fwm->params.netid);
+    return false;
+  }
+
   // 1. Validar checksum
   if (!validateChecksum(packet))
   {

@@ -600,11 +600,11 @@ void Telem::guided_follow(LoraPacket_t leader, int32_t targetLat, int32_t target
 
     // 3) Rumbo = traza + correccion cross-track
     float theta = atan2f(ue, un) * 180.0f / PI;
-    float corr = -CROSS_TRACK_GAIN_DEG_PER_M * cross;
-    if (corr > MAX_HEADING_CORR_DEG)
-        corr = MAX_HEADING_CORR_DEG;
-    if (corr < -MAX_HEADING_CORR_DEG)
-        corr = -MAX_HEADING_CORR_DEG;
+    float corr = -fwm->params.cross_gain * cross;
+    if (corr > fwm->params.heading_corr_max)
+        corr = fwm->params.heading_corr_max;
+    if (corr < -fwm->params.heading_corr_max)
+        corr = -fwm->params.heading_corr_max;
     float hcmd = theta + corr;
     if (hcmd < 0.0f)
         hcmd += 360.0f;
@@ -615,7 +615,7 @@ void Telem::guided_follow(LoraPacket_t leader, int32_t targetLat, int32_t target
     float along_dead = along;
     if (fabsf(along_dead) < SPEED_DEADBAND_M)
         along_dead = 0.0f; // banda muerta: evita cazar la velocidad con ruido pequeno
-    float boost = -along_dead * ALONG_GAIN_CMS_PER_M;
+    float boost = -along_dead * fwm->params.along_gain;
     if (boost > MAX_SPEED_BOOST)
         boost = MAX_SPEED_BOOST;
     if (boost < -MAX_SPEED_SLOW)
@@ -970,10 +970,10 @@ PredictedPosition Telem::predictLeaderPosition(LoraPacket_t current)
 void Telem::calculateFormationPosition(LoraPacket_t leader, FormationType formation,
                                        int32_t &targetLat, int32_t &targetLon, int32_t &targetAlt)
 {
-    // Distancias de offset configurables
-    float offsetDistance = DIST_OFFSET; // metros (desde config.h)
-    float lateralOffset = FORMATION_LATERAL_OFFSET; // metros
-    float verticalOffset = FORMATION_VERTICAL_OFFSET; // metros
+    // Distancias de offset configurables (runtime, Fase 2)
+    float offsetDistance = fwm->params.dist_offset;     // metros
+    float lateralOffset = fwm->params.lateral_offset;   // metros
+    float verticalOffset = fwm->params.vertical_offset; // metros
     
     // Convertir heading a radianes
     float headingRad = (leader.hdg / 100.0) * PI / 180.0;

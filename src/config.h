@@ -230,7 +230,34 @@ typedef struct
   int32_t link_timeout;
   char ssid[11];
   char pass[11];
+  // Fase 2: offsets y ganancias del guiado (configurables en tierra, persistidos)
+  float dist_offset;       // m - distancia TRAIL
+  float lateral_offset;    // m - offset LEFT/RIGHT
+  float vertical_offset;   // m - offset ABOVE/BELOW
+  float cross_gain;        // deg/m - ganancia lateral del guiado
+  float heading_corr_max;  // deg - tope de correccion de rumbo
+  float along_gain;        // cm/s por m - ganancia longitudinal
 } Params_t;
+
+// --- Tabla de parametros configurables (Fase 2) ---
+enum ParamType
+{
+  PARAM_INT,
+  PARAM_FLOAT,
+  PARAM_BOOL,
+  PARAM_ENUM
+};
+
+typedef struct
+{
+  const char *key;     ///< clave (minusculas, corta; <=15 para futuro MAVLink)
+  const char *label;   ///< etiqueta humana
+  uint8_t type;        ///< ParamType
+  float min;           ///< rango valido
+  float max;
+  const char *unit;    ///< unidad ("" si no aplica)
+  uint8_t groundOnly;  ///< 1 = solo editable en tierra
+} ParamDef_t;
 
 typedef struct
 {
@@ -590,6 +617,7 @@ public:
 #define WEB_SERVER_PORT 80            // Puerto del servidor
 #define USE_WEBSOCKET 1               // Activar WebSocket para telemetría
 #define WEBSOCKET_PORT 81             // Puerto WebSocket
+#define WEB_TELEMETRY_WS 0            // Telemetría en vivo por WebSocket (0 = retirada; solo diagnóstico en tierra)
 #define WEB_START_AP_IMMEDIATELY 1    // Iniciar AP al arrancar (1) o solo cuando no hay FC (0)
 
 // --- AP/WiFi solo en TIERRA (configuracion; nunca en vuelo) ---

@@ -69,6 +69,15 @@ public:
     bool isOnGround();
     void updateApGate();
 
+    // Fase 2: tabla de parametros FWM (fuente de verdad)
+    int paramCount();
+    const ParamDef_t* paramDefAt(int idx);
+    int findParam(const char* key);
+    float getParamByIndex(int idx);
+    bool setParamByIndex(int idx, float value, bool persist = true);
+    bool setParamByKey(const char* key, const char* valueStr, String &err);
+    String paramsJson();
+
     // Variables
     Params_t params;
 

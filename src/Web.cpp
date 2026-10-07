@@ -218,8 +218,8 @@ void Web::run()
     }
   }
   
-  #if USE_WEB_SERVER && USE_WEBSOCKET
-  // Enviar telemetría por WebSocket si hay clientes conectados
+  #if USE_WEB_SERVER && USE_WEBSOCKET && WEB_TELEMETRY_WS
+  // Telemetría en vivo por WebSocket (retirada del flujo normal; solo diagnóstico en tierra)
   sendTelemetryWebSocket();
   #endif
 }
@@ -324,6 +324,27 @@ void Web::setupWebServer()
       fwm->setFilter(f == "1" || f == "true" || f == "on");
     }
     request->send(200, "application/json", generateAPIResponse(true, "Config updated"));
+  });
+
+  // API REST - Parametros FWM (Fase 2): GET lista completa; POST set por clave (x-www-form-urlencoded)
+  server->on("/api/params", HTTP_GET, [this](AsyncWebServerRequest *request){
+    request->send(200, "application/json", fwm->paramsJson());
+  });
+  server->on("/api/params", HTTP_POST, [this](AsyncWebServerRequest *request){
+    bool ok = true;
+    String err = "ok";
+    for (int i = 0; i < fwm->paramCount(); i++) {
+      const ParamDef_t *d = fwm->paramDefAt(i);
+      if (d && request->hasParam(d->key, true)) {
+        String v = request->getParam(d->key, true)->value();
+        String e;
+        if (!fwm->setParamByKey(d->key, v.c_str(), e)) {
+          ok = false;
+          err = e;
+        }
+      }
+    }
+    request->send(ok ? 200 : 400, "application/json", generateAPIResponse(ok, err.c_str()));
   });
   
   // API REST - Obtener estadísticas
@@ -432,143 +453,80 @@ String Web::generateHTML()
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>FlyWithMe Control Panel</title>
+  <title>FlyWithMe</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 20px; background: #f0f0f0; }
-    .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; }
-    h1 { color: #333; text-align: center; }
-    .section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
-    .stat { display: flex; justify-content: space-between; margin: 10px 0; }
-    .stat-label { font-weight: bold; }
-    .stat-value { color: #007bff; }
-    button { padding: 10px 20px; margin: 5px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; }
-    button:hover { background: #0056b3; }
-    select, input { padding: 8px; margin: 5px; border-radius: 5px; border: 1px solid #ddd; }
-    #map { height: 400px; width: 100%; border: 1px solid #ddd; margin: 10px 0; }
-    .status-ok { color: green; }
-    .status-error { color: red; }
+    :root{--bg:#0f1115;--card:#171a21;--fg:#e7eaf0;--mut:#8b93a7;--acc:#3da9fc;--ok:#2ecc71;--err:#ff5c5c;--bd:#262b36}
+    *{box-sizing:border-box}
+    body{margin:0;font:14px/1.45 system-ui,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--fg)}
+    header{display:flex;align-items:center;gap:10px;padding:13px 16px;border-bottom:1px solid var(--bd);position:sticky;top:0;background:var(--bg);z-index:2}
+    h1{font-size:16px;margin:0;font-weight:600}
+    .badge{margin-left:auto;font-size:12px;padding:3px 9px;border-radius:99px;background:#20242e;color:var(--mut)}
+    .badge.g{background:#12351f;color:var(--ok)}.badge.a{background:#3a1a1a;color:var(--err)}
+    main{max-width:720px;margin:0 auto;padding:14px}
+    section{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px;margin:12px 0}
+    h2{font-size:12px;margin:0 0 10px;color:var(--mut);text-transform:uppercase;letter-spacing:.07em}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+    .kv{display:flex;justify-content:space-between;gap:8px;padding:6px 9px;background:#12151b;border-radius:8px}
+    .kv :first-child{color:var(--mut)}.kv :last-child{font-variant-numeric:tabular-nums}
+    .fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px}
+    label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--mut)}
+    input,select{background:#0d1015;color:var(--fg);border:1px solid var(--bd);border-radius:8px;padding:8px;font:inherit;width:100%}
+    button{background:var(--acc);color:#04121f;border:0;border-radius:9px;padding:9px 14px;font:600 13px inherit;cursor:pointer}
+    button.sec{background:#20242e;color:var(--fg)}
+    button:hover{filter:brightness(1.08)}
+    .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px}
+    .msg{font-size:12px;color:var(--mut)}
+    .chk{flex-direction:row;align-items:center;gap:8px}.chk input{width:auto}
   </style>
 </head>
 <body>
-  <div class="container">
-    <h1>🛸 FlyWithMe Control Panel</h1>
-    
-    <div class="section">
-      <h2>Estado del Sistema</h2>
-      <div class="stat"><span class="stat-label">Uptime:</span><span class="stat-value" id="uptime">-</span></div>
-      <div class="stat"><span class="stat-label">Packets RX:</span><span class="stat-value" id="rx">-</span></div>
-      <div class="stat"><span class="stat-label">Packets TX:</span><span class="stat-value" id="tx">-</span></div>
-      <div class="stat"><span class="stat-label">RSSI:</span><span class="stat-value" id="rssi">-</span></div>
-      <div class="stat"><span class="stat-label">SNR:</span><span class="stat-value" id="snr">-</span></div>
-      <div class="stat"><span class="stat-label">Perdidas:</span><span class="stat-value" id="lost">-</span></div>
-      <div class="stat"><span class="stat-label">Distancia:</span><span class="stat-value" id="dist">-</span></div>
-      <div class="stat"><span class="stat-label">Estado:</span><span class="stat-value" id="state">-</span></div>
-    </div>
-    
-    <div class="section">
-      <h2>Configuración</h2>
-      <div>
-        <label>Formación:</label>
-        <select id="formation">
-          <option value="0">Trail</option>
-          <option value="1">Left</option>
-          <option value="2">Right</option>
-          <option value="3">Above</option>
-          <option value="4">Below</option>
-        </select>
+  <header><h1>🛸 FlyWithMe</h1><span id="gt" class="badge">—</span></header>
+  <main>
+    <section><h2>Estado</h2><div class="grid" id="stats"></div></section>
+    <section><h2>Configuración FWM</h2>
+      <form id="pf" class="fields" onsubmit="return saveP(event)"></form>
+      <div class="row"><button type="submit" form="pf">Guardar</button><span id="pm" class="msg"></span></div>
+    </section>
+    <section><h2>Acciones</h2>
+      <div class="row">
+        <button class="sec" onclick="location.href='/api/logs'">Descargar logs</button>
+        <button class="sec" onclick="location.reload()">Recargar</button>
       </div>
-      <div>
-        <label>Predicción: <input type="checkbox" id="prediction"></label>
-        <label>Filtro: <input type="checkbox" id="filter"></label>
-      </div>
-      <button onclick="saveConfig()">Guardar Config</button>
-    </div>
-    
-    <div class="section">
-      <h2>Telemetría en Tiempo Real</h2>
-      <div class="stat"><span class="stat-label">Latitud:</span><span class="stat-value" id="lat">-</span></div>
-      <div class="stat"><span class="stat-label">Longitud:</span><span class="stat-value" id="lon">-</span></div>
-      <div class="stat"><span class="stat-label">Altitud:</span><span class="stat-value" id="alt">-</span></div>
-      <div class="stat"><span class="stat-label">Velocidad:</span><span class="stat-value" id="speed">-</span></div>
-    </div>
-    
-    <div class="section">
-      <h2>Acciones</h2>
-      <button onclick="calibrateLora()">Calibrar LoRa</button>
-      <button onclick="downloadLogs()">Descargar Logs</button>
-      <button onclick="resetStats()">Reset Estadísticas</button>
-    </div>
-  </div>
+    </section>
+  </main>
   
   <script>
-    // WebSocket para telemetría en tiempo real
-    let ws = new WebSocket('ws://' + window.location.hostname + ':81/ws');
-    
-    ws.onmessage = function(event) {
-      let data = JSON.parse(event.data);
-      document.getElementById('lat').textContent = data.lat.toFixed(7);
-      document.getElementById('lon').textContent = data.lon.toFixed(7);
-      document.getElementById('alt').textContent = data.alt.toFixed(2) + ' m';
-      document.getElementById('speed').textContent = data.speed + ' cm/s';
-    };
-    
-    // Actualizar estadísticas cada segundo
-    setInterval(updateStats, 1000);
-
-    // Cargar la configuración actual en los controles
-    fetch('/api/config').then(r => r.json()).then(c => {
-      document.getElementById('formation').value = c.formation;
-      document.getElementById('prediction').checked = c.prediction;
-      document.getElementById('filter').checked = c.filter;
-    }).catch(() => {});
-    
-    function updateStats() {
-      fetch('/api/stats')
-        .then(r => r.json())
-        .then(data => {
-          document.getElementById('uptime').textContent = (data.uptime / 1000).toFixed(0) + ' s';
-          document.getElementById('rx').textContent = data.rx_packets;
-          document.getElementById('tx').textContent = data.tx_packets;
-          document.getElementById('rssi').textContent = data.rssi + ' dBm';
-          document.getElementById('snr').textContent = data.snr;
-          document.getElementById('lost').textContent = data.lost_packets + ' (' + data.packet_loss + '%)';
-          document.getElementById('dist').textContent = (data.distance >= 0 ? data.distance + ' m' : '--');
-          document.getElementById('state').textContent = data.state;
-        });
+    const $=id=>document.getElementById(id),F=['Trail','Left','Right','Above','Below'];
+    let P=[];
+    const stat=(k,v)=>'<div class="kv"><span>'+k+'</span><span>'+v+'</span></div>';
+    function drawStats(d){
+      $('stats').innerHTML = stat('Estado',d.state)+stat('Uptime',(d.uptime/1000|0)+' s')+
+        stat('RX / TX',d.rx_packets+' / '+d.tx_packets)+stat('RSSI',d.rssi+' dBm')+
+        stat('SNR',d.snr)+stat('Perdidas',d.lost_packets+' ('+d.packet_loss+'%)')+
+        stat('Distancia',d.distance>=0?d.distance+' m':'--');
+      const g=$('gt'); g.textContent=d.on_ground?'EN TIERRA':'EN VUELO';
+      g.className='badge '+(d.on_ground?'g':'a');
     }
-    
-    function saveConfig() {
-      let formation = document.getElementById('formation').value;
-      let prediction = document.getElementById('prediction').checked;
-      let filter = document.getElementById('filter').checked;
-      
-      let formData = new FormData();
-      formData.append('formation', formation);
-      formData.append('prediction', prediction);
-      formData.append('filter', filter);
-      
-      fetch('/api/config', {method: 'POST', body: formData})
-        .then(r => r.json())
-        .then(data => alert(data.message));
+    function drawForm(list){
+      P=list; let h='';
+      list.forEach(p=>{const id='p_'+p.key,t=p.type;
+        if(t===3) h+='<label>'+p.label+'<select id="'+id+'">'+F.map((n,i)=>'<option value="'+i+'">'+n+'</option>').join('')+'</select></label>';
+        else if(t===2) h+='<label class="chk"><input type="checkbox" id="'+id+'">'+p.label+'</label>';
+        else h+='<label>'+p.label+(p.unit?' ('+p.unit+')':'')+'<input type="number" step="any" min="'+p.min+'" max="'+p.max+'" id="'+id+'"></label>';
+      });
+      $('pf').innerHTML=h;
+      list.forEach(p=>{const e=$('p_'+p.key); if(!e)return; if(p.type===2)e.checked=p.value>=0.5; else e.value=p.value;});
     }
-    
-    function calibrateLora() {
-      alert('Calibrando LoRa... Por favor espera.');
-      // TODO: Implementar endpoint
+    function saveP(ev){
+      ev.preventDefault(); const fd=new FormData();
+      P.forEach(p=>{const e=$('p_'+p.key); if(!e)return; fd.append(p.key, p.type===2?(e.checked?'1':'0'):e.value);});
+      fetch('/api/params',{method:'POST',body:fd}).then(r=>r.json())
+        .then(d=>$('pm').textContent=d.message).catch(()=>$('pm').textContent='error');
+      return false;
     }
-    
-    function downloadLogs() {
-      window.open('/api/logs', '_blank');
-    }
-    
-    function resetStats() {
-      if (confirm('¿Resetear todas las estadísticas?')) {
-        // TODO: Implementar endpoint
-      }
-    }
-    
-    // Inicializar
-    updateStats();
+    function poll(){ fetch('/api/stats').then(r=>r.json()).then(drawStats).catch(()=>{}); }
+    fetch('/api/params').then(r=>r.json()).then(drawForm).catch(()=>$('pf').textContent='Error al cargar');
+    poll(); setInterval(poll,2000);
   </script>
 </body>
 </html>

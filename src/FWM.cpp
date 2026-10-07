@@ -44,6 +44,12 @@ void FWM::begin()
         params.link_timeout = LINK_TIMEOUT;
         strncpy(params.ssid, DEFAULT_SSID, sizeof(params.ssid));
         strncpy(params.pass, DEFAULT_PASS, sizeof(params.pass));
+        params.dist_offset = DIST_OFFSET;
+        params.lateral_offset = FORMATION_LATERAL_OFFSET;
+        params.vertical_offset = FORMATION_VERTICAL_OFFSET;
+        params.cross_gain = CROSS_TRACK_GAIN_DEG_PER_M;
+        params.heading_corr_max = MAX_HEADING_CORR_DEG;
+        params.along_gain = ALONG_GAIN_CMS_PER_M;
 
         saveParams();
     }
@@ -363,6 +369,19 @@ void FWM::saveParams()
     preferences.putInt("link_timeout", params.link_timeout);
     preferences.putString("ssid", params.ssid);
     preferences.putString("pass", params.pass);
+    // Fase 2: offsets y ganancias
+    preferences.putFloat("dist_offset", params.dist_offset);
+    preferences.putFloat("lateral_offset", params.lateral_offset);
+    preferences.putFloat("vertical_offset", params.vertical_offset);
+    preferences.putFloat("cross_gain", params.cross_gain);
+    preferences.putFloat("heading_corr_max", params.heading_corr_max);
+    preferences.putFloat("along_gain", params.along_gain);
+    if (mav != nullptr)
+    {
+        preferences.putInt("formation", (int)mav->currentFormation);
+        preferences.putBool("prediction", mav->predictionEnabled);
+        preferences.putBool("filter", mav->filterEnabled);
+    }
     preferences.end();
 
     Log.notice("Params saved" CR);
@@ -382,6 +401,13 @@ void FWM::loadParams()
     params.foll_ofs_type = preferences.getInt("foll_ofs_type", 0);
     params.foll_alt_type = preferences.getInt("foll_alt_type", 0);
     params.link_timeout = preferences.getInt("link_timeout", 0);
+    // Fase 2: offsets y ganancias (defaults = #define de config.h)
+    params.dist_offset = preferences.getFloat("dist_offset", DIST_OFFSET);
+    params.lateral_offset = preferences.getFloat("lateral_offset", FORMATION_LATERAL_OFFSET);
+    params.vertical_offset = preferences.getFloat("vertical_offset", FORMATION_VERTICAL_OFFSET);
+    params.cross_gain = preferences.getFloat("cross_gain", CROSS_TRACK_GAIN_DEG_PER_M);
+    params.heading_corr_max = preferences.getFloat("heading_corr_max", MAX_HEADING_CORR_DEG);
+    params.along_gain = preferences.getFloat("along_gain", ALONG_GAIN_CMS_PER_M);
 
     String ssid = preferences.getString("ssid", "");
     String pass = preferences.getString("pass", "");
@@ -405,13 +431,7 @@ void FWM::setFormation(uint8_t idx)
     {
         idx = 0;
     }
-    if (mav != nullptr)
-    {
-        mav->currentFormation = (FormationType)idx;
-    }
-    preferences.begin("storage", false);
-    preferences.putInt("formation", (int)idx);
-    preferences.end();
+    setParamByIndex(0, (float)idx, true);
     Log.notice("Formation set to %d" CR, (int)idx);
 }
 
@@ -420,13 +440,7 @@ void FWM::setFormation(uint8_t idx)
  */
 void FWM::setPrediction(bool on)
 {
-    if (mav != nullptr)
-    {
-        mav->predictionEnabled = on;
-    }
-    preferences.begin("storage", false);
-    preferences.putBool("prediction", on);
-    preferences.end();
+    setParamByIndex(7, on ? 1.0f : 0.0f, true);
     Log.notice("Prediction %s" CR, on ? "ON" : "OFF");
 }
 
@@ -435,13 +449,7 @@ void FWM::setPrediction(bool on)
  */
 void FWM::setFilter(bool on)
 {
-    if (mav != nullptr)
-    {
-        mav->filterEnabled = on;
-    }
-    preferences.begin("storage", false);
-    preferences.putBool("filter", on);
-    preferences.end();
+    setParamByIndex(8, on ? 1.0f : 0.0f, true);
     Log.notice("Filter %s" CR, on ? "ON" : "OFF");
 }
 
@@ -501,6 +509,140 @@ void FWM::updateApGate()
         web->stopAP();
     }
 #endif
+}
+
+// ============================================================================================================
+// Fase 2: tabla de parametros FWM (fuente de verdad). get/set + persistencia + JSON.
+// ============================================================================================================
+static const ParamDef_t s_paramTable[] = {
+    {"formation",        "Formacion",             PARAM_ENUM,  0.0f,  4.0f,   "",       1},
+    {"dist_offset",      "Distancia TRAIL",       PARAM_FLOAT, 20.0f, 500.0f, "m",      1},
+    {"lateral_offset",   "Offset lateral",        PARAM_FLOAT, 5.0f,  300.0f, "m",      1},
+    {"vertical_offset",  "Offset vertical",       PARAM_FLOAT, 0.0f,  200.0f, "m",      1},
+    {"cross_gain",       "Ganancia lateral",      PARAM_FLOAT, 0.05f, 2.0f,   "deg/m",  1},
+    {"heading_corr_max", "Correccion rumbo max",  PARAM_FLOAT, 5.0f,  60.0f,  "deg",    1},
+    {"along_gain",       "Ganancia longitudinal", PARAM_FLOAT, 0.0f,  60.0f,  "cm/s/m", 1},
+    {"prediction",       "Prediccion",            PARAM_BOOL,  0.0f,  1.0f,   "",       1},
+    {"filter",           "Filtro posicion",       PARAM_BOOL,  0.0f,  1.0f,   "",       1},
+    {"foll_enable",      "Follow enable",         PARAM_INT,   0.0f,  1.0f,   "",       1},
+    {"link_timeout",     "Link timeout",          PARAM_INT,   2.0f,  120.0f, "s",      1},
+};
+
+int FWM::paramCount()
+{
+    return (int)(sizeof(s_paramTable) / sizeof(s_paramTable[0]));
+}
+
+const ParamDef_t *FWM::paramDefAt(int idx)
+{
+    if (idx < 0 || idx >= paramCount())
+    {
+        return nullptr;
+    }
+    return &s_paramTable[idx];
+}
+
+int FWM::findParam(const char *key)
+{
+    for (int i = 0; i < paramCount(); i++)
+    {
+        if (strcmp(s_paramTable[i].key, key) == 0)
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
+float FWM::getParamByIndex(int idx)
+{
+    switch (idx)
+    {
+    case 0: return mav ? (float)(int)mav->currentFormation : 0.0f;
+    case 1: return params.dist_offset;
+    case 2: return params.lateral_offset;
+    case 3: return params.vertical_offset;
+    case 4: return params.cross_gain;
+    case 5: return params.heading_corr_max;
+    case 6: return params.along_gain;
+    case 7: return (mav && mav->predictionEnabled) ? 1.0f : 0.0f;
+    case 8: return (mav && mav->filterEnabled) ? 1.0f : 0.0f;
+    case 9: return (float)params.foll_enable;
+    case 10: return (float)params.link_timeout;
+    default: return 0.0f;
+    }
+}
+
+bool FWM::setParamByIndex(int idx, float value, bool persist)
+{
+    if (idx < 0 || idx >= paramCount())
+    {
+        return false;
+    }
+    const ParamDef_t &d = s_paramTable[idx];
+    if (value < d.min) value = d.min;
+    if (value > d.max) value = d.max;
+    switch (idx)
+    {
+    case 0: if (mav) mav->currentFormation = (FormationType)(int)value; break;
+    case 1: params.dist_offset = value; break;
+    case 2: params.lateral_offset = value; break;
+    case 3: params.vertical_offset = value; break;
+    case 4: params.cross_gain = value; break;
+    case 5: params.heading_corr_max = value; break;
+    case 6: params.along_gain = value; break;
+    case 7: if (mav) mav->predictionEnabled = value >= 0.5f; break;
+    case 8: if (mav) mav->filterEnabled = value >= 0.5f; break;
+    case 9: params.foll_enable = (int32_t)value; break;
+    case 10: params.link_timeout = (int32_t)value; break;
+    default: return false;
+    }
+    if (persist)
+    {
+        saveParams();
+    }
+    return true;
+}
+
+bool FWM::setParamByKey(const char *key, const char *valueStr, String &err)
+{
+    int idx = findParam(key);
+    if (idx < 0)
+    {
+        err = String("param desconocido: ") + key;
+        return false;
+    }
+    if (s_paramTable[idx].groundOnly && !isOnGround())
+    {
+        err = "solo editable en tierra";
+        return false;
+    }
+    float v = String(valueStr).toFloat();
+    setParamByIndex(idx, v, true);
+    return true;
+}
+
+String FWM::paramsJson()
+{
+    String s = "[";
+    for (int i = 0; i < paramCount(); i++)
+    {
+        const ParamDef_t &d = s_paramTable[i];
+        if (i)
+        {
+            s += ",";
+        }
+        s += "{\"key\":\"" + String(d.key) + "\",";
+        s += "\"label\":\"" + String(d.label) + "\",";
+        s += "\"type\":" + String((int)d.type) + ",";
+        s += "\"min\":" + String(d.min, 3) + ",";
+        s += "\"max\":" + String(d.max, 3) + ",";
+        s += "\"unit\":\"" + String(d.unit) + "\",";
+        s += "\"groundOnly\":" + String(d.groundOnly ? "true" : "false") + ",";
+        s += "\"value\":" + String(getParamByIndex(i), 3) + "}";
+    }
+    s += "]";
+    return s;
 }
 
 // ============================================================================================================

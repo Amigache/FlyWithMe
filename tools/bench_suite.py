@@ -7,24 +7,25 @@ un reporte (Markdown + JSON) en tools/reports/<fecha>/ para su analisis posterio
 
 Escenarios:
   link      : heartbeats + modos de ambos vehiculos.
+  params    : round-trip de parametros FWM por MAVLink (tap directo a la placa, sin WiFi).
   takeoff   : despegue de ambos y comprobacion de altitud.
-  straight  : seguimiento en recta (metrica separacion / alabeo / altitud).
-  turn      : giro de 90 del lider (recuperacion del seguidor).
+  straight  : seguimiento en recta (separacion / alabeo / altitud) + serie temporal CSV.
+  turn      : giro de 90 del lider (recuperacion del seguidor) + CSV.
   safety    : lider muy lejos -> el seguidor debe mantenerse acotado y sin emergencia.
-  formations: (opcional, si el AP del ESP32 es alcanzable) recorrer TRAIL/LEFT/RIGHT/ABOVE/BELOW.
+  formations: EN TIERRA, recorrer TRAIL/LEFT/RIGHT/ABOVE/BELOW cambiando la formacion por el tap.
+
+La config del periferico se hace por el TAP del bridge (MAVLink directo a la placa, mismo cable
+USB): NO requiere conectar el PC a la WiFi del ESP32.
 
 Uso:
   python tools/bench_suite.py --start-bench --firmware
-  python tools/bench_suite.py                 # asume banco ya levantado
+  python tools/bench_suite.py        # asume banco ya levantado
 """
 import argparse
 import json
 import math
-import socket
 import statistics
 import time
-import urllib.parse
-import urllib.request
 from datetime import datetime
 from pathlib import Path
 
@@ -34,7 +35,10 @@ ROOT = Path(__file__).resolve().parent.parent
 REPORTS = ROOT / "tools" / "reports"
 LEADER = "tcp:127.0.0.1:5763"
 FOLLOWER = "tcp:127.0.0.1:5773"
-ESP_AP = "http://192.168.4.1"          # AP del seguidor (config de FWM)
+# Enlace MAVLink DIRECTO a cada placa (tap del bridge serie) -> config del periferico SIN WiFi.
+LEADER_TAP = "tcp:127.0.0.1:5790"
+FOLLOWER_TAP = "tcp:127.0.0.1:5791"
+FWM_COMPID = 158
 FORMATIONS = ["TRAIL", "LEFT", "RIGHT", "ABOVE", "BELOW"]
 R = 6371000.0
 
@@ -69,6 +73,59 @@ def connect(ep, src):
     m.wait_heartbeat(timeout=15)
     m.mav.request_data_stream_send(m.target_system, 1, mavutil.mavlink.MAV_DATA_STREAM_ALL, 10, 1)
     return m
+
+
+def _pid(msg):
+    pid = msg.param_id
+    if isinstance(pid, bytes):
+        pid = pid.decode("latin-1")
+    return pid.split("\0")[0]
+
+
+class FwmLink:
+    """Enlace MAVLink directo a la placa FWM (tap del bridge), sin WiFi.
+
+    Permite leer/escribir los parametros del periferico (componente FWM_COMPID) y comprobar
+    el servidor de parametros (Fase 3) a traves del mismo cable USB que usa el bench.
+    """
+
+    def __init__(self, ep, sysid):
+        self.m = mavutil.mavlink_connection(ep, source_system=254)
+        self.sysid = sysid
+        hb = self.m.wait_heartbeat(timeout=10)
+        self.ok = hb is not None
+
+    def read_params(self, timeout=6):
+        self.m.mav.param_request_list_send(self.sysid, FWM_COMPID)
+        got = {}
+        t0 = time.time()
+        while time.time() - t0 < timeout:
+            try:
+                r = self.m.recv_match(type="PARAM_VALUE", blocking=True, timeout=1)
+            except Exception:  # noqa: BLE001  (socket abortado)
+                break
+            if r and r.get_srcComponent() == FWM_COMPID:
+                got[_pid(r)] = r.param_value
+        return got
+
+    def set_param(self, name, value, timeout=3):
+        self.m.mav.param_set_send(self.sysid, FWM_COMPID, name.encode(),
+                                  float(value), mavutil.mavlink.MAV_PARAM_TYPE_REAL32)
+        t0 = time.time()
+        while time.time() - t0 < timeout:
+            try:
+                r = self.m.recv_match(type="PARAM_VALUE", blocking=True, timeout=1)
+            except Exception:  # noqa: BLE001
+                break
+            if r and r.get_srcComponent() == FWM_COMPID and _pid(r) == name:
+                return r.param_value
+        return None
+
+    def close(self):
+        try:
+            self.m.close()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def takeoff(m, mode=13, alt=80):
@@ -120,24 +177,6 @@ def sample_once(dl, df):
     }
 
 
-def ap_get(path, timeout=4):
-    try:
-        with urllib.request.urlopen(ESP_AP + path, timeout=timeout) as r:
-            return json.loads(r.read().decode())
-    except Exception:  # noqa: BLE001
-        return None
-
-
-def ap_post(path, data, timeout=4):
-    try:
-        body = urllib.parse.urlencode(data).encode()
-        req = urllib.request.Request(ESP_AP + path, data=body, method="POST")
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return json.loads(r.read().decode())
-    except Exception:  # noqa: BLE001
-        return None
-
-
 def _stats(vals):
     vals = [v for v in vals if v is not None]
     if not vals:
@@ -178,7 +217,7 @@ class Suite:
              "follower_alt": round(gf.relative_alt / 1000, 1) if gf else None}
         self.add("takeoff", "PASS" if (ok_l and ok_f) else "FAIL", m)
 
-    def _follow_segment(self, seconds, label, turn=None):
+    def _follow_segment(self, seconds, label, turn=None, warmup=20.0):
         set_guided(self.lead)
         set_guided(self.fol)
         time.sleep(2)
@@ -186,24 +225,41 @@ class Suite:
         llat, llon = g.lat / 1e7, g.lon / 1e7
         do_reposition(self.lead, *geo_offset(llat, llon, 6000, 180.0), 80)
         switched = False
-        dists, rolls, alts, fdists = [], [], [], []
+        dists, rolls, alts = [], [], []
+        rows = []
         t0 = time.time()
         while time.time() - t0 < seconds:
             dl, df = drain(self.lead), drain(self.fol)
             s = sample_once(dl, df)
-            if s and time.time() - t0 > 20:      # regimen
-                dists.append(s["dist"]); rolls.append(s["roll"])
-                if s["roll"] is not None:
-                    pass
-                alts.append(abs(s["lalt"] - s["falt"]))
+            if s:
+                t = round(time.time() - t0, 2)
+                rows.append({"t": t, "dist": round(s["dist"], 1),
+                             "roll": round(s["roll"], 1) if s["roll"] is not None else "",
+                             "lalt": round(s["lalt"], 1), "falt": round(s["falt"], 1),
+                             "fgs": round(s["fgs"], 1) if s["fgs"] is not None else ""})
+                if t > warmup:      # regimen (descartar el transitorio inicial)
+                    dists.append(s["dist"]); rolls.append(s["roll"])
+                    alts.append(abs(s["lalt"] - s["falt"]))
             if turn and not switched and (time.time() - t0) > seconds * 0.5:
                 gg = dl.get('GLOBAL_POSITION_INT')
                 if gg:
                     do_reposition(self.lead, *geo_offset(gg.lat / 1e7, gg.lon / 1e7, 6000, 90.0), 80)
                 switched = True
             time.sleep(0.4)
-        m = {"dist": _stats(dists), "roll_abs": _stats(rolls), "alt_diff": _stats(alts)}
+        self._write_csv(label, rows)
+        m = {"dist": _stats(dists), "roll_abs": _stats(rolls), "alt_diff": _stats(alts),
+             "lead_mode": self.lead.flightmode, "fol_mode": self.fol.flightmode}
         return m
+
+    def _write_csv(self, label, rows):
+        if not rows:
+            return
+        path = self.outdir / f"{label}.csv"
+        cols = ["t", "dist", "roll", "lalt", "falt", "fgs"]
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(",".join(cols) + "\n")
+            for r in rows:
+                f.write(",".join(str(r.get(c, "")) for c in cols) + "\n")
 
     def test_straight(self):
         m = self._follow_segment(80, "straight")
@@ -233,30 +289,72 @@ class Suite:
         ok = bool(d) and d["max"] < 6000   # limite de seguridad (MAX_FOLLOW_DISTANCE ~5000)
         self.add("safety", "PASS" if ok else "FAIL", {"dist": d})
 
-    def test_formations(self):
-        st = ap_get("/api/stats")
-        if st is None:
-            self.add("formations", "SKIP", {}, "AP del ESP32 no alcanzable (conecta el WiFi FWM AP 2)")
+    def test_params(self):
+        """Round-trip de parametros FWM por MAVLink (tap): leer, escribir, releer y restaurar."""
+        try:
+            fl = FwmLink(FOLLOWER_TAP, 2)
+        except Exception as e:  # noqa: BLE001
+            self.add("params", "SKIP", {}, f"tap del seguidor no disponible: {e}")
             return
+        if not fl.ok:
+            fl.close()
+            self.add("params", "SKIP", {}, "sin heartbeat del periferico por el tap (¿placa conectada?)")
+            return
+        before = fl.read_params()
+        probe = 111.0
+        fl.set_param("dist_offset", probe)
+        after = fl.read_params()
+        wet = after.get("dist_offset")
+        ok = wet is not None and abs(wet - probe) < 0.5
+        fl.set_param("dist_offset", before.get("dist_offset", 96.0))   # restaurar
+        fl.close()
+        self.add("params", "PASS" if (before and ok) else "FAIL",
+                 {"count": len(before), "dist_offset_set": probe,
+                  "dist_offset_read": round(wet, 1) if wet is not None else None})
+
+    def test_formations(self):
+        """Valida las formaciones EN TIERRA (son ground-only por diseno) cambiandolas por el tap."""
+        try:
+            fl = FwmLink(FOLLOWER_TAP, 2)
+        except Exception as e:  # noqa: BLE001
+            self.add("formations", "SKIP", {}, f"tap del seguidor no disponible: {e}")
+            return
+        if not fl.ok:
+            fl.close()
+            self.add("formations", "SKIP", {}, "sin heartbeat del periferico por el tap")
+            return
+        ok_all = True
         for i, name in enumerate(FORMATIONS):
-            r = ap_post("/api/params", {"formation": str(i)})
-            if not r or not r.get("success"):
-                self.add(f"formation_{name}", "FAIL", {}, "no se pudo fijar")
-                continue
-            m = self._follow_segment(45, f"form_{name}")
-            self.add(f"formation_{name}", "PASS" if m["dist"] else "FAIL", m)
+            echo = fl.set_param("formation", i)
+            back = fl.read_params().get("formation")
+            ok = back is not None and abs(back - i) < 0.5
+            self.add(f"formation_{name}", "PASS" if ok else "FAIL",
+                     {"set": i, "readback": back})
+            ok_all = ok_all and ok
+        fl.set_param("formation", 0)   # restaurar TRAIL
+        fl.read_params()
+        fl.close()
+        self.add("formations", "PASS" if ok_all else "FAIL", {"count": len(FORMATIONS)})
+
+    def _safe(self, name, fn):
+        """Ejecuta un escenario aislando excepciones (un fallo no debe abortar el reporte)."""
+        try:
+            fn()
+        except Exception as e:  # noqa: BLE001
+            self.add(name, "FAIL", {}, f"excepcion: {e}")
 
     def run(self):
         print(f"Reporte -> {self.outdir}")
         self.lead = connect(LEADER, 255)
         self.fol = connect(FOLLOWER, 253)
         print("== Escenarios ==")
-        self.test_link()
-        self.test_takeoff()
-        self.test_straight()
-        self.test_turn()
-        self.test_safety()
-        self.test_formations()
+        self._safe("link", self.test_link)
+        self._safe("params", self.test_params)
+        self._safe("formations", self.test_formations)   # EN TIERRA (ground-only)
+        self._safe("takeoff", self.test_takeoff)
+        self._safe("straight", self.test_straight)
+        self._safe("turn", self.test_turn)
+        self._safe("safety", self.test_safety)
         self.write_report()
 
     def write_report(self):
@@ -276,6 +374,13 @@ class Suite:
                 md.append("```")
             if r["notes"]:
                 md.append(r["notes"])
+            md.append("")
+        csvs = sorted(p.name for p in self.outdir.glob("*.csv"))
+        if csvs:
+            md.append("## Series temporales (CSV)")
+            md.append("")
+            for c in csvs:
+                md.append(f"- `{c}`")
             md.append("")
         (self.outdir / "report.md").write_text("\n".join(md), encoding="utf-8")
         print(f"\n# RESULTADO: PASS={passed} FAIL={failed} SKIP={skipped}")

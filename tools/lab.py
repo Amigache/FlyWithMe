@@ -41,6 +41,8 @@ DEFAULTS = {
     "baud": 57600,
     "leader_com": "COMx",
     "slave_com": "COMx",
+    "leader_tap": 5790,     # tap MAVLink directo a la placa del lider
+    "slave_tap": 5791,      # tap MAVLink directo a la placa del seguidor
 }
 
 
@@ -78,6 +80,24 @@ class Lab:
         self.report_dir = None
 
     # ---------- bench ----------
+    def _reset_boards(self):
+        """Reinicia las placas por DTR/RTS (las CP210x/ESP32 a veces se cuelgan entre sesiones)."""
+        try:
+            import serial
+        except ImportError:
+            print("[lab] pyserial no disponible; no reseteo las placas")
+            return
+        for com in (self.cfg["leader_com"], self.cfg["slave_com"]):
+            try:
+                s = serial.Serial(com, 115200, timeout=1)
+                s.setDTR(False); s.setRTS(True); time.sleep(0.15)
+                s.setRTS(False); s.setDTR(False)
+                s.close()
+                print(f"[lab] reset placa {com}")
+            except Exception as e:  # noqa: BLE001
+                print(f"[lab] no pude resetear {com}: {e}")
+        time.sleep(5)   # dar tiempo al arranque del firmware
+
     def _sitl_args(self, inst, sysid, home, parm):
         return [str(self.cfg["sitl_exe"]),
                 "--instance", str(inst),
@@ -106,6 +126,9 @@ class Lab:
         for d in (base / "l0", base / "l1"):
             d.mkdir(parents=True, exist_ok=True)
 
+        if self.cfg.get("firmware"):
+            self._reset_boards()
+
         print("[lab] lanzando 2 SITL ArduPlane...")
         p0 = subprocess.Popen(self._sitl_args(0, 1, self.cfg["leader_home"], lparm),
                               cwd=str(base / "l0"),
@@ -129,10 +152,12 @@ class Lab:
             print("[lab] puentes serie a las placas (HIL)...")
             b0 = subprocess.Popen([PY, str(TOOLS / "sitl_bridge.py"),
                                    "--tcp", "127.0.0.1:5760", "--port", self.cfg["leader_com"],
-                                   "--baud", str(self.cfg["baud"])], cwd=str(ROOT))
+                                   "--baud", str(self.cfg["baud"]),
+                                   "--tap-port", str(self.cfg["leader_tap"])], cwd=str(ROOT))
             b1 = subprocess.Popen([PY, str(TOOLS / "sitl_bridge.py"),
                                    "--tcp", "127.0.0.1:5770", "--port", self.cfg["slave_com"],
-                                   "--baud", str(self.cfg["baud"])], cwd=str(ROOT))
+                                   "--baud", str(self.cfg["baud"]),
+                                   "--tap-port", str(self.cfg["slave_tap"])], cwd=str(ROOT))
             self.procs["bridges"] = [b0, b1]
             time.sleep(12)
 

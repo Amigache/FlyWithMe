@@ -195,6 +195,16 @@ giro, alabeo y velocidades). `tools/sitl_takeoff.py` robusto (reintentos de arma
 `GET /api/config` los devuelve y la página web los carga al abrir. AP del seguidor:
 `FWM AP 2` / `http://192.168.4.1`.
 
+**Config del periférico SIN WiFi (tap del bridge):** para el banco HIL, `sitl_bridge.py --tap-port N`
+expone un enlace **MAVLink directo a cada placa** por el mismo cable USB (el bench lee/escribe los
+parámetros FWM del componente `158` y cambia la formación) **sin conectar el PC a la WiFi del ESP32**.
+Validado: lectura de los 11 parámetros y round-trip de `dist_offset` y `formation` por el tap.
+
+**Bench completo (`tools/bench_suite.py`):** escenarios `link`, `params`, `formations` (EN TIERRA,
+son *ground-only*), `takeoff`, `straight`, `turn`, `safety`; reporte MD+JSON y **series temporales
+CSV** por escenario, con escenarios aislados (un fallo no aborta el reporte). `lab.py` reinicia las
+placas por DTR/RTS al levantar el banco (las CP210x/ESP32 a veces se cuelgan entre sesiones).
+
 **Fix del cristal (WiFi):** las placas TTGO LoRa32 V1.0 llevan cristal de **26 MHz**. El core de
 Arduino 3.x asumía 40 MHz → la **WiFi/BT quedaban fuera de banda** (no emitían AP ni escaneaban).
 La solución es compilar con **`-DF_XTAL_MHZ=26`** (ya en `platformio.ini`): el core lo aplica en

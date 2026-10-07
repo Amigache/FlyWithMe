@@ -87,7 +87,12 @@ pio test
 - **Laboratorio (CLI):** `python tools/lab.py` — menú interactivo que levanta **2 SITL** (ArduPlane)
   y un **MAVProxy headless** que reúne ambos vehículos en un único **UDP** para que Mission Planner
   los vea con una sola conexión. Con `--firmware` conecta además las placas (puentes serie). Acciones:
-  despegue, GUIDED y benchmarks (recta/giro) con **reporte** en `tools/reports/`.
+  despegue, GUIDED y benchmarks (recta/giro) con **reporte** en `tools/reports/`; la opción **9** lanza
+  el **bench completo** (`tools/bench_suite.py`: link, params, formations, takeoff, straight, turn,
+  safety + CSV por escenario).
+  - `tools/sitl_bridge.py` une SITL↔placa y, con `--tap-port N`, da un **enlace MAVLink directo a la
+    placa** por el mismo USB: el bench lee/escribe los parámetros FWM (componente 158) y cambia la
+    formación **sin WiFi**. El `lab.py` reinicia las placas (DTR/RTS) al levantar el banco.
   - `tools/mp_launch.py` arranca MAVProxy **sin wxPython** en Windows (`has_wxpython=False` + `rline`
     dummy) y aplica un **parche a pymavlink** (las salidas UDP bindean el puerto destino y chocan con
     Mission Planner en el mismo PC → se cambia a bind efímero).
@@ -206,6 +211,8 @@ desarrollo consolidada: roadmap + Fases 1–4). Ver sección 7.
 | `tools/hil_test.py` | Arnés de pruebas HIL | Valida el enlace líder/seguidor por serial (ver §2). |
 | `tools/lab.py` | Laboratorio (CLI) | Menú: 2 SITL + MAVProxy headless → UDP para Mission Planner; acciones y reportes. |
 | `tools/mp_launch.py` | Lanzador MAVProxy headless | Sin wxPython en Windows; aplica el parche UDP de pymavlink. |
+| `tools/sitl_bridge.py` | Puente SITL ↔ placa | Pipe serie↔TCP; `--tap-port N` expone un enlace **MAVLink directo a la placa** (config del periférico **sin WiFi**). |
+| `tools/bench_suite.py` | Bench completo | Escenarios (link/params/formations/takeoff/straight/turn/safety) + reporte MD/JSON + **CSV** por escenario. |
 
 > Los antiguos `MEJORAS_RECOMENDADAS.md` y `FASE{1..4}_IMPLEMENTADA.md` se fusionaron en
 > `docs/FLYWITHME.md` y se eliminaron de la raíz.

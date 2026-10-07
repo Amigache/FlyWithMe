@@ -515,17 +515,17 @@ void FWM::updateApGate()
 // Fase 2: tabla de parametros FWM (fuente de verdad). get/set + persistencia + JSON.
 // ============================================================================================================
 static const ParamDef_t s_paramTable[] = {
-    {"formation",        "Formacion",             PARAM_ENUM,  0.0f,  4.0f,   "",       1},
-    {"dist_offset",      "Distancia TRAIL",       PARAM_FLOAT, 20.0f, 500.0f, "m",      1},
-    {"lateral_offset",   "Offset lateral",        PARAM_FLOAT, 5.0f,  300.0f, "m",      1},
-    {"vertical_offset",  "Offset vertical",       PARAM_FLOAT, 0.0f,  200.0f, "m",      1},
-    {"cross_gain",       "Ganancia lateral",      PARAM_FLOAT, 0.05f, 2.0f,   "deg/m",  1},
-    {"heading_corr_max", "Correccion rumbo max",  PARAM_FLOAT, 5.0f,  60.0f,  "deg",    1},
-    {"along_gain",       "Ganancia longitudinal", PARAM_FLOAT, 0.0f,  60.0f,  "cm/s/m", 1},
-    {"prediction",       "Prediccion",            PARAM_BOOL,  0.0f,  1.0f,   "",       1},
-    {"filter",           "Filtro posicion",       PARAM_BOOL,  0.0f,  1.0f,   "",       1},
-    {"foll_enable",      "Follow enable",         PARAM_INT,   0.0f,  1.0f,   "",       1},
-    {"link_timeout",     "Link timeout",          PARAM_INT,   2.0f,  120.0f, "s",      1},
+    {"formation",        "Formation",            PARAM_ENUM,  0.0f,  4.0f,   "",       1},
+    {"dist_offset",      "Trail distance",       PARAM_FLOAT, 20.0f, 500.0f, "m",      1},
+    {"lateral_offset",   "Lateral offset",       PARAM_FLOAT, 5.0f,  300.0f, "m",      1},
+    {"vertical_offset",  "Vertical offset",      PARAM_FLOAT, 0.0f,  200.0f, "m",      1},
+    {"cross_gain",       "Lateral gain",         PARAM_FLOAT, 0.05f, 2.0f,   "deg/m",  1},
+    {"heading_corr_max", "Max heading corr",     PARAM_FLOAT, 5.0f,  60.0f,  "deg",    1},
+    {"along_gain",       "Longitudinal gain",    PARAM_FLOAT, 0.0f,  60.0f,  "cm/s/m", 1},
+    {"prediction",       "Prediction",           PARAM_BOOL,  0.0f,  1.0f,   "",       1},
+    {"filter",           "Position filter",      PARAM_BOOL,  0.0f,  1.0f,   "",       1},
+    {"foll_enable",      "Follow enable",        PARAM_INT,   0.0f,  1.0f,   "",       1},
+    {"link_timeout",     "Link timeout",         PARAM_INT,   2.0f,  120.0f, "s",      1},
 };
 
 int FWM::paramCount()

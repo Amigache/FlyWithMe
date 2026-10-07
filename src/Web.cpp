@@ -458,75 +458,144 @@ String Web::generateHTML()
     :root{--bg:#0f1115;--card:#171a21;--fg:#e7eaf0;--mut:#8b93a7;--acc:#3da9fc;--ok:#2ecc71;--err:#ff5c5c;--bd:#262b36}
     *{box-sizing:border-box}
     body{margin:0;font:14px/1.45 system-ui,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--fg)}
-    header{display:flex;align-items:center;gap:10px;padding:13px 16px;border-bottom:1px solid var(--bd);position:sticky;top:0;background:var(--bg);z-index:2}
+    header{display:flex;align-items:center;gap:8px;padding:13px 16px;border-bottom:1px solid var(--bd);position:sticky;top:0;background:var(--bg);z-index:2}
     h1{font-size:16px;margin:0;font-weight:600}
-    .badge{margin-left:auto;font-size:12px;padding:3px 9px;border-radius:99px;background:#20242e;color:var(--mut)}
+    .sp{margin-left:auto}
+    .badge{font-size:12px;padding:3px 9px;border-radius:99px;background:#20242e;color:var(--mut)}
     .badge.g{background:#12351f;color:var(--ok)}.badge.a{background:#3a1a1a;color:var(--err)}
-    main{max-width:720px;margin:0 auto;padding:14px}
+    .lang{cursor:pointer;background:#20242e;color:var(--fg);border:0;border-radius:8px;padding:4px 9px;font:600 12px inherit}
+    main{max-width:760px;margin:0 auto;padding:14px}
     section{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px;margin:12px 0}
     h2{font-size:12px;margin:0 0 10px;color:var(--mut);text-transform:uppercase;letter-spacing:.07em}
     .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
     .kv{display:flex;justify-content:space-between;gap:8px;padding:6px 9px;background:#12151b;border-radius:8px}
     .kv :first-child{color:var(--mut)}.kv :last-child{font-variant-numeric:tabular-nums}
-    .fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px}
+    .cfg{display:grid;grid-template-columns:1.1fr .9fr;gap:16px;align-items:start}
+    @media(max-width:560px){.cfg{grid-template-columns:1fr}}
+    .fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
     label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--mut)}
     input,select{background:#0d1015;color:var(--fg);border:1px solid var(--bd);border-radius:8px;padding:8px;font:inherit;width:100%}
+    input:focus,select:focus{outline:0;border-color:var(--acc)}
     button{background:var(--acc);color:#04121f;border:0;border-radius:9px;padding:9px 14px;font:600 13px inherit;cursor:pointer}
     button.sec{background:#20242e;color:var(--fg)}
     button:hover{filter:brightness(1.08)}
     .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px}
     .msg{font-size:12px;color:var(--mut)}
     .chk{flex-direction:row;align-items:center;gap:8px}.chk input{width:auto}
+    .help{background:#12151b;border:1px solid var(--bd);border-radius:10px;padding:12px;font-size:13px;line-height:1.5;color:var(--mut)}
+    .help h3{font-size:13px;color:var(--fg);margin:0 0 6px}
+    .help b{color:var(--acc)}
+    @media(max-width:560px){.help{position:static}}
   </style>
 </head>
 <body>
-  <header><h1>🛸 FlyWithMe</h1><span id="gt" class="badge">—</span></header>
+  <header>
+    <h1>🛸 FlyWithMe</h1>
+    <span class="sp"></span>
+    <span id="gt" class="badge">—</span>
+    <button class="lang" id="lang" onclick="toggleLang()">EN</button>
+  </header>
   <main>
-    <section><h2>Estado</h2><div class="grid" id="stats"></div></section>
-    <section><h2>Configuración FWM</h2>
-      <form id="pf" class="fields" onsubmit="return saveP(event)"></form>
-      <div class="row"><button type="submit" form="pf">Guardar</button><span id="pm" class="msg"></span></div>
+    <section><h2 id="h_stats">Status</h2><div class="grid" id="stats"></div></section>
+    <section><h2 id="h_cfg">Configuration</h2>
+      <div class="cfg">
+        <form id="pf" class="fields" onsubmit="return saveP(event)"></form>
+        <aside class="help" id="help"></aside>
+      </div>
+      <div class="row"><button type="submit" form="pf" id="saveBtn">Save</button><span id="pm" class="msg"></span></div>
     </section>
-    <section><h2>Acciones</h2>
+    <section><h2 id="h_act">Actions</h2>
       <div class="row">
-        <button class="sec" onclick="location.href='/api/logs'">Descargar logs</button>
-        <button class="sec" onclick="location.reload()">Recargar</button>
+        <button class="sec" id="btnLogs" onclick="location.href='/api/logs'">Download logs</button>
+        <button class="sec" id="btnReload" onclick="location.reload()">Reload</button>
       </div>
     </section>
   </main>
   
   <script>
-    const $=id=>document.getElementById(id),F=['Trail','Left','Right','Above','Below'];
-    let P=[];
+    const $=id=>document.getElementById(id);
+    const I18N={
+    en:{stats:'Status',cfg:'Configuration',act:'Actions',save:'Save',logs:'Download logs',reload:'Reload',ground:'ON GROUND',flight:'IN FLIGHT',
+     st:{state:'State',up:'Uptime',rx:'RX / TX',rssi:'RSSI',snr:'SNR',loss:'Losses',dist:'Distance'},
+     help:'Configuration help',hdef:'Adjust FWM parameters here <b>on the ground</b>, then press Save. Changes are stored on the device and applied immediately.',
+     saved:'Saved',serr:'Save failed',lerr:'Error loading parameters',cur:'Current value',
+     form:['Trail','Left','Right','Above','Below'],
+     lb:{formation:'Formation',dist_offset:'Trail distance',lateral_offset:'Lateral offset',vertical_offset:'Vertical offset',cross_gain:'Lateral gain',heading_corr_max:'Max heading correction',along_gain:'Longitudinal gain',prediction:'Prediction',filter:'Position filter',foll_enable:'Follow enable',link_timeout:'Link timeout'},
+     d:{formation:'Geometry relative to the leader: <b>Trail</b> behind, <b>Left/Right</b> lateral, <b>Above/Below</b> vertical.',
+        dist_offset:'Longitudinal separation behind the leader for TRAIL (m). Typical ~90-110 m.',
+        lateral_offset:'Sideways separation for LEFT/RIGHT (m).',
+        vertical_offset:'Vertical separation for ABOVE/BELOW (m); ABOVE adds, BELOW subtracts.',
+        cross_gain:'Lateral steering: heading correction per meter of cross-track error (deg/m). 0.5-0.8 typical; too high may oscillate.',
+        heading_corr_max:'Cap on the heading correction (deg). 25-45 typical.',
+        along_gain:'Speed correction per meter of longitudinal error (cm/s per m). 10-20 typical.',
+        prediction:'Extrapolate the leader position to compensate for radio latency (recommended ON).',
+        filter:'Low-pass filter on the target position: smoother but adds a small lag.',
+        foll_enable:'Enables the following function.',
+        link_timeout:'Seconds without a heartbeat before the FC link is considered lost.'}},
+    es:{stats:'Estado',cfg:'Configuración FWM',act:'Acciones',save:'Guardar',logs:'Descargar logs',reload:'Recargar',ground:'EN TIERRA',flight:'EN VUELO',
+     st:{state:'Estado',up:'Tiempo',rx:'RX / TX',rssi:'RSSI',snr:'SNR',loss:'Pérdidas',dist:'Distancia'},
+     help:'Ayuda de configuración',hdef:'Ajusta aquí los parámetros de FWM <b>en tierra</b> y pulsa Guardar. Se guardan en el dispositivo y se aplican al momento.',
+     saved:'Guardado',serr:'Error al guardar',lerr:'Error al cargar parámetros',cur:'Valor actual',
+     form:['Cola','Izquierda','Derecha','Arriba','Abajo'],
+     lb:{formation:'Formación',dist_offset:'Distancia TRAIL',lateral_offset:'Offset lateral',vertical_offset:'Offset vertical',cross_gain:'Ganancia lateral',heading_corr_max:'Corrección de rumbo máx',along_gain:'Ganancia longitudinal',prediction:'Predicción',filter:'Filtro de posición',foll_enable:'Activar seguimiento',link_timeout:'Timeout de enlace'},
+     d:{formation:'Geometría relativa al líder: <b>Cola</b> detrás, <b>Izquierda/Derecha</b> lateral, <b>Arriba/Abajo</b> vertical.',
+        dist_offset:'Separación longitudinal detrás del líder para TRAIL (m). Típico ~90-110 m.',
+        lateral_offset:'Separación lateral para Izquierda/Derecha (m).',
+        vertical_offset:'Separación vertical para Arriba/Abajo (m); Arriba suma, Abajo resta.',
+        cross_gain:'Guiado lateral: corrección de rumbo por metro de error lateral (deg/m). 0.5-0.8 típico; más puede oscilar.',
+        heading_corr_max:'Tope de corrección de rumbo (deg). 25-45 típico.',
+        along_gain:'Corrección de velocidad por metro de error longitudinal (cm/s por m). 10-20 típico.',
+        prediction:'Extrapola la posición del líder para compensar la latencia de radio (recomendado ON).',
+        filter:'Filtro paso bajo sobre la posición objetivo: más suave pero con algo de retraso.',
+        foll_enable:'Activa la función de seguimiento.',
+        link_timeout:'Segundos sin heartbeat antes de considerar perdido el enlace con el FC.'}}
+    };
+    let P=[],LANG=localStorage.getItem('lang')||(((navigator.language||'en').slice(0,2)==='es')?'es':'en');
+    const L=()=>I18N[LANG];
+    function toggleLang(){LANG=(LANG==='en'?'es':'en');localStorage.setItem('lang',LANG);applyI18n();if(P.length)drawForm(P);}
+    function applyI18n(){
+      $('h_stats').textContent=L().stats;$('h_cfg').textContent=L().cfg;$('h_act').textContent=L().act;
+      $('saveBtn').textContent=L().save;$('btnLogs').textContent=L().logs;$('btnReload').textContent=L().reload;
+      $('lang').textContent=LANG.toUpperCase();document.documentElement.lang=LANG;
+      if(!$('help').dataset.key)showHelp(null);
+    }
     const stat=(k,v)=>'<div class="kv"><span>'+k+'</span><span>'+v+'</span></div>';
     function drawStats(d){
-      $('stats').innerHTML = stat('Estado',d.state)+stat('Uptime',(d.uptime/1000|0)+' s')+
-        stat('RX / TX',d.rx_packets+' / '+d.tx_packets)+stat('RSSI',d.rssi+' dBm')+
-        stat('SNR',d.snr)+stat('Perdidas',d.lost_packets+' ('+d.packet_loss+'%)')+
-        stat('Distancia',d.distance>=0?d.distance+' m':'--');
-      const g=$('gt'); g.textContent=d.on_ground?'EN TIERRA':'EN VUELO';
-      g.className='badge '+(d.on_ground?'g':'a');
+      const s=L().st;
+      $('stats').innerHTML=stat(s.state,d.state)+stat(s.up,(d.uptime/1000|0)+' s')+stat(s.rx,d.rx_packets+' / '+d.tx_packets)+
+        stat(s.rssi,d.rssi+' dBm')+stat(s.snr,d.snr)+stat(s.loss,d.lost_packets+' ('+d.packet_loss+'%)')+
+        stat(s.dist,d.distance>=0?d.distance+' m':'--');
+      const g=$('gt');g.textContent=d.on_ground?L().ground:L().flight;g.className='badge '+(d.on_ground?'g':'a');
+    }
+    function showHelp(key){
+      const h=$('help'),Lx=L();
+      if(!key){h.dataset.key='';h.innerHTML='<h3>'+Lx.help+'</h3>'+Lx.hdef;return;}
+      h.dataset.key=key;const e=$('p_'+key);
+      const val=e?(e.type==='checkbox'?(e.checked?'ON':'OFF'):e.value):'';
+      h.innerHTML='<h3>'+(Lx.lb[key]||key)+'</h3>'+(Lx.d[key]||'')+'<div style="margin-top:8px;color:var(--acc)">'+Lx.cur+': '+val+'</div>';
     }
     function drawForm(list){
-      P=list; let h='';
-      list.forEach(p=>{const id='p_'+p.key,t=p.type;
-        if(t===3) h+='<label>'+p.label+'<select id="'+id+'">'+F.map((n,i)=>'<option value="'+i+'">'+n+'</option>').join('')+'</select></label>';
-        else if(t===2) h+='<label class="chk"><input type="checkbox" id="'+id+'">'+p.label+'</label>';
-        else h+='<label>'+p.label+(p.unit?' ('+p.unit+')':'')+'<input type="number" step="any" min="'+p.min+'" max="'+p.max+'" id="'+id+'"></label>';
-      });
+      P=list;let h='';
+      list.forEach(p=>{const id='p_'+p.key,t=p.type,lb=L().lb[p.key]||p.label,u=p.unit?' ('+p.unit+')':'';
+        if(t===3)h+='<label>'+lb+'<select id="'+id+'">'+L().form.map((n,i)=>'<option value="'+i+'">'+n+'</option>').join('')+'</select></label>';
+        else if(t===2)h+='<label class="chk"><input type="checkbox" id="'+id+'">'+lb+'</label>';
+        else h+='<label>'+lb+u+'<input type="number" step="any" min="'+p.min+'" max="'+p.max+'" id="'+id+'"></label>';});
       $('pf').innerHTML=h;
-      list.forEach(p=>{const e=$('p_'+p.key); if(!e)return; if(p.type===2)e.checked=p.value>=0.5; else e.value=p.value;});
+      list.forEach(p=>{const e=$('p_'+p.key);if(!e)return;if(p.type===2)e.checked=p.value>=0.5;else e.value=p.value;
+        e.addEventListener('focus',()=>showHelp(p.key));e.addEventListener('mouseenter',()=>showHelp(p.key));});
     }
     function saveP(ev){
-      ev.preventDefault(); const fd=new FormData();
-      P.forEach(p=>{const e=$('p_'+p.key); if(!e)return; fd.append(p.key, p.type===2?(e.checked?'1':'0'):e.value);});
+      ev.preventDefault();const fd=new FormData();
+      P.forEach(p=>{const e=$('p_'+p.key);if(!e)return;fd.append(p.key,p.type===2?(e.checked?'1':'0'):e.value);});
       fetch('/api/params',{method:'POST',body:fd}).then(r=>r.json())
-        .then(d=>$('pm').textContent=d.message).catch(()=>$('pm').textContent='error');
+        .then(d=>$('pm').textContent=(d.success?'✓ ':'✗ ')+(d.success?L().saved:(d.message||L().serr)))
+        .catch(()=>$('pm').textContent='✗ '+L().serr);
       return false;
     }
-    function poll(){ fetch('/api/stats').then(r=>r.json()).then(drawStats).catch(()=>{}); }
-    fetch('/api/params').then(r=>r.json()).then(drawForm).catch(()=>$('pf').textContent='Error al cargar');
-    poll(); setInterval(poll,2000);
+    function poll(){fetch('/api/stats').then(r=>r.json()).then(drawStats).catch(()=>{});}
+    applyI18n();
+    fetch('/api/params').then(r=>r.json()).then(drawForm).catch(()=>$('pf').textContent=L().lerr);
+    poll();setInterval(poll,2000);
   </script>
 </body>
 </html>

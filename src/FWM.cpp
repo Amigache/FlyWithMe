@@ -51,6 +51,7 @@ void FWM::begin()
         params.heading_corr_max = MAX_HEADING_CORR_DEG;
         params.along_gain = ALONG_GAIN_CMS_PER_M;
         params.netid = NETID_DEFAULT;
+        params.approach_dist = APPROACH_DIST_DEFAULT;
 
         saveParams();
     }
@@ -174,6 +175,19 @@ void FWM::run()
         mav->status_text(s);
         lastFollowStatus = millis();
     }
+
+    // v2 (Idea 1): OSD del LIDER -> dice a su FC quien le sigue y a que distancia
+    if (follow_mode == FOLL_MODE_LEADER && (millis() - lastFollowerMs) < SESSION_TIMEOUT_MS)
+    {
+        static uint32_t lastLeadStatus = 0;
+        if (millis() - lastLeadStatus > STATUS_DISTANCE_INTERVAL_MS)
+        {
+            char s[40];
+            snprintf(s, sizeof(s), "FWM: follower %dm", lastFollowerDistM);
+            mav->status_text(s);
+            lastLeadStatus = millis();
+        }
+    }
     
     // A2: recuperación tras emergencia (histéresis: se reintenta pasado el cooldown)
     if (currentState == STATE_EMERGENCY && (millis() - stateEntryTime) > EMERGENCY_RECOVERY_MS)
@@ -238,10 +252,25 @@ void FWM::bridgeRun()
  * @note This function is called by a Ticker
  * 
  */
+// v2: el lider recibe un REPLY/JOIN del seguidor -> activa la sesion y registra la distancia (OSD).
+void FWM::onFollowerReply(const LoraPacket_t &p)
+{
+    lastFollowerMs = millis();
+    if (mav)
+    {
+        lastFollowerDistM = (int)mav->calculateDistance(mav->APdata.lat, mav->APdata.lon, p.lat, p.lon);
+    }
+}
+
 void FWM::send_packet_ticker_callback()
 {
     if (self)
     {
+        // v2: sin seguidor (sin REPLY reciente) NO emitir -> ahorro hasta que pidan sesion (JOIN).
+        if (millis() - self->lastFollowerMs > SESSION_TIMEOUT_MS)
+        {
+            return;
+        }
         // No enviar packets si no hay conexión con FC (modo AP configuración)
         if (self->mav->linkTimeout)
         {
@@ -255,6 +284,7 @@ void FWM::send_packet_ticker_callback()
         packet.netid = self->params.netid;
         packet.mode = (uint8_t)self->mav->APdata.custom_mode;
         packet.sysid = SYSID;
+        packet.seq = ++self->comm->txSeq;
         packet.lat = self->mav->APdata.lat;
         packet.lon = self->mav->APdata.lon;
         packet.alt = self->mav->APdata.alt;
@@ -382,6 +412,7 @@ void FWM::saveParams()
     preferences.putFloat("heading_corr_max", params.heading_corr_max);
     preferences.putFloat("along_gain", params.along_gain);
     preferences.putInt("netid", (int)params.netid);
+    preferences.putFloat("approach_dist", params.approach_dist);
     if (mav != nullptr)
     {
         preferences.putInt("formation", (int)mav->currentFormation);
@@ -415,6 +446,7 @@ void FWM::loadParams()
     params.heading_corr_max = preferences.getFloat("heading_corr_max", MAX_HEADING_CORR_DEG);
     params.along_gain = preferences.getFloat("along_gain", ALONG_GAIN_CMS_PER_M);
     params.netid = (uint16_t)preferences.getInt("netid", NETID_DEFAULT);
+    params.approach_dist = preferences.getFloat("approach_dist", APPROACH_DIST_DEFAULT);
 
     String ssid = preferences.getString("ssid", "");
     String pass = preferences.getString("pass", "");
@@ -534,6 +566,7 @@ static const ParamDef_t s_paramTable[] = {
     {"foll_enable",      "Follow enable",        PARAM_BOOL,  0.0f,  1.0f,   "",       1},
     {"link_timeout",     "Link timeout",         PARAM_INT,   2.0f,  120.0f, "s",      1},
     {"netid",            "Network ID",           PARAM_INT,   0.0f,  65535.0f,"",       1},
+    {"approach_dist",    "Approach distance",    PARAM_FLOAT, 50.0f, 5000.0f, "m",      0},
 };
 
 int FWM::paramCount()
@@ -578,6 +611,7 @@ float FWM::getParamByIndex(int idx)
     case 9: return (float)params.foll_enable;
     case 10: return (float)params.link_timeout;
     case 11: return (float)params.netid;
+    case 12: return params.approach_dist;
     default: return 0.0f;
     }
 }
@@ -605,6 +639,7 @@ bool FWM::setParamByIndex(int idx, float value, bool persist)
     case 9: params.foll_enable = (int32_t)value; break;
     case 10: params.link_timeout = (int32_t)value; break;
     case 11: params.netid = (uint16_t)value; if (comm) comm->applyNetid(); break;
+    case 12: params.approach_dist = value; break;
     default: return false;
     }
     if (persist)

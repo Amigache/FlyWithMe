@@ -52,6 +52,11 @@ public:
     void updateTransmissionRate();
     float getDistanceToFollower();
     float getLinkDistance(); // A4: distancia al peer (-1 si no hay beacon)
+
+    // v2: enlace de vuelta (el lider sabe quien le sigue y a que distancia -> OSD)
+    void onFollowerReply(const LoraPacket_t &p);
+    uint32_t lastFollowerMs = 0;
+    int lastFollowerDistM = -1;
     Logger* logger = nullptr;
 
     // Params

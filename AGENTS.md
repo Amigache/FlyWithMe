@@ -187,6 +187,7 @@ desarrollo consolidada: roadmap + Fases 1–4). Ver sección 7.
 | `HEAD_ON_GUARD` | `0` | 1 = **guarda de colisión frente a frente**: si el líder viene de cara y < `HEAD_ON_RANGE` (500 m), rompe perpendicular a la visual y frena. Validado con `tools/follow_sim.py`. |
 | `TIGHT_FORMATION` | `0` | 1 = **tasa LoRa rápida cuando cerca** (200/500/1000 ms) para vuelo a 10–20 m. Emparejar con SF bajo (`-D LORA_SPREADING_FACTOR=7`). |
 | `netid` | `4660` (0x1234) | Red (**"frase"**) del protocolo v2: filtra tráfico de otros sistemas (sync word + campo en el paquete). Debe coincidir en ambos; configurable por parámetro y WebUI. |
+| `approach_dist` | `300` | m — bajo esta distancia el seguidor **exige modo estable del líder** (FBWA/FBWB/CRUISE/AUTO/RTL/LOITER/TAKEOFF/GUIDED); por encima **acude igualmente** a buscarlo. |
 | `MIN_SAFE_ALTITUDE` | `50000` | mm (50 m) — altitud mínima. |
 | `AUTO_CALIBRATE_LORA` | `0` | Auto-calibración LoRa al inicio. |
 | `USE_INTERACTIVE_MENU` | `0` | Menú OLED por botones. **Desactivado** por conflicto de pines. |
@@ -217,6 +218,7 @@ desarrollo consolidada: roadmap + Fases 1–4). Ver sección 7.
 | `tools/sitl_bridge.py` | Puente SITL ↔ placa | Pipe serie↔TCP; `--tap-port N` expone un enlace **MAVLink directo a la placa** (config del periférico **sin WiFi**). |
 | `tools/bench_suite.py` | Bench completo | Escenarios (link/params/formations/takeoff/straight/turn/safety) + reporte MD/JSON + **CSV** por escenario. |
 | `tools/follow_sim.py` | Simulador de la ley (sin hardware) | Replica la ley cross-track + modelo de avión y **latencia del enlace**; escenarios trail/head_on/lateral y barridos de distancia/latencia. |
+| `tools/proto_sim.py` | Simulador del **protocolo** (sin hardware) | Modela sesión JOIN/REPLY, timeouts, pérdidas, blackout, filtro netid y gate de modo; **matriz de casos/fallos** con aserciones. |
 
 > Los antiguos `MEJORAS_RECOMENDADAS.md` y `FASE{1..4}_IMPLEMENTADA.md` se fusionaron en
 > `docs/FLYWITHME.md` y se eliminaron de la raíz.

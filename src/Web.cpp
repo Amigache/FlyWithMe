@@ -516,7 +516,7 @@ String Web::generateHTML()
      help:'Configuration help',hdef:'Adjust FWM parameters here <b>on the ground</b>, then press Save. Changes are stored on the device and applied immediately.',
      saved:'Saved',serr:'Save failed',lerr:'Error loading parameters',cur:'Current value',
      form:['Trail','Left','Right','Above','Below'],
-     lb:{formation:'Formation',dist_offset:'Trail distance',lateral_offset:'Lateral offset',vertical_offset:'Vertical offset',cross_gain:'Lateral gain',hdg_corr_max:'Max heading correction',along_gain:'Longitudinal gain',prediction:'Prediction',filter:'Position filter',foll_enable:'Follow enable',link_timeout:'Link timeout',netid:'Network ID'},
+     lb:{formation:'Formation',dist_offset:'Trail distance',lateral_offset:'Lateral offset',vertical_offset:'Vertical offset',cross_gain:'Lateral gain',hdg_corr_max:'Max heading correction',along_gain:'Longitudinal gain',prediction:'Prediction',filter:'Position filter',foll_enable:'Follow enable',link_timeout:'Link timeout',netid:'Network ID',approach_dist:'Approach distance'},
      d:{formation:'Geometry relative to the leader: <b>Trail</b> behind, <b>Left/Right</b> lateral, <b>Above/Below</b> vertical.',
         dist_offset:'Longitudinal separation behind the leader for TRAIL (m). Typical ~90-110 m.',
         lateral_offset:'Sideways separation for LEFT/RIGHT (m).',
@@ -528,13 +528,14 @@ String Web::generateHTML()
         filter:'Low-pass filter on the target position: smoother but adds a small lag.',
         foll_enable:'Enables the following function.',
         link_timeout:'Seconds without a heartbeat before the FC link is considered lost.',
-        netid:'Shared network ID ("phrase"): packets from other IDs are ignored. Must match on both aircraft. 0 = accept any.'}},
+        netid:'Shared network ID ("phrase"): packets from other IDs are ignored. Must match on both aircraft. 0 = accept any.',
+        approach_dist:'Below this distance (m) the follower only keeps following if the leader is in a stable mode (FBWA/FBWB/CRUISE/AUTO/RTL/LOITER/TAKEOFF/GUIDED).'}},
     es:{stats:'Estado',cfg:'Configuración FWM',act:'Acciones',save:'Guardar',logs:'Descargar logs',reload:'Recargar',ground:'EN TIERRA',flight:'EN VUELO',
      st:{state:'Estado',up:'Tiempo',rx:'RX / TX',rssi:'RSSI',snr:'SNR',loss:'Pérdidas',dist:'Distancia'},
      help:'Ayuda de configuración',hdef:'Ajusta aquí los parámetros de FWM <b>en tierra</b> y pulsa Guardar. Se guardan en el dispositivo y se aplican al momento.',
      saved:'Guardado',serr:'Error al guardar',lerr:'Error al cargar parámetros',cur:'Valor actual',
      form:['Cola','Izquierda','Derecha','Arriba','Abajo'],
-     lb:{formation:'Formación',dist_offset:'Distancia TRAIL',lateral_offset:'Offset lateral',vertical_offset:'Offset vertical',cross_gain:'Ganancia lateral',hdg_corr_max:'Corrección de rumbo máx',along_gain:'Ganancia longitudinal',prediction:'Predicción',filter:'Filtro de posición',foll_enable:'Activar seguimiento',link_timeout:'Timeout de enlace',netid:'ID de red'},
+     lb:{formation:'Formación',dist_offset:'Distancia TRAIL',lateral_offset:'Offset lateral',vertical_offset:'Offset vertical',cross_gain:'Ganancia lateral',hdg_corr_max:'Corrección de rumbo máx',along_gain:'Ganancia longitudinal',prediction:'Predicción',filter:'Filtro de posición',foll_enable:'Activar seguimiento',link_timeout:'Timeout de enlace',netid:'ID de red',approach_dist:'Distancia de aproximación'},
      d:{formation:'Geometría relativa al líder: <b>Cola</b> detrás, <b>Izquierda/Derecha</b> lateral, <b>Arriba/Abajo</b> vertical.',
         dist_offset:'Separación longitudinal detrás del líder para TRAIL (m). Típico ~90-110 m.',
         lateral_offset:'Separación lateral para Izquierda/Derecha (m).',
@@ -546,7 +547,8 @@ String Web::generateHTML()
         filter:'Filtro paso bajo sobre la posición objetivo: más suave pero con algo de retraso.',
         foll_enable:'Activa la función de seguimiento.',
         link_timeout:'Segundos sin heartbeat antes de considerar perdido el enlace con el FC.',
-        netid:'ID de red compartido ("frase"): se ignoran paquetes de otros IDs. Debe coincidir en ambos aviones. 0 = aceptar cualquiera.'}}
+        netid:'ID de red compartido ("frase"): se ignoran paquetes de otros IDs. Debe coincidir en ambos aviones. 0 = aceptar cualquiera.',
+        approach_dist:'Por debajo de esta distancia (m) el seguidor solo sigue si el líder está en un modo estable (FBWA/FBWB/CRUISE/AUTO/RTL/LOITER/TAKEOFF/GUIDED).'}}
     };
     let P=[],LANG=localStorage.getItem('lang')||(((navigator.language||'en').slice(0,2)==='es')?'es':'en');
     const L=()=>I18N[LANG];

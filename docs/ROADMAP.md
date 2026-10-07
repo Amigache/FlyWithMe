@@ -238,6 +238,16 @@ derivan del `netid`. `netid` es parámetro (NVS) + campo en la WebUI. `src/selft
 auto-test del protocolo al arrancar. **Validado en hardware:** con el mismo `netid` el seguidor recibe
 (`rx` sube); al poner uno distinto **deja de recibir** (escenario `netid` del banco, PASS).
 
+**Sesión/enlace de vuelta + gate de modo (v2):** el líder **solo emite si ha oído un REPLY/JOIN**
+dentro de `SESSION_TIMEOUT_MS` (10 s) → "transmitir solo cuando hace falta". El seguidor emite
+**REPLY** (enlazado) o **JOIN** (aún no) cada `FOLLOWER_REPLY_MS` (1.5 s), con **número de secuencia**
+(perdidas/duplicados). El líder conoce la distancia del seguidor (`onFollowerReply`) y la manda a su FC
+por `STATUSTEXT` → **OSD** ("FWM: follower Nm"). **Gate de modo:** si la distancia < `approach_dist`
+(300 m) y el líder no está en modo estable, el seguidor **no guía** (mensaje "Leader mode unstable").
+Todo con **timeouts y sin bloqueos**. **Simulador del protocolo** `tools/proto_sim.py` (matriz de
+casos/fallos: normal, pérdidas 30/60 %, blackout y recuperación, sin seguidor, gate de modo, lejos+
+inestable) → **12/12 checks OK**.
+
 **Fix del cristal (WiFi):** las placas TTGO LoRa32 V1.0 llevan cristal de **26 MHz**. El core de
 Arduino 3.x asumía 40 MHz → la **WiFi/BT quedaban fuera de banda** (no emitían AP ni escaneaban).
 La solución es compilar con **`-DF_XTAL_MHZ=26`** (ya en `platformio.ini`): el core lo aplica en

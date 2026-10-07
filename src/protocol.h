@@ -28,6 +28,7 @@ typedef struct
   uint16_t netid;        ///< red compartida ("frase"); filtra trafico de otros sistemas
   uint8_t sysid;         ///< ID de sistema del emisor
   uint8_t mode;          ///< ArduPlane custom_mode del emisor (modo de vuelo)
+  uint16_t seq;          ///< numero de secuencia (deteccion de perdidas/duplicados/reorden)
   int32_t lat;           ///< Latitud * 1E7
   int32_t lon;           ///< Longitud * 1E7
   int32_t alt;           ///< Altitud MSL (mm)

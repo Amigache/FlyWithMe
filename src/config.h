@@ -215,6 +215,33 @@
 #define HEAD_ON_BREAK_DEG 90.0f        // deg - giro de ruptura (perpendicular a la visual)
 #define HEAD_ON_SPEED 10.0f            // m/s - velocidad comandada durante la guarda
 
+// --- Sesion con el seguidor (enlace de vuelta) + gate de modo del lider ---
+#define SESSION_TIMEOUT_MS 10000   // ms - sin REPLY del seguidor, el lider deja de emitir beacons
+#define FOLLOWER_REPLY_MS 1500     // ms - cadencia del REPLY/JOIN del seguidor (enlace de vuelta)
+#define APPROACH_DIST_DEFAULT 300  // m - distancia bajo la cual se exige modo estable del lider
+
+// Modos de vuelo de ArduPlane considerados "estables" (sin maniobras bruscas) para seguimiento
+// cercano: FBWA/FBWB/CRUISE/AUTO/RTL/LOITER/TAKEOFF/GUIDED. Fuera de la lista (MANUAL/ACRO/STABILIZE...)
+// el seguidor NO sigue en distancia de aproximacion (Idea 2).
+inline bool isLeaderModeStable(uint8_t mode)
+{
+  switch (mode)
+  {
+  case 5:  // FBWA
+  case 6:  // FBWB
+  case 7:  // CRUISE
+  case 10: // AUTO
+  case 11: // RTL
+  case 12: // LOITER
+  case 13: // TAKEOFF
+  case 15: // GUIDED
+    return true;
+  default:
+    return false;
+  }
+}
+
+
 // DEFAULT PARAMS
 #define FOLL_ENABLE 1
 #define FOLL_OFS_TYPE 1
@@ -275,6 +302,7 @@ typedef struct
   float heading_corr_max;  // deg - tope de correccion de rumbo
   float along_gain;        // cm/s por m - ganancia longitudinal
   uint16_t netid;          // red ("frase"): filtra trafico de otros sistemas (0 = deshabilitado)
+  float approach_dist;     // m - distancia bajo la cual se exige modo estable del lider
 } Params_t;
 
 // --- Tabla de parametros configurables (Fase 2) ---

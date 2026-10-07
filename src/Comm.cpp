@@ -125,7 +125,44 @@ void Comm::run()
     return;  // No procesar LoRa real en modo simulación
   }
   #endif
-  
+
+  // v2: el LIDER escucha los REPLY/JOIN del seguidor (sesion + OSD).
+  if (fwm->follow_mode == FOLL_MODE_LEADER)
+  {
+    if (LoRa.parsePacket())
+    {
+      commData.rssi = LoRa.packetRssi();
+      commData.snr = LoRa.packetSnr();
+      if (LoRa.available() == (int)sizeof(LoraPacket_t))
+      {
+        LoraPacket_t p;
+        LoRa.readBytes((uint8_t *)&p, sizeof(p));
+        if (validatePacket(p) && (p.type == LORA_MSG_REPLY || p.type == LORA_MSG_JOIN))
+        {
+          fwm->onFollowerReply(p);
+        }
+      }
+      else
+      {
+        while (LoRa.available())
+        {
+          LoRa.read();
+        }
+      }
+    }
+  }
+
+  // v2: el SEGUIDOR emite su REPLY/JOIN a cadencia fija (enlace de vuelta). Solo si hay FC.
+  if (fwm->follow_mode == FOLL_MODE_FOLLOWER && !MAV_BRIDGE)
+  {
+    uint32_t now = millis();
+    if (now - lastReplyMs >= FOLLOWER_REPLY_MS)
+    {
+      lastReplyMs = now;
+      sendReplyPacket();
+    }
+  }
+
   // Only work if we are on follower mode
   if (fwm->follow_mode == FOLL_MODE_FOLLOWER)
   {
@@ -254,6 +291,36 @@ void Comm::run()
           commData.lastValidPacket = incomingPacket;
           commData.lastValidPacketSize = sizeof(commData.lastValidPacket);
           commData.rx_packet_counter++;
+
+          // v2: numero de secuencia -> detecta huecos (perdidas) y duplicados
+          uint16_t expected = (uint16_t)(lastRxSeq + 1);
+          if (incomingPacket.seq != expected)
+          {
+            if (incomingPacket.seq == lastRxSeq)
+            {
+              Log.trace("Duplicado seq=%d" CR, incomingPacket.seq);
+            }
+            else
+            {
+              commData.lost_packet_counter += (uint16_t)(incomingPacket.seq - expected);
+            }
+          }
+          lastRxSeq = incomingPacket.seq;
+
+          // v2 (Idea 2): en distancia de aproximacion, exigir que el lider este en modo ESTABLE.
+          float dLead = fwm->mav->calculateDistance(fwm->mav->APdata.lat, fwm->mav->APdata.lon,
+                                                    incomingPacket.lat, incomingPacket.lon);
+          if (dLead < fwm->params.approach_dist && !isLeaderModeStable(incomingPacket.mode))
+          {
+            static uint32_t lastGateMsg = 0;
+            if (millis() - lastGateMsg > 2000)
+            {
+              fwm->mav->status_text("Leader mode unstable - holding");
+              lastGateMsg = millis();
+            }
+            last_beacon = millis(); // el enlace esta vivo; no es perdida de beacon
+            return;
+          }
 
           // Update target if we are in approach stage
           if (fwm->stage_follow == STAGE_APPROACH)
@@ -419,6 +486,35 @@ void Comm::applyNetid()
   {
     LoRa.setSyncWord(loraSyncWordFor(fwm->params.netid));
   }
+}
+
+// v2: REPLY (ya hay enlace) o JOIN (aun no) con la posicion del seguidor -> sesion + OSD del lider.
+void Comm::sendReplyPacket()
+{
+  if (!fwm || !fwm->mav)
+  {
+    return;
+  }
+  LoraPacket_t p;
+  memset(&p, 0, sizeof(p));
+  p.version = PROTOCOL_VERSION;
+  p.type = commData.have_beacon ? LORA_MSG_REPLY : LORA_MSG_JOIN;
+  p.netid = fwm->params.netid;
+  p.sysid = SYSID;
+  p.mode = (uint8_t)fwm->mav->APdata.custom_mode;
+  p.seq = ++txSeq;
+  p.lat = fwm->mav->APdata.lat;
+  p.lon = fwm->mav->APdata.lon;
+  p.alt = fwm->mav->APdata.alt;
+  p.relative_alt = fwm->mav->APdata.relative_alt;
+  p.ground_speed = fwm->mav->APdata.ground_speed;
+  p.hdg = fwm->mav->APdata.hdg;
+  p.timestamp = millis();
+  p.vx = fwm->mav->APdata.vx;
+  p.vy = fwm->mav->APdata.vy;
+  p.vz = fwm->mav->APdata.vz;
+  p.checksum = calChecksum(p);
+  sendPacket(p);
 }
 
 // ============================================================================================================

@@ -37,6 +37,10 @@ public:
     uint8_t calChecksum(LoraPacket_t packet);
     bool validatePacket(LoraPacket_t packet); // FASE 1: Validación completa de paquete
     void applyNetid();                        // v2: re-fija el sync word de radio desde params.netid
+    void sendReplyPacket();                   // v2: REPLY/JOIN del seguidor (enlace de vuelta)
+    uint32_t lastReplyMs = 0;
+    uint16_t txSeq = 0;                        // v2: secuencia de TX (perdidas/duplicados)
+    uint16_t lastRxSeq = 0;                    // v2: ultima secuencia RX valida
     
     // FASE 2: Compresión y optimización
     CompressedLoraPacket_t compressPacket(LoraPacket_t packet);

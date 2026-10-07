@@ -520,7 +520,7 @@ static const ParamDef_t s_paramTable[] = {
     {"lateral_offset",   "Lateral offset",       PARAM_FLOAT, 5.0f,  300.0f, "m",      1},
     {"vertical_offset",  "Vertical offset",      PARAM_FLOAT, 0.0f,  200.0f, "m",      1},
     {"cross_gain",       "Lateral gain",         PARAM_FLOAT, 0.05f, 2.0f,   "deg/m",  1},
-    {"heading_corr_max", "Max heading corr",     PARAM_FLOAT, 5.0f,  60.0f,  "deg",    1},
+    {"hdg_corr_max",     "Max heading corr",     PARAM_FLOAT, 5.0f,  60.0f,  "deg",    1},
     {"along_gain",       "Longitudinal gain",    PARAM_FLOAT, 0.0f,  60.0f,  "cm/s/m", 1},
     {"prediction",       "Prediction",           PARAM_BOOL,  0.0f,  1.0f,   "",       1},
     {"filter",           "Position filter",      PARAM_BOOL,  0.0f,  1.0f,   "",       1},

@@ -261,8 +261,119 @@ void Telem::run()
                     }
                     }
                 }
+#if MAVLINK_PARAM_SERVER
+                // Mensajes dirigidos a nuestro componente (servidor de parametros FWM)
+                else if (msg.msgid == MAVLINK_MSG_ID_PARAM_REQUEST_LIST ||
+                         msg.msgid == MAVLINK_MSG_ID_PARAM_REQUEST_READ ||
+                         msg.msgid == MAVLINK_MSG_ID_PARAM_SET)
+                {
+                    handle_param_message(msg);
+                }
+#endif
             }
         }
+    }
+}
+
+// ============================================================================================================
+// Fase 3: servidor de parametros por MAVLink (PARAM_VALUE / PARAM_REQUEST_* / PARAM_SET)
+// ============================================================================================================
+void Telem::send_param_value(uint16_t index)
+{
+    if (index >= (uint16_t)fwm->paramCount())
+    {
+        return;
+    }
+    const ParamDef_t *d = fwm->paramDefAt(index);
+    if (d == nullptr)
+    {
+        return;
+    }
+    char id[16];
+    memset(id, 0, sizeof(id));
+    strncpy(id, d->key, sizeof(id) - 1);
+    mavlink_message_t msg;
+    mavlink_msg_param_value_pack(SYSID, COMPID, &msg, id, fwm->getParamByIndex(index),
+                                 MAV_PARAM_TYPE_REAL32, (uint16_t)fwm->paramCount(), index);
+    send_to_fc(msg);
+}
+
+void Telem::send_all_params()
+{
+    for (int i = 0; i < fwm->paramCount(); i++)
+    {
+        send_param_value((uint16_t)i);
+    }
+}
+
+void Telem::handle_param_message(mavlink_message_t &msg)
+{
+    switch (msg.msgid)
+    {
+    case MAVLINK_MSG_ID_PARAM_REQUEST_LIST:
+    {
+        mavlink_param_request_list_t r;
+        mavlink_msg_param_request_list_decode(&msg, &r);
+        if ((r.target_system == 0 || r.target_system == SYSID) &&
+            (r.target_component == 0 || r.target_component == COMPID))
+        {
+            send_all_params();
+        }
+        break;
+    }
+    case MAVLINK_MSG_ID_PARAM_REQUEST_READ:
+    {
+        mavlink_param_request_read_t r;
+        mavlink_msg_param_request_read_decode(&msg, &r);
+        if (!((r.target_system == 0 || r.target_system == SYSID) &&
+              (r.target_component == 0 || r.target_component == COMPID)))
+        {
+            break;
+        }
+        int idx = -1;
+        if (r.param_index >= 0)
+        {
+            idx = r.param_index;
+        }
+        else
+        {
+            char id[17];
+            memcpy(id, r.param_id, 16);
+            id[16] = 0;
+            idx = fwm->findParam(id);
+        }
+        if (idx >= 0)
+        {
+            send_param_value((uint16_t)idx);
+        }
+        break;
+    }
+    case MAVLINK_MSG_ID_PARAM_SET:
+    {
+        mavlink_param_set_t s;
+        mavlink_msg_param_set_decode(&msg, &s);
+        if (!((s.target_system == 0 || s.target_system == SYSID) &&
+              (s.target_component == 0 || s.target_component == COMPID)))
+        {
+            break;
+        }
+        char id[17];
+        memcpy(id, s.param_id, 16);
+        id[16] = 0;
+        int idx = fwm->findParam(id);
+        if (idx >= 0)
+        {
+            if (fwm->isOnGround())
+            {
+                fwm->setParamByIndex(idx, s.param_value, true);
+            }
+            // Echo del valor (confirma; si no estamos en tierra devuelve el valor sin cambios)
+            send_param_value((uint16_t)idx);
+        }
+        break;
+    }
+    default:
+        break;
     }
 }
 

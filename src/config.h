@@ -627,6 +627,9 @@ public:
 #define WEB_AP_ALT_MAX_MM 3000        // mm (3 m) - por encima se considera "en vuelo"
 #define WEB_AP_GATE_INTERVAL_MS 1000  // periodo de comprobacion del gate del AP
 
+// --- Servidor de parametros por MAVLink (Fase 3: ver/editar FWM desde Mission Planner) ---
+#define MAVLINK_PARAM_SERVER 1        // 1 = responder a PARAM_REQUEST_LIST/READ/SET como componente propio
+
 // --- Modo Simulación ---
 #define SIMULATION_MODE 0             // Activar modo simulación (sin hardware)
 #define SIMULATION_UPDATE_RATE 100    // Actualización simulación (ms)

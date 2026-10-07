@@ -24,6 +24,7 @@ Uso:
 import argparse
 import json
 import math
+import socket
 import statistics
 import time
 from datetime import datetime
@@ -80,6 +81,29 @@ def _pid(msg):
     if isinstance(pid, bytes):
         pid = pid.decode("latin-1")
     return pid.split("\0")[0]
+
+
+def read_tap_text(port, seconds=4.0):
+    """Lee el log serie de la placa (texto) que el bridge reenvia por el tap."""
+    try:
+        s = socket.create_connection(("127.0.0.1", port), 3)
+    except Exception:  # noqa: BLE001
+        return ""
+    s.settimeout(0.4)
+    buf = b""
+    t0 = time.time()
+    while time.time() - t0 < seconds:
+        try:
+            d = s.recv(4096)
+            if d:
+                buf += d
+        except Exception:  # noqa: BLE001
+            pass
+    try:
+        s.close()
+    except Exception:  # noqa: BLE001
+        pass
+    return "".join(chr(b) if (32 <= b < 127 or b in (10, 13)) else "." for b in buf)
 
 
 class FwmLink:
@@ -289,6 +313,41 @@ class Suite:
         ok = bool(d) and d["max"] < 6000   # limite de seguridad (MAX_FOLLOW_DISTANCE ~5000)
         self.add("safety", "PASS" if ok else "FAIL", {"dist": d})
 
+    def test_preflight(self):
+        """Puerta previa: comprobar por el tap que el lider tiene FC y emite (evita vuelos en balde)."""
+        lt = read_tap_text(self.args.leader_tap, 3.0)
+        ft = read_tap_text(self.args.follower_tap, 3.0)
+        leader_fc = "No FC connection" not in lt
+        link_line = ""
+        for line in ft.splitlines():
+            if "Link:" in line:
+                link_line = line.strip()
+        foll_ok = ("SEARCHING" not in link_line) if link_line else True
+        notes = []
+        if not leader_fc:
+            notes.append("lider: 'No FC connection' (no emite beacons)")
+        if not foll_ok:
+            notes.append(f"seguidor: {link_line}")
+        self.add("preflight", "PASS" if (leader_fc and foll_ok) else "FAIL",
+                 {"leader_fc": leader_fc, "follower_link": link_line or "n/d"},
+                 "; ".join(notes))
+
+    def test_setup(self):
+        """Ajustes EN TIERRA: fija dist_offset (para vuelo cercano) si se pidio."""
+        if self.args.dist_offset is None:
+            return
+        try:
+            fl = FwmLink(FOLLOWER_TAP, 2)
+        except Exception as e:  # noqa: BLE001
+            self.add("setup", "SKIP", {}, f"tap no disponible: {e}")
+            return
+        back = fl.set_param("dist_offset", self.args.dist_offset)
+        got = fl.read_params().get("dist_offset")
+        fl.close()
+        ok = got is not None and abs(got - self.args.dist_offset) < 0.5
+        self.add("setup", "PASS" if ok else "FAIL",
+                 {"dist_offset_set": self.args.dist_offset, "readback": got})
+
     def test_params(self):
         """Round-trip de parametros FWM por MAVLink (tap): leer, escribir, releer y restaurar."""
         try:
@@ -348,7 +407,9 @@ class Suite:
         self.lead = connect(LEADER, 255)
         self.fol = connect(FOLLOWER, 253)
         print("== Escenarios ==")
+        self._safe("preflight", self.test_preflight)
         self._safe("link", self.test_link)
+        self._safe("setup", self.test_setup)             # EN TIERRA: dist_offset (vuelo cercano)
         self._safe("params", self.test_params)
         self._safe("formations", self.test_formations)   # EN TIERRA (ground-only)
         self._safe("takeoff", self.test_takeoff)
@@ -391,6 +452,10 @@ def main():
     ap = argparse.ArgumentParser(description="FlyWithMe bench completo")
     ap.add_argument("--start-bench", action="store_true", help="levantar el banco antes")
     ap.add_argument("--firmware", action="store_true", help="conectar tambien las placas (puentes)")
+    ap.add_argument("--dist-offset", type=float, default=None,
+                    help="fijar dist_offset EN TIERRA (m) para probar vuelo cercano (p. ej. 10)")
+    ap.add_argument("--leader-tap", type=int, default=5790, help="puerto del tap del lider")
+    ap.add_argument("--follower-tap", type=int, default=5791, help="puerto del tap del seguidor")
     args = ap.parse_args()
     if args.start_bench:
         import sys

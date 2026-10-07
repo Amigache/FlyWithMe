@@ -131,6 +131,21 @@
 #define PACKET_RATE_FAR 500            // ms - 2 Hz cuando está lejos (> 500m)
 #define DISTANCE_THRESHOLD_CLOSE 100   // metros
 #define DISTANCE_THRESHOLD_MEDIUM 500  // metros
+
+// MODO FORMACION CERRADA (opt-in): invierte la tasa adaptativa (mas rapido cuanto mas cerca) para
+// poder volar a 10-20 m. Requiere un enlace con baja latencia: usar tambien un SF bajo
+// (p. ej. -D LORA_SPREADING_FACTOR=7), porque a SF12 la tasa esta limitada por el tiempo de vuelo.
+#ifndef TIGHT_FORMATION
+#define TIGHT_FORMATION 0              // 1 = tasa rapida cerca (formacion cerrada)
+#endif
+#if TIGHT_FORMATION
+#undef PACKET_RATE_CLOSE
+#undef PACKET_RATE_MEDIUM
+#undef PACKET_RATE_FAR
+#define PACKET_RATE_CLOSE 200          // ms - 5 Hz cuando <100m
+#define PACKET_RATE_MEDIUM 500         // ms - 2 Hz
+#define PACKET_RATE_FAR 1000           // ms - 1 Hz
+#endif
 #define MAX_LORA_RETRIES 3             // Intentos máximos de retransmisión
 #define LORA_RETRY_DELAY_MIN 10        // ms - Delay mínimo para retry
 #define LORA_RETRY_DELAY_MAX 100       // ms - Delay máximo para retry
@@ -177,6 +192,18 @@
 #define SPEED_GAIN_CMS_PER_M 8         // cm/s de sobre-velocidad por metro de error de distancia (control suave)
 #define MAX_SPEED_BOOST 600            // cm/s (6 m/s) de sobre-velocidad maxima
 #define AUTO_CALIBRATE_LORA 0          // 1 = calibrar automáticamente al inicio, 0 = manual
+
+// GUARDA DE RUMBO DE COLISION (reunion frente a frente). Si el LIDER viene de cara (su rumbo apunta
+// hacia el seguidor) y la distancia es menor que HEAD_ON_RANGE, NO se sigue la traza: se rompe
+// PERPENDICULAR a la visual (maxima tasa de separacion) y se frena. Evita el paso rasante que
+// aparece al activar "seguir" con los aviones enfrentados. Validado en tools/follow_sim.py.
+#ifndef HEAD_ON_GUARD
+#define HEAD_ON_GUARD 0                // 1 = activar la guarda (opt-in)
+#endif
+#define HEAD_ON_RANGE 500.0f           // m - distancia de actuacion de la guarda
+#define HEAD_ON_FACE_DEG 120.0f        // deg - |ang(rumbo lider, marcacion hacia el)| > esto = "de cara"
+#define HEAD_ON_BREAK_DEG 90.0f        // deg - giro de ruptura (perpendicular a la visual)
+#define HEAD_ON_SPEED 10.0f            // m/s - velocidad comandada durante la guarda
 
 // DEFAULT PARAMS
 #define FOLL_ENABLE 1

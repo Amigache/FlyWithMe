@@ -6,6 +6,9 @@ Conecta un vehiculo SITL (ArduPilot, MAVLink por TCP) con una placa FlyWithMe cu
 tiene FC_LINK_USB=1 (MAVLink por el USB/UART0). Es un pipe de bytes en ambos sentidos: no
 requiere pymavlink.
 
+Robustez: si el socket del SITL se cae (el SITL reinicia/cierra SERIAL0), el puente **reconecta**
+solo en vez de morir, de modo que el enlace placa<->SITL se recupera sin reiniciar el banco.
+
 Ademas, con --tap-port abre un servidor TCP que da un enlace MAVLink DIRECTO a la placa
 (sin pasar por el SITL ni por WiFi): lo que el cliente escribe va a la placa, y lo que la
 placa emite se reenvia al cliente. Sirve para configurar/leer el periferico FWM desde el PC.
@@ -31,6 +34,74 @@ except Exception:  # noqa: BLE001
     pass
 
 
+class SockLink:
+    """Socket TCP al SITL con reconexion automatica."""
+
+    def __init__(self, host, port, stop):
+        self.host = host
+        self.port = port
+        self.stop = stop
+        self._s = None
+        self._lock = threading.Lock()
+        self._connect(5.0)
+
+    def _connect(self, timeout):
+        try:
+            s = socket.create_connection((self.host, self.port), timeout)
+            s.settimeout(0.1)
+            with self._lock:
+                self._s = s
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _drop(self):
+        with self._lock:
+            s, self._s = self._s, None
+        try:
+            if s:
+                s.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+    def send(self, data):
+        with self._lock:
+            s = self._s
+        if s is None:
+            return
+        try:
+            s.sendall(data)
+        except Exception:  # noqa: BLE001
+            self._drop()
+
+    def recv(self, n):
+        if self.stop.is_set():
+            return None
+        with self._lock:
+            s = self._s
+        if s is None:
+            if self._connect(1.0):
+                print(f"Puente: reconectado a SITL {self.host}:{self.port}")
+            else:
+                time.sleep(0.5)
+            return None
+        try:
+            data = s.recv(n)
+            if not data:                      # EOF -> el SITL cerro SERIAL0
+                print(f"Puente: SITL cerro la conexion; reintentando {self.host}:{self.port}")
+                self._drop()
+                return None
+            return data
+        except socket.timeout:
+            return None
+        except Exception:  # noqa: BLE001
+            self._drop()
+            return None
+
+    def close(self):
+        self._drop()
+
+
 def main():
     ap = argparse.ArgumentParser(description="Puente SITL (TCP) <-> placa (serie USB) + tap MAVLink")
     ap.add_argument("--tcp", default="127.0.0.1:5760", help="host:puerto del SITL")
@@ -52,16 +123,13 @@ def main():
         print(f"ERROR abriendo {args.port}: {e}")
         sys.exit(2)
 
-    try:
-        sock = socket.create_connection((host, port), 5)
-        sock.settimeout(0.1)
-    except Exception as e:  # noqa: BLE001
-        print(f"ERROR conectando a SITL {args.tcp}: {e}")
-        ser.close()
-        sys.exit(2)
+    stop = threading.Event()
+    link = SockLink(host, port, stop)
+    if link._s is None:
+        # no abortamos: seguimos reintentando en recv()
+        print(f"AVISO: no se pudo conectar a SITL {args.tcp} aun; reintentando...")
 
     print(f"Puente activo: SITL {args.tcp} <-> {args.port}@{args.baud}. Ctrl+C para salir.")
-    stop = threading.Event()
     taps = []
     taps_lock = threading.Lock()
     ser_lock = threading.Lock()
@@ -69,21 +137,10 @@ def main():
     def write_ser(data):
         """Escribe en el serie de forma atomica (lo comparten tcp_to_ser y los taps)."""
         with ser_lock:
-            ser.write(data)
-
-    def tcp_to_ser():
-        while not stop.is_set():
             try:
-                data = sock.recv(1024)
-                if not data:
-                    break
-                write_ser(data)
-            except socket.timeout:
-                continue
+                ser.write(data)
             except Exception as e:  # noqa: BLE001
-                print("tcp->ser:", e)
-                break
-        stop.set()
+                print("ser.write:", e)
 
     def broadcast(data):
         with taps_lock:
@@ -96,22 +153,28 @@ def main():
                     except ValueError:
                         pass
 
+    def tcp_to_ser():
+        while not stop.is_set():
+            data = link.recv(1024)
+            if data:
+                write_ser(data)
+
     def ser_to_tcp():
         while not stop.is_set():
             try:
                 data = ser.read(1024)
-                if data:
-                    sock.sendall(data)
-                    broadcast(data)  # espejo a los clientes del tap (MAVLink de la placa)
-                    if args.print_serial:
-                        txt = "".join(chr(b) if (32 <= b < 127 or b in (10, 13)) else "" for b in data)
-                        if txt.strip():
-                            sys.stdout.write(txt)
-                            sys.stdout.flush()
             except Exception as e:  # noqa: BLE001
-                print("ser->tcp:", e)
-                break
-        stop.set()
+                print("ser.read:", e)
+                time.sleep(0.2)
+                continue
+            if data:
+                link.send(data)
+                broadcast(data)  # espejo a los clientes del tap (MAVLink de la placa)
+                if args.print_serial:
+                    txt = "".join(chr(b) if (32 <= b < 127 or b in (10, 13)) else "" for b in data)
+                    if txt.strip():
+                        sys.stdout.write(txt)
+                        sys.stdout.flush()
 
     def tap_client(conn):
         # OJO: conn tiene timeout; socket.timeout NO debe cerrar el tap (solo esperar mas datos).
@@ -172,9 +235,9 @@ def main():
         pass
     finally:
         stop.set()
-        ser.close()
+        link.close()
         try:
-            sock.close()
+            ser.close()
         except Exception:  # noqa: BLE001
             pass
         print("Puente cerrado.")

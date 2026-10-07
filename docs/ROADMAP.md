@@ -204,6 +204,20 @@ Validado: lectura de los 11 parámetros y round-trip de `dist_offset` y `formati
 son *ground-only*), `takeoff`, `straight`, `turn`, `safety`; reporte MD+JSON y **series temporales
 CSV** por escenario, con escenarios aislados (un fallo no aborta el reporte). `lab.py` reinicia las
 placas por DTR/RTS al levantar el banco (las CP210x/ESP32 a veces se cuelgan entre sesiones).
+Incluye **preflight** (por el tap: comprueba que el líder tiene FC y no está en "No FC connection")
+y `--dist-offset` para fijar el offset de formación EN TIERRA.
+
+**Reunión frente a frente y vuelo cercano (`tools/follow_sim.py`, sin hardware):** replica la ley
+cross-track + un modelo de avión y la **latencia del enlace**. Hallazgos:
+- Separación real ≈ `dist_offset` + penalización por latencia (~20–30 m por cada 1 s a 20 m/s).
+- **Frente a frente sin guarda: riesgo de colisión** (pasan a 0.1–1 m al activar seguir desde 200–500 m).
+  Con la **guarda** (`HEAD_ON_GUARD`, ruptura perpendicular a la visual + frenado) se mantiene
+  ≥ ~25–50 m para separaciones iniciales ≥200 m; por debajo de ~100–150 m es inevitable.
+- Para **10 m** de formación hace falta latencia ≲0.2 s (`TIGHT_FORMATION` + `LORA_SPREADING_FACTOR=7`);
+  5 m es el límite físico con la tasa y precisión actuales. La guarda va tras un flag (default off).
+
+**Hardening del banco:** `sitl_bridge.py` **reconecta** solo si el SITL cierra SERIAL0 (antes moría y
+dejaba a la placa sin FC → el líder dejaba de emitir beacons).
 
 **Fix del cristal (WiFi):** las placas TTGO LoRa32 V1.0 llevan cristal de **26 MHz**. El core de
 Arduino 3.x asumía 40 MHz → la **WiFi/BT quedaban fuera de banda** (no emitían AP ni escaneaban).

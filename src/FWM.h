@@ -53,6 +53,10 @@ public:
     float getDistanceToFollower();
     float getLinkDistance(); // A4: distancia al peer (-1 si no hay beacon)
 
+    // Dual-core: reparto de responsabilidades entre nucleos
+    void runRt();            // core 1: LoRa + MAVLink + FSM + mensajeria (tiempo real)
+    void runIo();            // core 0: web + pantalla + logger + AP gate (no critico)
+
     // v2: enlace de vuelta (el lider sabe quien le sigue y a que distancia -> OSD)
     void onFollowerReply(const LoraPacket_t &p);
     uint32_t lastFollowerMs = 0;

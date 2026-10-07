@@ -11,6 +11,12 @@
 #define FWM_SELFTEST 1
 #endif
 
+// Reparto en dos nucleos del ESP32: core 1 = vuelo (LoRa+MAVLink+FSM), core 0 = web/pantalla/logger.
+// Poner 0 para volver al bucle unico (debug).
+#ifndef FWM_DUAL_CORE
+#define FWM_DUAL_CORE 1
+#endif
+
 // Red por defecto ("frase"/netid) para el protocolo v2; configurable por parametro y por la web.
 #ifndef NETID_DEFAULT
 #define NETID_DEFAULT 4660 // 0x1234

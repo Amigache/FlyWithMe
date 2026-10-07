@@ -188,6 +188,7 @@ desarrollo consolidada: roadmap + Fases 1–4). Ver sección 7.
 | `TIGHT_FORMATION` | `0` | 1 = **tasa LoRa rápida cuando cerca** (200/500/1000 ms) para vuelo a 10–20 m. Emparejar con SF bajo (`-D LORA_SPREADING_FACTOR=7`). |
 | `netid` | `4660` (0x1234) | Red (**"frase"**) del protocolo v2: filtra tráfico de otros sistemas (sync word + campo en el paquete). Debe coincidir en ambos; configurable por parámetro y WebUI. |
 | `approach_dist` | `300` | m — bajo esta distancia el seguidor **exige modo estable del líder** (FBWA/FBWB/CRUISE/AUTO/RTL/LOITER/TAKEOFF/GUIDED); por encima **acude igualmente** a buscarlo. |
+| `FWM_DUAL_CORE` | `1` | 1 = reparto en 2 núcleos: **core 1** vuelo (LoRa+MAVLink+FSM), **core 0** web/pantalla/logger. `0` = bucle único. |
 | `MIN_SAFE_ALTITUDE` | `50000` | mm (50 m) — altitud mínima. |
 | `AUTO_CALIBRATE_LORA` | `0` | Auto-calibración LoRa al inicio. |
 | `USE_INTERACTIVE_MENU` | `0` | Menú OLED por botones. **Desactivado** por conflicto de pines. |

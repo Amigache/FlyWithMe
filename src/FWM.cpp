@@ -121,9 +121,15 @@ void FWM::begin()
  */
 void FWM::run()
 {
-    // FASE 1: Reset watchdog en cada ciclo
-    esp_task_wdt_reset();
+    runRt();
+    runIo();
+}
 
+/**
+ * @brief Núcleo 0 (UI/logging): AP gate, web, pantalla y logger. No critico para el vuelo.
+ */
+void FWM::runIo()
+{
     // AP/WiFi solo en tierra: comprobar periodicamente y levantar/apagar segun corresponda
     static uint32_t lastApGate = 0;
     if (millis() - lastApGate > WEB_AP_GATE_INTERVAL_MS)
@@ -131,7 +137,7 @@ void FWM::run()
         updateApGate();
         lastApGate = millis();
     }
-    
+
     // FASE 2: Log periódico de telemetría (cada 30 segundos)
     static uint32_t lastTelemetryLog = 0;
     if (logger && (millis() - lastTelemetryLog > 30000))
@@ -155,6 +161,19 @@ void FWM::run()
                    lost, lossPct, dist);
         lastLinkLog = millis();
     }
+
+    screen->run();
+    web->run();
+}
+
+/**
+ * @brief Núcleo 1 (tiempo real): LoRa + MAVLink con el FC + maquina de estados + mensajeria.
+ *        Todo el acceso a Telem (puerto del FC) queda en este mismo core.
+ */
+void FWM::runRt()
+{
+    // FASE 1: Reset watchdog en cada ciclo (el loopTask de Arduino corre en el core 1)
+    esp_task_wdt_reset();
 
     // Mensajeria (seguidor): notificar distancia de seguimiento al FC/GCS periodicamente
     static uint32_t lastFollowStatus = 0;
@@ -224,11 +243,9 @@ void FWM::run()
         stage_follow = STAGE_IDLE; // Not in follower mode
     }
 
-    // Run instances
+    // Run instances (flight-critical: LoRa + MAVLink con el FC)
     comm->run();
     mav->run();
-    screen->run();
-    web->run();
 }
 
 /**

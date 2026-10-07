@@ -248,6 +248,13 @@ Todo con **timeouts y sin bloqueos**. **Simulador del protocolo** `tools/proto_s
 casos/fallos: normal, pérdidas 30/60 %, blackout y recuperación, sin seguidor, gate de modo, lejos+
 inestable) → **12/12 checks OK**.
 
+**Dual-core (`FWM_DUAL_CORE`):** el camino crítico de vuelo (LoRa + MAVLink con el FC + FSM + mensajería
+→ `FWM::runRt()`) corre en **core 1** (loopTask de Arduino, y todo el acceso a `Telem`/puerto del FC
+queda en el mismo core); la UI/logging (`FWM::runIo()`: web, pantalla, logger, AP gate) en **core 0**
+con una tarea propia. Reduce el *jitter* de LoRa (mejor seguimiento fino). El estado compartido
+(`APdata`, `commData`, `currentState`) se lee/escribe como escalares de 32 bits alineados (atómico en
+Xtensa); carreras benignas toleradas.
+
 **Fix del cristal (WiFi):** las placas TTGO LoRa32 V1.0 llevan cristal de **26 MHz**. El core de
 Arduino 3.x asumía 40 MHz → la **WiFi/BT quedaban fuera de banda** (no emitían AP ni escaneaban).
 La solución es compilar con **`-DF_XTAL_MHZ=26`** (ya en `platformio.ini`): el core lo aplica en

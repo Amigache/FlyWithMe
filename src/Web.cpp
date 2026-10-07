@@ -470,9 +470,9 @@ String Web::generateHTML()
     .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
     .kv{display:flex;justify-content:space-between;gap:8px;padding:6px 9px;background:#12151b;border-radius:8px}
     .kv :first-child{color:var(--mut)}.kv :last-child{font-variant-numeric:tabular-nums}
-    .cfg{display:grid;grid-template-columns:1.1fr .9fr;gap:16px;align-items:start}
-    @media(max-width:560px){.cfg{grid-template-columns:1fr}}
-    .fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+    .ptable{display:flex;flex-direction:column}
+    .prow{display:grid;grid-template-columns:175px 1fr;gap:14px;align-items:center;padding:10px 0;border-bottom:1px solid var(--bd)}
+    .prow:last-child{border-bottom:0}
     label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--mut)}
     input,select{background:#0d1015;color:var(--fg);border:1px solid var(--bd);border-radius:8px;padding:8px;font:inherit;width:100%}
     input:focus,select:focus{outline:0;border-color:var(--acc)}
@@ -482,10 +482,9 @@ String Web::generateHTML()
     .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px}
     .msg{font-size:12px;color:var(--mut)}
     .chk{flex-direction:row;align-items:center;gap:8px}.chk input{width:auto}
-    .help{background:#12151b;border:1px solid var(--bd);border-radius:10px;padding:12px;font-size:13px;line-height:1.5;color:var(--mut)}
-    .help h3{font-size:13px;color:var(--fg);margin:0 0 6px}
-    .help b{color:var(--acc)}
-    @media(max-width:560px){.help{position:static}}
+    .desc{color:var(--mut);font-size:13px;line-height:1.45}
+    .desc b{color:var(--acc)}
+    @media(max-width:560px){.prow{grid-template-columns:1fr;gap:5px;padding:10px 0}}
   </style>
 </head>
 <body>
@@ -498,10 +497,7 @@ String Web::generateHTML()
   <main>
     <section><h2 id="h_stats">Status</h2><div class="grid" id="stats"></div></section>
     <section><h2 id="h_cfg">Configuration</h2>
-      <div class="cfg">
-        <form id="pf" class="fields" onsubmit="return saveP(event)"></form>
-        <aside class="help" id="help"></aside>
-      </div>
+      <form id="pf" class="ptable" onsubmit="return saveP(event)"></form>
       <div class="row"><button type="submit" form="pf" id="saveBtn">Save</button><span id="pm" class="msg"></span></div>
     </section>
     <section><h2 id="h_act">Actions</h2>
@@ -557,7 +553,6 @@ String Web::generateHTML()
       $('h_stats').textContent=L().stats;$('h_cfg').textContent=L().cfg;$('h_act').textContent=L().act;
       $('saveBtn').textContent=L().save;$('btnLogs').textContent=L().logs;$('btnReload').textContent=L().reload;
       $('lang').textContent=LANG.toUpperCase();document.documentElement.lang=LANG;
-      if(!$('help').dataset.key)showHelp(null);
     }
     const stat=(k,v)=>'<div class="kv"><span>'+k+'</span><span>'+v+'</span></div>';
     function drawStats(d){
@@ -567,22 +562,16 @@ String Web::generateHTML()
         stat(s.dist,d.distance>=0?d.distance+' m':'--');
       const g=$('gt');g.textContent=d.on_ground?L().ground:L().flight;g.className='badge '+(d.on_ground?'g':'a');
     }
-    function showHelp(key){
-      const h=$('help'),Lx=L();
-      if(!key){h.dataset.key='';h.innerHTML='<h3>'+Lx.help+'</h3>'+Lx.hdef;return;}
-      h.dataset.key=key;const e=$('p_'+key);
-      const val=e?(e.type==='checkbox'?(e.checked?'ON':'OFF'):e.value):'';
-      h.innerHTML='<h3>'+(Lx.lb[key]||key)+'</h3>'+(Lx.d[key]||'')+'<div style="margin-top:8px;color:var(--acc)">'+Lx.cur+': '+val+'</div>';
-    }
     function drawForm(list){
       P=list;let h='';
       list.forEach(p=>{const id='p_'+p.key,t=p.type,lb=L().lb[p.key]||p.label,u=p.unit?' ('+p.unit+')':'';
-        if(t===3)h+='<label>'+lb+'<select id="'+id+'">'+L().form.map((n,i)=>'<option value="'+i+'">'+n+'</option>').join('')+'</select></label>';
-        else if(t===2)h+='<label class="chk"><input type="checkbox" id="'+id+'">'+lb+'</label>';
-        else h+='<label>'+lb+u+'<input type="number" step="any" min="'+p.min+'" max="'+p.max+'" id="'+id+'"></label>';});
+        let fld;
+        if(t===3)fld='<label>'+lb+'<select id="'+id+'">'+L().form.map((n,i)=>'<option value="'+i+'">'+n+'</option>').join('')+'</select></label>';
+        else if(t===2)fld='<label class="chk"><input type="checkbox" id="'+id+'">'+lb+'</label>';
+        else fld='<label>'+lb+u+'<input type="number" step="any" min="'+p.min+'" max="'+p.max+'" id="'+id+'"></label>';
+        h+='<div class="prow">'+fld+'<div class="desc">'+(L().d[p.key]||'')+'</div></div>';});
       $('pf').innerHTML=h;
-      list.forEach(p=>{const e=$('p_'+p.key);if(!e)return;if(p.type===2)e.checked=p.value>=0.5;else e.value=p.value;
-        e.addEventListener('focus',()=>showHelp(p.key));e.addEventListener('mouseenter',()=>showHelp(p.key));});
+      list.forEach(p=>{const e=$('p_'+p.key);if(!e)return;if(p.type===2)e.checked=p.value>=0.5;else e.value=p.value;});
     }
     function saveP(ev){
       ev.preventDefault();const fd=new FormData();

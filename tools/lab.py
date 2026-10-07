@@ -120,7 +120,7 @@ class Lab:
         print(f"[lab] MAVProxy headless -> {out} (Mission Planner conecta UDP {self.cfg['mp_udp']})")
         mplog = open(base / "mavproxy.log", "w", encoding="utf-8", errors="ignore")
         mp = subprocess.Popen([PY, str(TOOLS / "mp_launch.py"), *masters, out, "--daemon"],
-                              cwd=str(ROOT), stdout=mplog, stderr=subprocess.STDOUT)
+                              cwd=str(base), stdout=mplog, stderr=subprocess.STDOUT)
         self.procs["mavproxy"] = [mp]
 
         if self.cfg.get("firmware"):

@@ -84,6 +84,13 @@ pio test
   (`FC_LINK_USB=1`) + `tools/sitl_bridge.py` (puente serie↔TCP). Procedimiento completo en
   `docs/ROADMAP.md` §3.
 - **Arnés HIL:** `tools/hil_test.py` valida el enlace líder/seguidor por serial (`FC_EMULATION=1`).
+- **Laboratorio (CLI):** `python tools/lab.py` — menú interactivo que levanta **2 SITL** (ArduPlane)
+  y un **MAVProxy headless** que reúne ambos vehículos en un único **UDP** para que Mission Planner
+  los vea con una sola conexión. Con `--firmware` conecta además las placas (puentes serie). Acciones:
+  despegue, GUIDED y benchmarks (recta/giro) con **reporte** en `tools/reports/`.
+  - `tools/mp_launch.py` arranca MAVProxy **sin wxPython** en Windows (`has_wxpython=False` + `rline`
+    dummy) y aplica un **parche a pymavlink** (las salidas UDP bindean el puerto destino y chocan con
+    Mission Planner en el mismo PC → se cambia a bind efímero).
 
 > ⚠️ **Salvedad:** `platformio.ini` **no define un `[env:native]`**, y `test/test_main.cpp`
 > duplica sus propias funciones auxiliares (no enlaza contra `src/`). El runner documentado en
@@ -197,6 +204,8 @@ desarrollo consolidada: roadmap + Fases 1–4). Ver sección 7.
 | `docs/FLYWITHME.md` | Documentación de desarrollo | **Consolidado**: roadmap (`MEJORAS_RECOMENDADAS`) + informes Fases 1–4. Alineado con el código. |
 | `docs/ROADMAP.md` | Estado y plan vivo | Validación en banco, fallos corregidos y fases A–E. **Actualizar al completar tareas.** |
 | `tools/hil_test.py` | Arnés de pruebas HIL | Valida el enlace líder/seguidor por serial (ver §2). |
+| `tools/lab.py` | Laboratorio (CLI) | Menú: 2 SITL + MAVProxy headless → UDP para Mission Planner; acciones y reportes. |
+| `tools/mp_launch.py` | Lanzador MAVProxy headless | Sin wxPython en Windows; aplica el parche UDP de pymavlink. |
 
 > Los antiguos `MEJORAS_RECOMENDADAS.md` y `FASE{1..4}_IMPLEMENTADA.md` se fusionaron en
 > `docs/FLYWITHME.md` y se eliminaron de la raíz.

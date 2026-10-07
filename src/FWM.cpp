@@ -524,7 +524,7 @@ static const ParamDef_t s_paramTable[] = {
     {"along_gain",       "Longitudinal gain",    PARAM_FLOAT, 0.0f,  60.0f,  "cm/s/m", 1},
     {"prediction",       "Prediction",           PARAM_BOOL,  0.0f,  1.0f,   "",       1},
     {"filter",           "Position filter",      PARAM_BOOL,  0.0f,  1.0f,   "",       1},
-    {"foll_enable",      "Follow enable",        PARAM_INT,   0.0f,  1.0f,   "",       1},
+    {"foll_enable",      "Follow enable",        PARAM_BOOL,  0.0f,  1.0f,   "",       1},
     {"link_timeout",     "Link timeout",         PARAM_INT,   2.0f,  120.0f, "s",      1},
 };
 

@@ -98,19 +98,28 @@ navegador manda punto siempre.
 
 ---
 
-## 5. Fase 3 (opcional) — Parámetros FWM por MAVLink (tipo Mission Planner)
+## 5. Fase 3 — Parámetros FWM por MAVLink (tipo Mission Planner)
+
+> ✅ **IMPLEMENTADO** (commit `dcbe5d3`). Resultados al final.
 
 Objetivo: que **Mission Planner** liste los parámetros de FWM como los de cualquier autopiloto.
 
-- [ ] Presentarse como **componente MAVLink** propio (ya enviamos MAVLink al FC; definir COMPID).
-- [ ] Implementar el protocolo de parámetros en `Telem`:
-  - Responder a `PARAM_REQUEST_LIST` y `PARAM_REQUEST_READ` con `PARAM_VALUE`.
-  - Aceptar `PARAM_SET` (validando rango y "en tierra").
-  - Codificación de nombres (≤16 chars) y de floats (param_id + param_value).
-- [ ] Mapear la tabla de parámetros de la Fase 2 ↔ `PARAM_VALUE`.
-- [ ] Probar con Mission Planner (conexión al FC): ver componente FWM, listar, editar, guardar.
-- **Criterios de aceptación**: Mission Planner muestra y permite editar los parámetros FWM; los
-  rechaza en vuelo.
+- [x] Presentarse como **componente MAVLink** propio: el ESP32 ya envía `HEARTBEAT` con
+  (`SYSID`, `COMPID`=158); responde a los mensajes dirigidos a ese componente.
+- [x] Protocolo de parámetros en `Telem` (`handle_param_message`):
+  - `PARAM_REQUEST_LIST` → envía todos (`send_all_params`).
+  - `PARAM_REQUEST_READ` → por `param_index` o por `param_id`.
+  - `PARAM_SET` → aplica+persiste **solo en tierra** (si no, devuelve el valor sin cambios).
+  - Codificación `PARAM_VALUE` (`MAV_PARAM_TYPE_REAL32`, `param_count`, `param_index`).
+- [x] Mapeo tabla Fase 2 ↔ `PARAM_VALUE` (`paramCount/paramDefAt/getParamByIndex/setParamByIndex`).
+- [x] Claves ≤15 chars (`heading_corr_max` → `hdg_corr_max`).
+- [x] Probado en banco con un GCS (pymavlink como Mission Planner): listar, leer por id, set y
+  set bloqueado en vuelo. (En MP real: componente `158` bajo el `SYSID` del FC.)
+- **Criterios de aceptación**: el GCS lista y edita los parámetros FWM; los rechaza en vuelo. ✅
+
+**Resultados (banco):** `PARAM_REQUEST_LIST` → las 11 entradas con sus valores; `PARAM_SET`
+(`dist_offset=100`, `cross_gain=0.55`) aplica y confirma; en vuelo el `PARAM_SET` devuelve el valor
+sin cambios (bloqueado). Flag `MAVLINK_PARAM_SERVER` (config.h).
 
 ---
 

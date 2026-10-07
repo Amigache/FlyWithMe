@@ -38,27 +38,32 @@ tierra** para FWM, y que sus parámetros se puedan **leer/descargar y modificar*
 
 ## 3. Fase 1 — Gate del AP: solo en tierra (+ override)
 
-- [ ] **Detección "en tierra"**: función que combine estado del FC:
+> ✅ **IMPLEMENTADO** y validado en banco (commit `bb97e60`). Resultados al final de esta sección.
+
+- [x] **Detección "en tierra"**: función que combine estado del FC:
   - `!armed` **y** `groundspeed < WEB_AP_GS_MAX` (p. ej. 2 m/s) **y** opcionalmente `rel_alt` bajo.
   - Fuente: `APdata` (heartbeat/GLOBAL_POSITION_INT/VFR_HUD) ya recibidos por MAVLink.
-- [ ] **Lógica de arranque/parada**:
-  - Si **no hay FC** (`linkTimeout`) → **AP ON** (configuración en banco/tierra, comportamiento actual).
+- [x] **Lógica de arranque/parada**:
+  - Si **no hay FC** (`linkTimeout` **o** `link` caído) → **AP ON** (configuración en banco/tierra).
   - Si hay FC: **AP ON** solo si "en tierra"; **AP OFF** si armado/en movimiento.
-  - Parar el AP limpiamente (`WiFi.softAPdisconnect(true)` / `WiFi.mode(WIFI_OFF)`) al pasar a
-    "en vuelo", y volver a levantarlo si se vuelve a tierra (con histéresis/debounce).
-- [ ] **Override manual** para forzar el AP en banco aunque el FC diga "armed":
-  - Opciones: `#define WEB_AP_FORCE 1` en `config.h`, un **botón** (si se reasigna GPIO), o un
-    **comando MAVLink** dedicado. Empezar por el `#define` + (si hay botón libre) botón.
-- [ ] **Bloqueo de cambios en vuelo**: en `/api/config` (POST), rechazar si "no en tierra"
-  (independiente de si el AP está on). Devolver error claro.
-- [ ] `#define` nuevos en `config.h` (valores conservadores) + documentarlos en `AGENTS.md` §6:
-  - `WEB_AP_GROUND_ONLY` (1), `WEB_AP_GS_MAX` (m/s), `WEB_AP_ALT_MAX` (m, opcional),
-    `WEB_AP_FORCE` (0).
+  - Parar el AP con `WiFi.softAPdisconnect(true)` (**sin** `WiFi.mode(WIFI_OFF)`; el teardown
+    impedía re-levantarlo) y volver a levantarlo si se vuelve a tierra.
+- [x] **Override manual** para forzar el AP en banco aunque el FC diga "armed":
+  - Hecho con `#define WEB_AP_FORCE 1` en `config.h`. Botón/comando MAVLink: pendiente/opcional.
+- [x] **Bloqueo de cambios en vuelo**: en `/api/config` (POST) se rechaza (HTTP 403) si "no en tierra".
+- [x] `#define` nuevos en `config.h` + documentados en `AGENTS.md` §6:
+  - `WEB_AP_GROUND_ONLY` (1), `WEB_AP_FORCE` (0), `WEB_AP_GS_MAX_CMS` (200),
+    `WEB_AP_ALT_MAX_MM` (3000), `WEB_AP_GATE_INTERVAL_MS` (1000).
 - **Criterios de aceptación**:
-  - En banco (FC sin armar): AP levantado y accesible.
-  - Armado/moviéndose: AP **no** disponible; cambios rechazados.
-  - Sin FC: AP levantado (config).
-  - Con `WEB_AP_FORCE=1`: AP forzado.
+  - En banco (FC sin armar): AP levantado y accesible. ✅
+  - Armado/moviéndose: AP **no** disponible; cambios rechazados. ✅
+  - Sin FC (o link caído): AP levantado (config). ✅
+  - Con `WEB_AP_FORCE=1`: AP forzado. (no re-probado, lógica trivial)
+
+**Resultados (banco, SITL):** en tierra → `on_ground=true`, AP ON; armado/despegando → AP OFF
+(desaparece `FWM AP 2` del escaneo); se mata el FC → `!link` → AP ON (ping OK). Nota: `lock_ap`
+se pone a `true` al conectar el FC, así que **no** sirve `linkTimeout` como criterio; se usa
+`mav->link`.
 
 ---
 

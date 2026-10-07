@@ -42,7 +42,9 @@ pio run -t clean
 ```
 
 - Los puertos serie están en `platformio.ini`: `COMx` (master) y `COMx` (slave). **Ajustar**
-  `monitor_port`/`upload_port` al entorno real antes de flashear.
+  `monitor_port`/`upload_port` al entorno real antes de flashear. ⚠️ Los CP210x **se reenumeran**
+  (pueden intercambiar COM entre placas); identificar cada placa por su AP (`FWM AP 1`=líder,
+  `FWM AP 2`=seguidor) y usar `--upload-port` explícito.
 - `monitor_speed = 57600`. ⚠️ Estas placas (TTGO LoRa32 V1.0) llevan cristal de **26 MHz**, así que
   el firmware **debe compilarse con `-DF_XTAL_MHZ=26`** (ya está en `platformio.ini`). Ese define
   hace que el core de Arduino fije el cristal y reconfigue los relojes en `app_main()`; sin él el
@@ -174,6 +176,9 @@ desarrollo consolidada: roadmap + Fases 1–4). Ver sección 7.
 | `AUTO_CALIBRATE_LORA` | `0` | Auto-calibración LoRa al inicio. |
 | `USE_INTERACTIVE_MENU` | `0` | Menú OLED por botones. **Desactivado** por conflicto de pines. |
 | `USE_WEB_SERVER` / `USE_WEBSOCKET` | `1` / `1` | Servidor async (80) + WS (81). |
+| `WEB_AP_GROUND_ONLY` | `1` | El AP/WiFi solo se levanta **en tierra** (o sin FC); se apaga al armar/moverse. |
+| `WEB_AP_FORCE` | `0` | 1 = forzar el AP siempre (banco; ignora la detección de tierra). |
+| `WEB_AP_GS_MAX_CMS` / `WEB_AP_ALT_MAX_MM` | `200` / `3000` | Umbrales de "en vuelo": velocidad (cm/s) y altitud (mm) por encima de los cuales no es tierra. |
 | `SIMULATION_MODE` | `0` | Simulación sin hardware en el **seguidor** (genera paquetes locales, no usa LoRa). |
 | `FC_EMULATION` | `1` (banco) | Emula el FC: sintetiza telemetría en `APdata` sin UART1, **mantiene el LoRa real**. Poner `0` para vuelo con FC. |
 | `FC_LINK_USB` | `0` | 1 = MAVLink por USB (UART0) en lugar de UART1 → pruebas con **SITL** (entornos `*-sitl`). En producción `0`. |

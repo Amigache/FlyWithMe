@@ -286,6 +286,10 @@ void Telem::run()
                 {
                     handle_param_message(msg);
                 }
+                else if (msg.msgid == MAVLINK_MSG_ID_WIFI_CONFIG_AP)
+                {
+                    handle_wifi_config_ap(msg);
+                }
 #endif
             }
         }
@@ -380,7 +384,7 @@ void Telem::handle_param_message(mavlink_message_t &msg)
         int idx = fwm->findParam(id);
         if (idx >= 0)
         {
-            if (fwm->isOnGround())
+            if (fwm->canWriteConfig() && !fwm->apPassChangeRequired())
             {
                 fwm->setParamByIndex(idx, s.param_value, true);
             }
@@ -392,6 +396,38 @@ void Telem::handle_param_message(mavlink_message_t &msg)
     default:
         break;
     }
+}
+
+/**
+ * @brief Cambio de la clave WiFi desde el GCS (WIFI_CONFIG_AP). El SSID se genera desde la MAC
+ * y no se admite cambiarlo; la confirmación llega como STATUSTEXT.
+ */
+void Telem::handle_wifi_config_ap(mavlink_message_t &msg)
+{
+    mavlink_wifi_config_ap_t config;
+    mavlink_msg_wifi_config_ap_decode(&msg, &config);
+
+    char ssid[sizeof(config.ssid) + 1];
+    char pass[sizeof(config.password) + 1];
+    memcpy(ssid, config.ssid, sizeof(config.ssid));
+    ssid[sizeof(config.ssid)] = '\0';
+    memcpy(pass, config.password, sizeof(config.password));
+    pass[sizeof(config.password)] = '\0';
+
+    if (ssid[0] != '\0')
+    {
+        status_text("WiFi: el SSID se genera desde la MAC y no se puede cambiar", MAV_SEVERITY_WARNING);
+        return;
+    }
+    String error;
+    if (!fwm->setApPassphrase(pass, error))
+    {
+        char text[96];
+        snprintf(text, sizeof(text), "WiFi: %s", error.c_str());
+        status_text(text, MAV_SEVERITY_WARNING);
+        return;
+    }
+    status_text("WiFi: clave guardada; reiniciando");
 }
 
 /**

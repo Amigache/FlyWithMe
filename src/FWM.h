@@ -82,7 +82,14 @@ public:
     bool isOnGround();
     bool canChangeRole() const;
     bool canChangeApMode() const;
+    bool canWriteConfig() const; // permiso fail-closed para escribir configuración (F-05)
     void updateApGate();
+
+    // Clave WiFi: con la de fábrica, la configuración queda bloqueada hasta cambiarla
+    bool apPassIsDefault() const;
+    bool apPassChangeRequired() const;
+    bool setApPassphrase(const char *pass, String &err);
+    void requestRestart();
 
     // Fase 2: tabla de parametros FWM (fuente de verdad)
     int paramCount();
@@ -106,7 +113,6 @@ private:
     volatile bool adaptiveRateEnabled = ADAPTIVE_RATE;
     volatile uint32_t sendPacketIntervalMs = SEND_PACKET_INTERVAL;
     uint32_t currentTransmissionInterval = SEND_PACKET_INTERVAL;
-    void requestRoleRestart();
     volatile bool roleRestartPending = false;
     volatile uint32_t roleRestartAtMs = 0;
     

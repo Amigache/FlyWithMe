@@ -37,6 +37,7 @@ public:
 
   // Fase 3: servidor de parametros por MAVLink (Mission Planner)
   void handle_param_message(mavlink_message_t &msg);
+  void handle_wifi_config_ap(mavlink_message_t &msg);
   void send_param_value(uint16_t index);
   void send_all_params();
   void request_param_value(std::string param_name);

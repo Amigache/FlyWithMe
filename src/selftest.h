@@ -102,6 +102,12 @@ inline int protocolSelfTest(char *out, size_t n)
   FWM_CHECK(strcmp(macText, "30:AE:A4:07:0D:64") == 0);
   FWM_CHECK(strcmp(ssid, "FWM 070D64") == 0);
 
+  // 11. Clave WiFi (WPA2): 8..63 ASCII imprimibles; el resto se rechaza
+  FWM_CHECK(fwmApPassphraseValid("12345678"));
+  FWM_CHECK(!fwmApPassphraseValid("1234567"));
+  FWM_CHECK(!fwmApPassphraseValid("12345678\x01"));
+  FWM_CHECK(!fwmApPassphraseValid("abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmn"));
+
 #undef FWM_CHECK
 
   if (out && n)

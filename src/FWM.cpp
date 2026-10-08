@@ -567,7 +567,7 @@ void FWM::logDeviceIdentity()
                   macText, params.ssid, roleName, (unsigned)fwmSystemId());
 }
 
-void FWM::requestRoleRestart()
+void FWM::requestRestart()
 {
     roleRestartAtMs = millis() + 1200;
     roleRestartPending = true;
@@ -805,6 +805,12 @@ void FWM::loadParams()
     params.ssid[sizeof(params.ssid) - 1] = '\0';
     strncpy(params.pass, pass.c_str(), sizeof(params.pass) - 1);
     params.pass[sizeof(params.pass) - 1] = '\0';
+    if (!fwmApPassphraseValid(params.pass))
+    {
+        // Clave vacía o corrupta: volver a la de fábrica para que el AP pueda levantarse y cambiarse.
+        strncpy(params.pass, DEFAULT_PASS, sizeof(params.pass) - 1);
+        params.pass[sizeof(params.pass) - 1] = '\0';
+    }
 
     preferences.end();
 
@@ -904,6 +910,62 @@ bool FWM::canChangeApMode() const
     if (mav != nullptr && !mav->lock_ap && !mav->link && mav->linkTimeout)
         return true;
     return canChangeRole();
+}
+
+/**
+ * @brief Permiso para escribir configuración (parámetros groundOnly, /api/config y PARAM_SET).
+ *
+ * Fail-closed: a diferencia de isOnGround(), sin enlace con el FC no se considera tierra salvo que
+ * nunca se haya conectado (banco). Así, si el enlace cae en vuelo, la configuración queda bloqueada.
+ */
+bool FWM::canWriteConfig() const
+{
+#if WEB_AP_FORCE || FC_EMULATION || SIMULATION_MODE
+    return true;
+#else
+    return canChangeApMode();
+#endif
+}
+
+bool FWM::apPassIsDefault() const
+{
+    return strcmp(params.pass, DEFAULT_PASS) == 0;
+}
+
+bool FWM::apPassChangeRequired() const
+{
+#if FWM_FORCE_AP_PASS_CHANGE
+    return apPassIsDefault();
+#else
+    return false;
+#endif
+}
+
+/**
+ * @brief Cambia la clave WiFi (WPA2) en tierra y reinicia la placa para aplicarla.
+ */
+bool FWM::setApPassphrase(const char *pass, String &err)
+{
+    if (!canChangeApMode())
+    {
+        err = "clave WiFi editable solo con FC conectado, desarmado y en tierra";
+        return false;
+    }
+    if (!fwmApPassphraseValid(pass))
+    {
+        err = "la clave debe tener entre 8 y 63 caracteres ASCII imprimibles";
+        return false;
+    }
+    if (strcmp(pass, DEFAULT_PASS) == 0)
+    {
+        err = "elige una clave distinta de la de fabrica";
+        return false;
+    }
+    strncpy(params.pass, pass, sizeof(params.pass) - 1);
+    params.pass[sizeof(params.pass) - 1] = '\0';
+    saveParams();
+    requestRestart();
+    return true;
 }
 
 /**
@@ -1062,7 +1124,7 @@ bool FWM::setParamByIndex(int idx, float value, bool persist)
     }
     if (restartForRole)
     {
-        requestRoleRestart();
+        requestRestart();
     }
     return true;
 }
@@ -1100,7 +1162,7 @@ bool FWM::setParamByKey(const char *key, const char *valueStr, String &err)
             return false;
         }
     }
-    if (s_paramTable[idx].groundOnly && !isOnGround())
+    if (s_paramTable[idx].groundOnly && !canWriteConfig())
     {
         err = "solo editable en tierra";
         return false;

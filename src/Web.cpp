@@ -1,13 +1,5 @@
 #include "Web.h"
 
-// Set web server port number (legacy, usar AsyncWebServer en Fase 4)
-#if !USE_WEB_SERVER
-WiFiServer server(WEB_PORT);
-#endif
-
-// Variable to store the HTTP request
-String header;
-
 Web::Web(FWM *fwm)
 {
   this->fwm = fwm;
@@ -42,7 +34,6 @@ void Web::startAP()
   delay(500);
 
   Log.notice("AP SSID: %s" CR, fwm->params.ssid);
-  Log.notice("AP Password: %s" CR, fwm->params.pass);
 
   host_ip = WiFi.softAPIP();
   Log.notice("AP IP address: %s" CR, host_ip.toString().c_str());
@@ -56,12 +47,6 @@ void Web::startAP()
   setupWebServer();
   #endif
 
-  #if !USE_WEB_SERVER
-  Log.notice("Init WebServer" CR);
-  server.begin();
-  Log.notice("Url: http://%s:%d" CR,host_ip.toString().c_str(), WEB_PORT);
-  Log.notice("WebServer Ready" CR);
-  #endif
 }
 
 void Web::stopAP()
@@ -98,118 +83,6 @@ void Web::run()
       // Display server data
       fwm->screen->showServerData(fwm->params.ssid, fwm->params.pass, host_ip);
 
-      #if !USE_WEB_SERVER
-      WiFiClient client = server.available(); // Listen for incoming clients
-
-      if (client)
-      {                               // If a new client connects,
-        Log.notice("New Client." CR); // print a message out in the serial port
-        String currentLine = "";      // make a String to hold incoming data from the client
-        bool isPost = false;          // Track if it's a POST request
-        String postBody = "";         // To hold the body of POST data
-
-        // Read the HTTP request headers
-        while (client.connected())
-        { // loop while the client's connected
-          if (client.available())
-          {                         // if there's bytes to read from the client,
-            char c = client.read(); // read a byte, then
-            header += c;            // Add to header
-
-            // Detect if it's a POST request
-            if (header.indexOf("POST /save") >= 0)
-            {
-              isPost = true;
-            }
-
-            // Read until the end of the request
-            if (c == '\n' && currentLine.length() == 0)
-            {
-              // POST requests have a body after the headers
-              if (isPost)
-              {
-                // Read the body of the POST request
-                while (client.available())
-                {
-                  char bodyChar = client.read();
-                  postBody += bodyChar;
-                }
-
-                // Extract the parameter "link_stab_timeout" from the POST body
-                String linkStabTimeout = getPostParam(postBody, "link_stab_timeout");
-                if (linkStabTimeout.length() > 0)
-                {
-                  // Convert the parameter to integer and update params
-                  fwm->params.link_timeout = linkStabTimeout.toInt();
-                }
-
-                // Extract the parameter "pass" from the POST body
-                String pass = getPostParam(postBody, "pass");
-                if (pass.length() > 0)
-                {
-                  // Update params
-                  pass.toCharArray(fwm->params.pass, sizeof(fwm->params.pass));
-                }
-
-                fwm->saveParams();
-
-                // Optionally restart after saving params
-                esp_restart();
-              }
-
-              // Send HTTP response headers
-              client.println("HTTP/1.1 200 OK");
-              client.println("Content-type:text/html");
-              client.println("Connection: close");
-              client.println();
-
-              // Display the HTML web page
-              client.println("<!DOCTYPE html><html>");
-              client.println("<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
-              client.println("<link rel=\"icon\" href=\"data:,\">");
-              client.println("<style>html { font-family: Helvetica; display: inline-block; margin: 0px auto; text-align: center;}");
-              client.println(".button { background-color: #4CAF50; border: none; color: white; padding: 16px 40px;}");
-              client.println("text-decoration: none; font-size: 30px; margin: 2px; cursor: pointer;}");
-              client.println(".button2 {background-color: #555555;}</style></head>");
-
-              // Web Page Heading
-              client.println("<body><h1>FWM Web Server</h1>");
-              client.println("<form method=\"POST\" action=\"/save\">");
-
-              // Display the current link_stab_timeout value
-              client.println("<p>AP enter Timeout (s): <input type=\"text\" id=\"link_stab_timeout\" name=\"link_stab_timeout\" value=\"" + String(fwm->params.link_timeout) + "\"></p>");
-
-              client.println("<p>SSID generado automáticamente desde la MAC Wi-Fi: " + String(fwm->params.ssid) + "</p>");
-
-              // Display the current Password value
-              client.println("<p>Password: <input type=\"text\" id=\"pass\" name=\"pass\" value=\"" + String(fwm->params.pass) + "\"></p>");
-
-              client.println("<p><button type=\"submit\" class=\"button button2\">Save and Reboot</button></p>");
-              client.println("</form>");
-
-              client.println("</body></html>");
-              client.println();
-              break;
-            }
-
-            if (c == '\n')
-            {
-              currentLine = "";
-            }
-            else if (c != '\r')
-            {
-              currentLine += c;
-            }
-          }
-        }
-
-        // Clear the header variable
-        header = "";
-        // Close the connection
-        client.stop();
-        Log.notice("Client disconnected." CR);
-      }
-      #endif
     }
   }
   
@@ -217,58 +90,6 @@ void Web::run()
   // Telemetría en vivo por WebSocket (retirada del flujo normal; solo diagnóstico en tierra)
   sendTelemetryWebSocket();
   #endif
-}
-
-// Función auxiliar para decodificar URL
-String Web::urlDecode(String input)
-{
-  String decoded = "";
-  char temp[] = "00"; // Para almacenar cada par de caracteres hexadecimales
-
-  for (uint16_t i = 0; i < input.length(); i++)
-  {
-    if (input[i] == '+')
-    {
-      decoded += ' '; // Reemplaza los '+' con espacios
-    }
-    else if (input[i] == '%')
-    {
-      // Convierte el par hexadecimal a un carácter ASCII
-      if (i + 2 < input.length())
-      {
-        temp[0] = input[i + 1];
-        temp[1] = input[i + 2];
-        decoded += (char)strtol(temp, NULL, 16); // Convierte el valor hexadecimal a char
-        i += 2;                                  // Salta los dos caracteres hexadecimales
-      }
-    }
-    else
-    {
-      decoded += input[i]; // Añade caracteres normales
-    }
-  }
-  return decoded;
-}
-
-// Función auxiliar para extraer y decodificar un parámetro del cuerpo de la solicitud POST
-String Web::getPostParam(String postBody, String paramName)
-{
-  // Encuentra el parámetro en el cuerpo
-  int paramStart = postBody.indexOf(paramName + "=");
-  if (paramStart == -1)
-    return "";
-
-  // Determina dónde empieza y termina el valor
-  int valueStart = paramStart + paramName.length() + 1;
-  int valueEnd = postBody.indexOf("&", valueStart);
-  if (valueEnd == -1)
-    valueEnd = postBody.length();
-
-  // Extrae el valor sin decodificar
-  String rawValue = postBody.substring(valueStart, valueEnd);
-
-  // Decodifica el valor y lo retorna
-  return urlDecode(rawValue);
 }
 
 // ============================================================================
@@ -301,8 +122,12 @@ void Web::setupWebServer()
   
   // API REST - Establecer configuración
   server->on("/api/config", HTTP_POST, [this](AsyncWebServerRequest *request){
+    if (fwm->apPassChangeRequired()) {
+      request->send(403, "application/json", generateAPIResponse(false, "Cambia primero la clave WiFi de fábrica"));
+      return;
+    }
     // Seguridad: no permitir cambios de configuracion en vuelo (solo en tierra / sin FC)
-    if (!fwm->isOnGround()) {
+    if (!fwm->canWriteConfig()) {
       request->send(403, "application/json", generateAPIResponse(false, "Config bloqueada: vehiculo en vuelo"));
       return;
     }
@@ -326,6 +151,10 @@ void Web::setupWebServer()
     request->send(200, "application/json", fwm->paramsJson());
   });
   server->on("/api/params", HTTP_POST, [this](AsyncWebServerRequest *request){
+    if (fwm->apPassChangeRequired()) {
+      request->send(403, "application/json", generateAPIResponse(false, "Cambia primero la clave WiFi de fábrica"));
+      return;
+    }
     bool ok = true;
     String err = "ok";
     for (int i = 0; i < fwm->paramCount(); i++) {
@@ -354,11 +183,16 @@ void Web::setupWebServer()
     body += "\"on_ground\":" + String(fwm->isOnGround() ? "true" : "false") + ",";
     body += "\"safe_to_change\":" + String(fwm->canChangeApMode() ? "true" : "false") + ",";
     body += "\"armed\":" + String((int)fwm->mav->APdata.armed) + ",";
+    body += "\"pass_change_required\":" + String(fwm->apPassChangeRequired() ? "true" : "false") + ",";
     body += "\"link_timeout\":" + String(fwm->mav->linkTimeout ? "true" : "false");
     body += "}";
     request->send(200, "application/json", body);
   });
   server->on("/api/ap", HTTP_POST, [this](AsyncWebServerRequest *request){
+    if (fwm->apPassChangeRequired()) {
+      request->send(403, "application/json", generateAPIResponse(false, "Cambia primero la clave WiFi de fábrica"));
+      return;
+    }
     if (!request->hasParam("mode", true)) {
       request->send(400, "application/json", generateAPIResponse(false, "falta parámetro mode"));
       return;
@@ -382,6 +216,20 @@ void Web::setupWebServer()
     request->send(200, "application/json", generateAPIResponse(true, "modo AP guardado; se aplica en el siguiente ciclo"));
   });
   
+  // Cambio de la clave WiFi (obligatorio antes de configurar si sigue la de fábrica)
+  server->on("/api/ap/pass", HTTP_POST, [this](AsyncWebServerRequest *request){
+    if (!request->hasParam("pass", true)) {
+      request->send(400, "application/json", generateAPIResponse(false, "falta parámetro pass"));
+      return;
+    }
+    String error;
+    if (!fwm->setApPassphrase(request->getParam("pass", true)->value().c_str(), error)) {
+      request->send(403, "application/json", generateAPIResponse(false, error.c_str()));
+      return;
+    }
+    request->send(200, "application/json", generateAPIResponse(true, "clave guardada; la placa se reinicia"));
+  });
+
   // API REST - Obtener estadísticas
   server->on("/api/stats", HTTP_GET, [this](AsyncWebServerRequest *request){
     uint32_t rx = fwm->comm->commData.rx_packet_counter;
@@ -535,6 +383,14 @@ String Web::generateHTML()
       <form id="pf" class="ptable" onsubmit="return saveP(event)"></form>
       <div class="row"><button type="submit" form="pf" id="saveBtn">Save</button><span id="pm" class="msg"></span></div>
     </section>
+    <section id="pwSec"><h2 id="h_pw">WiFi</h2>
+      <p id="pwReq" class="msg" style="color:var(--err)"></p>
+      <form id="pwForm" class="ptable" onsubmit="return savePw(event)">
+        <label id="l_pw1">New password<input type="password" id="pw1" minlength="8" maxlength="63" required autocomplete="new-password"></label>
+        <label id="l_pw2">Repeat password<input type="password" id="pw2" minlength="8" maxlength="63" required autocomplete="new-password"></label>
+        <div class="row"><button type="submit" id="pwBtn">Change password</button><span id="pwMsg" class="msg"></span></div>
+      </form>
+    </section>
     <section><h2 id="h_act">Actions</h2>
       <div class="row">
         <button class="sec" id="btnLogs" onclick="location.href='/api/logs'">Download logs</button>
@@ -550,6 +406,7 @@ String Web::generateHTML()
      st:{state:'State',up:'Uptime',rx:'RX / TX',rssi:'RSSI',snr:'SNR',loss:'Losses',dist:'Distance'},
        help:'Configuration help',hdef:'Choose the board role first; only applicable parameters are shown. Configure <b>on the ground</b> and press Save. Changing the role restarts the board.',
       saved:'Saved',serr:'Save failed',lerr:'Error loading parameters',cur:'Current value',
+      pw:{title:'WiFi password',req:'The factory WiFi password is still in use. Set a new one before changing any other setting. The board restarts to apply it.',new:'New password (8-63 characters)',rep:'Repeat password',btn:'Change password',mis:'The passwords do not match',ok:'Saved. The board restarts with the new password.',err:'Could not change the password',lock:'Save is disabled until the WiFi password is changed.'},
       form:['Trail','Left','Right','Above','Below'],
        roles:['Off','Follower','Leader'],
        apModes:['Auto (ground only)','On (ground only)','Off'],
@@ -573,6 +430,7 @@ String Web::generateHTML()
      st:{state:'Estado',up:'Tiempo',rx:'RX / TX',rssi:'RSSI',snr:'SNR',loss:'Pérdidas',dist:'Distancia'},
        help:'Ayuda de configuración',hdef:'Selecciona primero el rol; solo se muestran los parámetros disponibles para ese rol. Configura <b>en tierra</b> y pulsa Guardar. Cambiar el rol reinicia la placa.',
       saved:'Guardado',serr:'Error al guardar',lerr:'Error al cargar parámetros',cur:'Valor actual',
+      pw:{title:'Clave WiFi',req:'Todavía usas la clave WiFi de fábrica. Define una nueva antes de cambiar cualquier otro ajuste. La placa se reinicia para aplicarla.',new:'Nueva clave (8-63 caracteres)',rep:'Repetir clave',btn:'Cambiar clave',mis:'Las claves no coinciden',ok:'Guardado. La placa se reinicia con la nueva clave.',err:'No se pudo cambiar la clave',lock:'Guardar desactivado hasta cambiar la clave WiFi.'},
       form:['Cola','Izquierda','Derecha','Arriba','Abajo'],
        roles:['Desactivado','Seguidor','Líder'],
        apModes:['Auto (solo tierra)','Activado (solo tierra)','Desactivado'],
@@ -600,6 +458,8 @@ String Web::generateHTML()
       $('h_stats').textContent=L().stats;$('h_cfg').textContent=L().cfg;$('h_act').textContent=L().act;
       $('saveBtn').textContent=L().save;$('btnLogs').textContent=L().logs;$('btnReload').textContent=L().reload;
       $('lang').textContent=LANG.toUpperCase();document.documentElement.lang=LANG;
+      $('h_pw').textContent=L().pw.title;$('pwReq').textContent=L().pw.req;$('l_pw1').firstChild.textContent=L().pw.new;
+      $('l_pw2').firstChild.textContent=L().pw.rep;$('pwBtn').textContent=L().pw.btn;
     }
     const stat=(k,v)=>'<div class="kv"><span>'+k+'</span><span>'+v+'</span></div>';
     function drawStats(d){
@@ -636,10 +496,20 @@ String Web::generateHTML()
         .catch(()=>$('pm').textContent='✗ '+L().serr);
       return false;
     }
+    function savePw(ev){
+      ev.preventDefault();const a=$('pw1').value,b=$('pw2').value;
+      if(a!==b){$('pwMsg').textContent='✗ '+L().pw.mis;return false;}
+      const fd=new FormData();fd.append('pass',a);$('pwBtn').disabled=true;
+      fetch('/api/ap/pass',{method:'POST',body:fd}).then(r=>r.json())
+        .then(d=>{$('pwMsg').textContent=(d.success?'✓ '+L().pw.ok:'✗ '+(d.message||L().pw.err));if(!d.success)$('pwBtn').disabled=false;})
+        .catch(()=>{$('pwMsg').textContent='✗ '+L().pw.err;$('pwBtn').disabled=false;});
+      return false;
+    }
+    function checkPw(){fetch('/api/ap').then(r=>r.json()).then(d=>{if(d.pass_change_required){$('pwReq').textContent=L().pw.req;$('saveBtn').disabled=true;$('pm').textContent=L().pw.lock;}}).catch(()=>{});}
     function poll(){fetch('/api/stats').then(r=>r.json()).then(drawStats).catch(()=>{});}
     applyI18n();
     fetch('/api/params').then(r=>r.json()).then(drawForm).catch(()=>$('pf').textContent=L().lerr);
-    poll();setInterval(poll,2000);
+    poll();setInterval(poll,2000);checkPw();
   </script>
 </body>
 </html>

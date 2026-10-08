@@ -26,8 +26,6 @@ public:
     void stopAP();
     void run();
     
-    String getPostParam(String body, String param);
-    String urlDecode(String input);
 
     bool server_up = false;
 

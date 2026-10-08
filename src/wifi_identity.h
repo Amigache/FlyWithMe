@@ -3,6 +3,27 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
+
+// Passphrase WPA2-PSK: 8..63 caracteres ASCII imprimibles (0x20..0x7E).
+#define FWM_AP_PASS_MIN_LEN 8
+#define FWM_AP_PASS_MAX_LEN 63
+
+inline bool fwmApPassphraseValid(const char *pass)
+{
+  if (pass == nullptr)
+    return false;
+  const size_t length = strlen(pass);
+  if (length < FWM_AP_PASS_MIN_LEN || length > FWM_AP_PASS_MAX_LEN)
+    return false;
+  for (size_t i = 0; i < length; ++i)
+  {
+    const unsigned char c = (unsigned char)pass[i];
+    if (c < 0x20 || c > 0x7E)
+      return false;
+  }
+  return true;
+}
 
 // La SSID se deriva de la MAC de la interfaz SoftAP (los últimos 3 bytes).
 // Ejemplo: 30:AE:A4:07:0D:64 -> "FWM 070D64".

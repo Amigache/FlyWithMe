@@ -284,7 +284,14 @@ inline bool isLeaderModeStable(uint8_t mode)
 #define FOLL_ALT_TYPE 0
 #define LINK_TIMEOUT 10
 #define DEFAULT_SSID "FWM SETUP" // marcador NVS/arranque; FWM::begin lo reemplaza por SSID derivado de MAC
+// Clave WiFi de fábrica (genérica, pública e igual en todas las placas). Es válida y puede usarse;
+// la WebUI y MAVLink permiten cambiarla en cualquier momento en tierra.
 #define DEFAULT_PASS "12345678"
+// 0 (por defecto) = se permite configurar con la clave de fábrica.
+// 1 = bloquea la configuración (WebUI y PARAM_SET) mientras la clave siga siendo la de fábrica.
+#ifndef FWM_FORCE_AP_PASS_CHANGE
+#define FWM_FORCE_AP_PASS_CHANGE 0
+#endif
 #define FOLL_MODE_CH 0 // El rol se configura en NVS; no lo sobrescribe un canal RC.
 #define ALT_OFFSET 10 // m
 #define SPEED_OFFSET 10 // % (sobre-velocidad al recuperar distancia; menor = mas suave)
@@ -302,7 +309,7 @@ typedef struct
   int32_t foll_alt_type;
   int32_t link_timeout;
   char ssid[11];
-  char pass[11];
+  char pass[64];           // passphrase WPA2 (8..63 caracteres)
   // Fase 2: offsets y ganancias del guiado (configurables en tierra, persistidos)
   float dist_offset;       // m - distancia TRAIL
   float lateral_offset;    // m - offset LEFT/RIGHT

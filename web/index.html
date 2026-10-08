@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="referrer" content="no-referrer">
+  <title>FlyWithMe · Flasheador web</title>
+  <style>
+    :root { --bg:#0f1115; --card:#171a21; --fg:#e7eaf0; --mut:#8b93a7; --acc:#3da9fc; --warn:#ffb020; --bd:#262b36; }
+    * { box-sizing: border-box; }
+    body { margin:0; font:15px/1.5 system-ui, Segoe UI, Roboto, Arial, sans-serif; background:var(--bg); color:var(--fg); }
+    main { max-width:760px; margin:0 auto; padding:24px 16px 48px; }
+    h1 { font-size:22px; margin:0 0 4px; }
+    h2 { font-size:15px; margin:0 0 10px; }
+    .sub { color:var(--mut); margin:0 0 20px; }
+    section { background:var(--card); border:1px solid var(--bd); border-radius:12px; padding:18px; margin:14px 0; }
+    .warn { border-color:var(--warn); }
+    .warn h2 { color:var(--warn); }
+    ul { margin:6px 0 0; padding-left:20px; }
+    li { margin:4px 0; }
+    a { color:var(--acc); }
+    code { background:#0d1015; padding:1px 6px; border-radius:6px; font-size:13px; }
+    select, button { font:inherit; border-radius:9px; padding:9px 14px; border:1px solid var(--bd); }
+    select { background:#0d1015; color:var(--fg); }
+    button { background:var(--acc); color:#04121f; border:0; font-weight:600; cursor:pointer; }
+    button:disabled { opacity:.5; cursor:not-allowed; }
+    .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:12px; }
+    pre { background:#0d1015; border:1px solid var(--bd); border-radius:9px; padding:10px; min-height:90px; max-height:260px; overflow:auto; font-size:12px; color:var(--mut); white-space:pre-wrap; }
+    .muted { color:var(--mut); font-size:13px; }
+    esp-web-install-button { display:inline-block; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>🛸 FlyWithMe · Flasheador web</h1>
+    <p class="sub">Carga el firmware de vuelo en una TTGO LoRa32 V1 directamente desde el navegador.</p>
+
+    <section class="warn">
+      <h2>Antes de empezar</h2>
+      <ul>
+        <li>Este flasheador instala <b>solo el perfil de vuelo</b> (<code>ttgo-lora32-v1-flight</code>). La imagen de banco/SITL no se publica aquí.</li>
+        <li>Lee el <a href="https://github.com/Amigache/FlyWithMe#readme">manual</a>. FlyWithMe no sustituye al piloto ni a los failsafes del autopiloto.</li>
+        <li>Conecta las antenas LoRa antes de alimentar la placa. Cierra cualquier monitor serie que use el puerto.</li>
+        <li>Requiere <b>Chrome o Edge</b> en escritorio, conexión HTTPS y un cable USB con datos.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>1 · Instalar el firmware</h2>
+      <p class="muted">Pulsa el botón, elige el puerto de la placa y espera a que termine. La NVS (rol, parámetros y netid) se conserva al actualizar.</p>
+      <div class="row">
+        <esp-web-install-button manifest="manifest.json">
+          <button slot="activate">Instalar FlyWithMe</button>
+          <span slot="unsupported">Tu navegador no soporta Web Serial. Usa Chrome o Edge en escritorio.</span>
+          <span slot="not-allowed">Esta página debe abrirse por HTTPS.</span>
+        </esp-web-install-button>
+      </div>
+      <p class="muted" id="version">Cargando versión…</p>
+    </section>
+
+    <section>
+      <h2>2 · Asignar el rol</h2>
+      <p class="muted">Una placa nueva queda en <b>Desactivado</b> hasta que le asignes el rol: asigna <b>Líder</b> a la placa del avión líder y <b>Seguidor</b> a la del seguidor. El cambio solo se acepta en tierra; si la placa ya tiene un rol activo, necesita el FC conectado, desarmado y en tierra.</p>
+      <div class="row">
+        <label for="role" class="muted">Rol</label>
+        <select id="role">
+          <option value="leader">Líder (SYSID 1)</option>
+          <option value="follower">Seguidor (SYSID 2)</option>
+          <option value="off">Desactivado</option>
+        </select>
+        <button id="provBtn">Asignar rol por USB</button>
+      </div>
+      <pre id="log">Pulsa «Asignar rol» y elige el puerto de la placa.
+</pre>
+    </section>
+
+    <section>
+      <h2>Verificación y ficheros</h2>
+      <p class="muted">Los binarios y sus SHA-256 están en <a href="firmware/SHA256SUMS">firmware/SHA256SUMS</a>. Tras instalar, la placa anuncia <code>FWM_ID ap_mac=… ap_ssid="FWM XXXXXX" role=… sysid=…</code> por serie a 57600 baudios; también responde a <code>FWM ID</code>.</p>
+      <p class="muted"><b>Seguridad:</b> la clave WiFi de fábrica (<code>12345678</code>) es pública y es la misma en todas las placas. Puede usarse, pero te recomendamos cambiarla desde la sección «Clave WiFi» de la WebUI de la placa. Ver <a href="https://github.com/Amigache/FlyWithMe/blob/main/docs/AUDITORIA_SEGURIDAD.md">la auditoría de seguridad</a>.</p>
+    </section>
+  </main>
+
+  <script type="module" src="vendor/esp-web-tools/install-button.js"></script>
+  <script>
+    (function () {
+      fetch('build-info.json', { cache: 'no-store' })
+        .then(function (r) { return r.json(); })
+        .then(function (info) {
+          document.getElementById('version').textContent =
+            'Versión ' + info.version + ' · commit ' + String(info.git_commit).slice(0, 12) + ' · ESP Web Tools ' + info.esp_web_tools;
+        })
+        .catch(function () {
+          document.getElementById('version').textContent = 'No se pudo leer la versión publicada.';
+        });
+    })();
+
+    var log = document.getElementById('log');
+    var btn = document.getElementById('provBtn');
+
+    function write(msg) {
+      log.textContent += msg + '\n';
+      log.scrollTop = log.scrollHeight;
+    }
+
+    async function provision() {
+      if (!('serial' in navigator)) {
+        write('Este navegador no soporta Web Serial. Usa Chrome o Edge en escritorio.');
+        return;
+      }
+      var role = document.getElementById('role').value;
+      var port = null, reader = null, writer = null;
+      btn.disabled = true;
+      try {
+        port = await navigator.serial.requestPort();
+        await port.open({ baudRate: 57600 });
+        reader = port.readable.getReader();
+        writer = port.writable.getWriter();
+
+        var enc = new TextEncoder();
+        var dec = new TextDecoder();
+        var cmd = enc.encode('FWM ROLE ' + role + '\n');
+        var buf = '';
+        var result = null;
+
+        var readLoop = (async function () {
+          try {
+            while (result === null) {
+              var chunk = await reader.read();
+              if (chunk.done) break;
+              buf += dec.decode(chunk.value, { stream: true });
+              var i;
+              while ((i = buf.indexOf('\n')) >= 0) {
+                var line = buf.slice(0, i).replace(/\r/g, '').trim();
+                buf = buf.slice(i + 1);
+                if (!line) continue;
+                write(line);
+                if (line.indexOf('ROLECFG OK') >= 0) result = 'ok';
+                else if (line.indexOf('ROLECFG ERR') >= 0) result = 'err';
+              }
+            }
+          } catch (e) {
+            write('Lectura interrumpida: ' + e.message);
+          }
+        })();
+
+        write('Asignando rol ' + role + '. Si la placa no responde, pulsa su botón RST.');
+        var deadline = Date.now() + 30000;
+        var nextSend = 0;
+        while (result === null && Date.now() < deadline) {
+          if (Date.now() >= nextSend) {
+            await writer.write(cmd);
+            nextSend = Date.now() + 500;
+          }
+          await new Promise(function (r) { setTimeout(r, 100); });
+        }
+
+        await reader.cancel().catch(function () {});
+        await readLoop;
+
+        if (result === 'ok') write('✓ Rol ' + role + ' guardado. La placa se reinicia para aplicarlo.');
+        else if (result === 'err') write('✗ El firmware rechazó el rol. Revisa las líneas anteriores.');
+        else write('✗ Sin confirmación en 30 s (ROLECFG WAIT: el FC debe estar conectado, desarmado y en tierra).');
+      } catch (e) {
+        write('Error: ' + e.message);
+      } finally {
+        try { if (writer) writer.releaseLock(); } catch (e) {}
+        try { if (reader) reader.releaseLock(); } catch (e) {}
+        try { if (port) await port.close(); } catch (e) {}
+        btn.disabled = false;
+      }
+    }
+
+    btn.addEventListener('click', provision);
+  </script>
+</body>
+</html>

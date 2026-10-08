@@ -57,15 +57,17 @@ autopiloto esté conectado.
 
 ## Configurar en tierra
 
-1. Enciende cada avión por separado y conéctate al Wi-Fi de su TTGO: `FWM AP 1` es el líder y
-   `FWM AP 2` el seguidor. La clave inicial es `12345678`.
+1. Enciende cada avión por separado y conéctate al Wi-Fi de su TTGO. Cada placa anuncia
+   `FWM XXXXXX`, donde `XXXXXX` son los tres últimos bytes de la MAC SoftAP en hexadecimal; por
+   ejemplo, `30:AE:A4:07:0D:64` produce `FWM 070D64`. La clave inicial es `12345678`.
 2. Abre `http://192.168.4.1`, cambia la clave inicial desde la página del punto de acceso y guarda.
    La placa se reinicia: vuelve a conectarte usando la clave nueva. Repite en la otra placa y revisa
    los parámetros de **ambas**. El punto de acceso se desactiva en vuelo; no dependas de la WebUI
    durante el seguimiento.
 3. Confirma `role=LEADER` en la placa del líder y `role=FOLLOWER` en la del seguidor; deja
-   `foll_enable` activado en el seguidor. Con el SSID predeterminado, sus AP se identifican como
-   `FWM AP 1` y `FWM AP 2`, respectivamente.
+   `foll_enable` activado en el seguidor. El SSID es único por MAC y no depende del rol. La línea
+   `FWM_ID ap_mac=... ap_ssid="..." role=... sysid=...` aparece por serie al arrancar; también se
+   puede solicitar enviando `FWM ID` a 57600 baudios.
 4. Configura el mismo `netid` en ambos (valor inicial `4660`). El `netid` separa redes, pero no cifra
    ni autentica las comunicaciones.
 5. En el seguidor selecciona una formación: **TRAIL**, **LEFT**, **RIGHT**, **ABOVE** o **BELOW**.

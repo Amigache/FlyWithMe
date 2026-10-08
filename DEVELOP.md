@@ -2,7 +2,8 @@
 
 Este documento reúne los detalles técnicos, perfiles PlatformIO, SITL, simuladores y bench. La guía
 para el usuario final está en [`README.md`](README.md); el estado de validación vivo, en
-[`docs/ROADMAP.md`](docs/ROADMAP.md).
+[`docs/ROADMAP.md`](docs/ROADMAP.md), y el plan de pruebas integral, en
+[`docs/PLAN_PRUEBAS_SISTEMA.md`](docs/PLAN_PRUEBAS_SISTEMA.md).
 
 ## Arquitectura
 
@@ -15,7 +16,7 @@ calcula su posición de formación y envía guiado MAVLink en `GUIDED`.
 ```
 
 - `src/main.cpp`: arranque y tareas FreeRTOS.
-- `src/FWM.cpp`: modos, sesión, scheduler de beacons, gate, parámetros y UI.
+- `src/FWM.cpp`: modos, sesión, scheduler de beacons, gate, parámetros y coordinación Web/OLED.
 - `src/Comm.cpp`: único propietario de las operaciones LoRa en el loop de vuelo; RX/TX, validación,
   slots JOIN/REPLY y secuencias.
 - `src/Telem.cpp`: MAVLink con el FC, guiado, predictor, formación y `STATUSTEXT`.
@@ -28,12 +29,14 @@ calcula su posición de formación y envía guiado MAVLink en `GUIDED`.
 
 | Entorno | Rol/uso | FC |
 |---|---|---|
-| `ttgo-lora32-v1-flight` | Imagen común para todas las placas de vuelo | `FC_EMULATION=0`, UART1 |
-| `ttgo-lora32-v1-sitl` | Imagen común para placas conectadas a ArduPlane SITL | `FC_EMULATION=0`, `FC_LINK_USB=1`, SF7/BW250k/200ms |
+| `ttgo-lora32-v1-flight` | Firmware bloqueado de producción; UART1 | `FC_EMULATION=0`, `FWM_ALLOW_RUNTIME_SITL=0` |
+| `ttgo-lora32-v1-sitl` | Imagen universal **solo dev/HIL**; arranca en vuelo, `FWM SIM ON` conmuta temporalmente a SITL por USB. Reset vuelve a UART1 | `FC_EMULATION=0`, `FC_LINK_USB=0`, `FWM_ALLOW_RUNTIME_SITL=1` |
 | `ttgo-lora32-v1` | Banco con FC emulado localmente | `FC_EMULATION=1`; no usar para vuelo real |
 
 Los perfiles usan Arduino ESP32 core 3.x, `-DF_XTAL_MHZ=26`, C++17 y `huge_app.csv`. El perfil
 `ttgo-lora32-v1-flight` no define el rol en build flags: todas las placas reciben el mismo binario.
+`ttgo-lora32-v1-sitl` comparte el comportamiento y protocolo, pero incluye el comando SIM temporal solo
+para banco; no se empaqueta ni publica en releases de producción.
 `role` se almacena por placa en NVS (`OFF=0`, `FOLLOWER=1`, `LEADER=2`); placas sin ese dato (incluidas
 las que conservan NVS de firmware antiguo) arrancan en `OFF` por seguridad y deben provisionarse.
 Cambiar el rol en tierra guarda NVS y reinicia la placa. SYSID FWM/FC: líder 1 y seguidor 2.
@@ -43,6 +46,7 @@ como prueba de estar en tierra).
 
 ```powershell
 $py = "$env:USERPROFILE\.platformio\penv\Scripts\python.exe"
+& $py -m pip install -r requirements-dev.txt  # dependencias Python del banco CLI
 pio run -e ttgo-lora32-v1-flight
 pio run -e ttgo-lora32-v1-sitl
 pio run -e ttgo-lora32-v1
@@ -50,6 +54,10 @@ pio run -e ttgo-lora32-v1
 # Cargar la misma imagen de vuelo y provisionar cada rol; sustituir los COM
 & $py tools\flash_firmware.py --port COMx --role leader
 & $py tools\flash_firmware.py --port COMy --role follower
+
+# Solo una vez para preparar placas de desarrollo/HIL; luego SIM se conmuta por comando
+& $py tools\flash_firmware.py --environment ttgo-lora32-v1-sitl --port COMx --role leader
+& $py tools\flash_firmware.py --environment ttgo-lora32-v1-sitl --port COMy --role follower
 
 # Solo reprovisionar, sin volver a cargar firmware
 & $py tools\flash_firmware.py --port COMx --role follower --provision-only
@@ -59,14 +67,14 @@ pio device monitor --port COMx --baud 57600
 ```
 
 En Windows, el script configura `PYTHONIOENCODING=utf-8` para PlatformIO y usa USB serie a 57600 para
-provisionar el rol. Requiere `pyserial`. Los CP210x reenumeran; identificar el COM actual. Los perfiles
-de vuelo fijan `FC_LINK_USB=0`; SITL lo pone en `1` para MAVLink por UART0. No conectar dos dueños al
-mismo puerto.
+provisionar el rol. Requiere `pyserial`. Los CP210x reenumeran; identificar el COM actual. Ambos perfiles
+actuales arrancan con FC por UART1 (`FC_LINK_USB=0`); el perfil dev solo habilita que `FWM SIM ON` cambie
+temporalmente a UART0. No conectar dos dueños al mismo puerto.
 
 ## Configuración efectiva
 
-- Radio: `LORA_BAND=866E6`, SF12/BW125k en vuelo por defecto, sync word fijo `0x34`.
-- Banco SITL: SF7/BW250k y 5Hz para reducir latencia; estos tiempos **no representan** SF12 real.
+- Radio: `LORA_BAND=866E6`, SF12/BW125k en vuelo, sync word fijo `0x34`.
+- HIL en perfil dev: `FWM SIM ON` aplica SF7/BW250k y 5Hz durante esa sesión; esos tiempos **no representan** SF12 real.
 - `LORA_CRC=0`, `NETID_USE_SYNCWORD=0` por defecto. El frame tiene checksum aditivo de un byte,
   `version`, `type`, `netid`, `mode`, `seq` y flags. `netid=4660 (0x1234)` filtra redes a nivel de
   paquete, pero **no cifra ni autentica**.
@@ -75,6 +83,16 @@ mismo puerto.
   callback del Ticker solo pone una bandera; no accede al SPI/SX1276.
 - `FOLLOWER_REPLY=1`: JOIN/REPLY solo cuando un BEACON solicita un slot. El líder escucha una ventana
   RX limitada; timeout de sesión y vuelta a discovery están modelados en `proto_sim.py`.
+- `FWM SIM ON` solo existe en `ttgo-lora32-v1-sitl` (dev/HIL): requiere interlock seguro, conmuta
+  temporalmente UART1→UART0, silencia texto por USB y aplica radio/altitud de banco. No se guarda en NVS;
+  para pruebas publica contadores RX/TX/enlace como `NAMED_VALUE_INT`; reset vuelve a vuelo.
+  `ttgo-lora32-v1-flight` fija `FWM_ALLOW_RUNTIME_SITL=0`.
+- `role` y `ap_mode` también se persisten en NVS: `ap_mode=0 AUTO`, `1 ON (solo tierra)`, `2 OFF`. El
+  firmware nunca deja el AP activo en vuelo; se puede consultar/controlar por `/api/ap` o consola USB
+  (`FWM AP auto|on|off`).
+- El SSID del AP se calcula como `FWM XXXXXX` usando los últimos 3 bytes de la MAC SoftAP. La placa
+  emite `FWM_ID ap_mac=... ap_ssid="..." role=... sysid=...` por UART0 al arrancar y devuelve la misma
+  línea al recibir `FWM ID` (57600 baudios).
 - `netid`, `formation`, offsets y `approach_dist` se persisten en NVS. WebUI y `PARAM_SET` son solo
   configurables en tierra (salvo parámetros marcados explícitamente).
 - La WebUI ordena `role` primero y filtra campos con `ParamDef_t.scope`: líder muestra los comunes
@@ -87,7 +105,8 @@ mismo puerto.
   no se resta `millis()` de dos ESP32 no sincronizados.
 - `MIN_SAFE_ALTITUDE=50m` compara `relative_alt` MAVLink con el home del autopiloto; no es AGL ni
   una comprobación de terreno. El AP web solo se usa en tierra.
-- `HEAD_ON_GUARD=0` por defecto: el escenario head-on sigue siendo experimental y solo SITL.
+- `HEAD_ON_GUARD=0` en `config.h` y flight de producción. El perfil dev/HIL `ttgo-lora32-v1-sitl`
+  lo habilita (`1`) para validar el escenario head-on exclusivamente en ArduPlane SITL.
 
 ## Banco SITL y MAVProxy
 
@@ -113,25 +132,42 @@ no chocar con Mission Planner en el mismo PC. Mission Planner escucha por defect
 
 ### Pasos del banco
 
-1. Compila y flashea en ambas placas la misma imagen `ttgo-lora32-v1-sitl`. No mezcles el perfil
-   `*-flight` con la configuración UART0 del banco. Si los roles están en `OFF`, el bench los asigna
-   automáticamente por TAP al comenzar; fuera del bench, configúralos desde la WebUI/MAVLink.
-2. Arranca `tools/lab.py` y elige la opción 1. La aplicación abre dos ArduPlane SITL con SYSID1/2,
-   MAVProxy y, si se usó `--firmware`, bridges serie para las placas.
+1. Una sola vez en banco, compila/flashea ambas placas con `ttgo-lora32-v1-sitl` (perfil dev universal),
+   conservando los roles NVS. No es una imagen de producción. Para cargarla manualmente usa
+   `python tools/flash_firmware.py --environment ttgo-lora32-v1-sitl --port COMx --role leader|follower`.
+2. Arranca `tools/lab.py --firmware --leader-com COMx --slave-com COMy` y elige la opción 1. El lab
+   resetea cada placa, solicita `FWM SIM ON` por USB (sin persistirlo) y aborta si el firmware está
+   bloqueado o no confirma SIM. Abre dos ArduPlane SITL con SYSID1/2 e inicia los bridges de inmediato
+   (SITL puede tardar más que el timeout de búsqueda FWM); después levanta MAVProxy.
 3. Conecta Mission Planner a `UDP 14550` y confirma que aparecen los dos vehículos.
 4. Ejecuta primero los checks de enlace y sesión; después takeoff, recta y giro. La opción 9 ejecuta
    el bench completo. La opción 8 detiene el banco; la opción 0 sale y también realiza limpieza.
-5. El bench provisiona `role=LEADER` y `role=FOLLOWER` mediante el tap si hace falta; por ello puede
-   reiniciar ambas placas y deja esos roles persistidos en NVS. Los informes se guardan bajo
+5. El modo SIM es volátil; al detener el bench el lab termina sus procesos y reinicia las placas para
+   restaurar el arranque por UART1. El bench puede provisionar `role=LEADER` y `role=FOLLOWER` por TAP;
+   esos roles sí quedan persistidos en NVS. Los informes se guardan bajo
    `tools/reports/`. Los escenarios de red que cambian NVS y los potencialmente colisivos están
    desactivados por defecto; revisa las opciones antes de ejecutar un bench.
+6. Ctrl+C/CtrlBreak cancela el bench de forma ordenada; `bench_suite.py` ejecuta su `finally` para cerrar
+   SITL/bridges y resetear placas.
+
+En SIM los logs ArduinoLog de texto se silencian para no mezclar texto con MAVLink. Los contadores
+`FWM_RX`, `FWM_TX`, `FWM_LINK` y las métricas head-on viajan como `NAMED_VALUE_INT`; los eventos de
+mode gate/guarda se publican como `STATUSTEXT`. Los tests deben leer el TAP como MAVLink, no buscar
+líneas `Link: rx=...` en texto serie.
 
 ## Tests y escenarios
+
+Herramientas Python del banco (`pyserial`, `pymavlink`, MAVProxy y `prompt_toolkit`):
+
+```powershell
+python -m pip install -r requirements-dev.txt
+```
 
 ```powershell
 $py = "$env:USERPROFILE\.platformio\penv\Scripts\python.exe"
 & $py tools\proto_sim.py                 # matriz protocolo (17 checks)
 & $py tools\follow_sim_test.py           # predictor, offsets y geometría (8 checks)
+& $py -m unittest discover -s tools\tests -p "test_*.py" -v  # utilidades CLI
 & $py tools\bench_suite.py --dist-offset 20 --only preflight,link,setup,session,takeoff,straight
 & $py tools\bench_suite.py --netid-test  # ground-only; cambia y restaura NVS
 & $py tools\bench_suite.py --head-on-test # solo SITL; maniobra potencialmente colisiva
@@ -163,9 +199,9 @@ que la WebUI muestra los controles correspondientes sin perder los valores ocult
 ### 2. Mismo firmware de prueba
 
 - Compilar una sola vez `ttgo-lora32-v1-sitl` y cargar el mismo
-  `.pio/build/ttgo-lora32-v1-sitl/firmware.bin` en las dos placas. No usar perfiles separados por rol.
-- Mantener `FC_LINK_USB=1` para que cada placa reciba el SITL por USB/UART0; este perfil es solo banco,
-  no se deja en los aviones para vuelo real.
+  `.pio/build/ttgo-lora32-v1-sitl/firmware.bin` en ambas placas de desarrollo; no usar perfiles por rol.
+- El perfil dev arranca por UART1 como flight; `tools/lab.py` envía `FWM SIM ON` para cambiar a UART0
+  durante esa sesión. El modo no se guarda en NVS y un reset restaura UART1. Producción usa solo flight.
 - Carga del perfil de prueba (misma configuración en los dos puertos):
 
   ```powershell
@@ -216,5 +252,6 @@ vez de enlazar la implementación del firmware. El auto-test `SELFTEST PASS` se 
 arranque y comprueba layout wire, checksum, versión, netid, secuencia y deduplicación de status text.
 Los simuladores son modelos deterministas, no sustituyen SITL ni pruebas RF.
 
-Documentación de desarrollo complementaria: [`docs/FLYWITHME.md`](docs/FLYWITHME.md) (diseño y fases)
-y [`docs/ROADMAP.md`](docs/ROADMAP.md) (estado de validación y tareas pendientes).
+Documentación de desarrollo complementaria: [`docs/FLYWITHME.md`](docs/FLYWITHME.md) (diseño y fases),
+[`docs/ROADMAP.md`](docs/ROADMAP.md) (estado de validación) y
+[`docs/PLAN_PRUEBAS_SISTEMA.md`](docs/PLAN_PRUEBAS_SISTEMA.md) (matriz de pruebas).

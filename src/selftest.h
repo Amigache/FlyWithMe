@@ -9,6 +9,7 @@
 
 #include "protocol.h"
 #include "status_text.h"
+#include "wifi_identity.h"
 
 inline int protocolSelfTest(char *out, size_t n)
 {
@@ -92,6 +93,14 @@ inline int protocolSelfTest(char *out, size_t n)
   FWM_CHECK(!deduper.shouldSend("FWM: Follower 48m", 4));
   FWM_CHECK(deduper.shouldSend("FWM: Follower 49m", 4));
   FWM_CHECK(deduper.shouldSend("FWM: Follower 49m", 6));
+
+  // 10. Identidad WiFi única: MAC -> SSID con los últimos 3 bytes, sin separadores.
+  const uint8_t testMac[6] = {0x30, 0xAE, 0xA4, 0x07, 0x0D, 0x64};
+  char macText[18] = {};
+  char ssid[11] = {};
+  FWM_CHECK(fwmWifiIdentityFromMac(testMac, macText, sizeof(macText), ssid, sizeof(ssid)));
+  FWM_CHECK(strcmp(macText, "30:AE:A4:07:0D:64") == 0);
+  FWM_CHECK(strcmp(ssid, "FWM 070D64") == 0);
 
 #undef FWM_CHECK
 

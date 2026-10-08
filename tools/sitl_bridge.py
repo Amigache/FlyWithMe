@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 """Puente SITL <-> placa de pruebas (y "tap" MAVLink opcional a la placa).
 
-Conecta un vehiculo SITL (ArduPilot, MAVLink por TCP) con una placa FlyWithMe cuyo firmware
-tiene FC_LINK_USB=1 (MAVLink por el USB/UART0). Es un pipe de bytes en ambos sentidos: no
+Conecta un vehiculo SITL (ArduPilot, MAVLink por TCP) con una placa FlyWithMe en modo runtime SITL
+(FWM SIM ON, MAVLink por USB/UART0). Es un pipe de bytes en ambos sentidos: no
 requiere pymavlink.
 
 Robustez: si el socket del SITL se cae (el SITL reinicia/cierra SERIAL0), el puente **reconecta**
@@ -102,23 +102,50 @@ class SockLink:
         self._drop()
 
 
+def open_serial_port(port, baud):
+    """Configura DTR/RTS antes de open(): abrir el COM de un CP210x puede resetear el ESP32."""
+    ser = serial.Serial()
+    ser.port = port
+    ser.baudrate = baud
+    ser.timeout = 0.1
+    ser.dtr = False
+    ser.rts = False
+    ser.open()
+    return ser
+
+
 def main():
     ap = argparse.ArgumentParser(description="Puente SITL (TCP) <-> placa (serie USB) + tap MAVLink")
     ap.add_argument("--tcp", default="127.0.0.1:5760", help="host:puerto del SITL")
     ap.add_argument("--port", required=True, help="puerto serie de la placa (p. ej. COMx)")
     ap.add_argument("--baud", type=int, default=57600, help="baud del USB de la placa (57600)")
     ap.add_argument("--print-serial", action="store_true", help="mostrar los datos de la placa (logs)")
+    ap.add_argument("--stats", action="store_true", help="mostrar bytes serie↔SITL y número de taps cada 5s")
+    ap.add_argument("--trace-mavlink", action="store_true", help="registrar HEARTBEAT SYSID/COMPID en ambos sentidos")
     ap.add_argument("--tap-port", type=int, default=0,
                     help="puerto TCP del tap MAVLink directo a la placa (0 = sin tap)")
     args = ap.parse_args()
+
+    trace_from_sitl = trace_from_board = None
+    if args.trace_mavlink:
+        from pymavlink.dialects.v20 import common as mavlink2
+        trace_from_sitl = mavlink2.MAVLink(None)
+        trace_from_board = mavlink2.MAVLink(None)
+
+    def trace_heartbeats(parser, direction, data):
+        if parser is None:
+            return
+        for value in data:
+            message = parser.parse_char(bytes((value,)))
+            if message and message.get_type() == "HEARTBEAT":
+                print(f"[bridge] {direction} HEARTBEAT sysid={message.get_srcSystem()} "
+                      f"compid={message.get_srcComponent()}", flush=True)
 
     host, port = args.tcp.split(":")
     port = int(port)
 
     try:
-        ser = serial.Serial(args.port, args.baud, timeout=0.1)
-        ser.dtr = False
-        ser.rts = False  # evitar resetear la placa al abrir
+        ser = open_serial_port(args.port, args.baud)
     except Exception as e:  # noqa: BLE001
         print(f"ERROR abriendo {args.port}: {e}")
         sys.exit(2)
@@ -133,12 +160,16 @@ def main():
     taps = []
     taps_lock = threading.Lock()
     ser_lock = threading.Lock()
+    stats_lock = threading.Lock()
+    stats = {"sitl_to_board": 0, "board_to_sitl": 0}
 
     def write_ser(data):
         """Escribe en el serie de forma atomica (lo comparten tcp_to_ser y los taps)."""
         with ser_lock:
             try:
                 ser.write(data)
+                with stats_lock:
+                    stats["sitl_to_board"] += len(data)
             except Exception as e:  # noqa: BLE001
                 print("ser.write:", e)
 
@@ -157,6 +188,7 @@ def main():
         while not stop.is_set():
             data = link.recv(1024)
             if data:
+                trace_heartbeats(trace_from_sitl, "SITL->placa", data)
                 write_ser(data)
 
     def ser_to_tcp():
@@ -168,6 +200,9 @@ def main():
                 time.sleep(0.2)
                 continue
             if data:
+                trace_heartbeats(trace_from_board, "placa->SITL/TAP", data)
+                with stats_lock:
+                    stats["board_to_sitl"] += len(data)
                 link.send(data)
                 broadcast(data)  # espejo a los clientes del tap (MAVLink de la placa)
                 if args.print_serial:
@@ -229,7 +264,16 @@ def main():
         threading.Thread(target=tap_server, daemon=True).start()
 
     try:
+        last_stats = time.monotonic()
         while not stop.is_set():
+            if args.stats and time.monotonic() - last_stats >= 5:
+                with stats_lock:
+                    sent = stats["sitl_to_board"]
+                    received = stats["board_to_sitl"]
+                with taps_lock:
+                    tap_count = len(taps)
+                print(f"[bridge] hacia placa={sent} B, desde placa={received} B, taps={tap_count}", flush=True)
+                last_stats = time.monotonic()
             time.sleep(0.2)
     except KeyboardInterrupt:
         pass

@@ -26,8 +26,7 @@ Uso:
 import argparse
 import json
 import math
-import re
-import socket
+import signal
 import statistics
 import time
 from datetime import datetime
@@ -82,7 +81,13 @@ def drain(m):
 
 def connect(ep, src):
     m = mavutil.mavlink_connection(ep, source_system=src)
-    m.wait_heartbeat(timeout=15)
+    heartbeat = m.wait_heartbeat(timeout=15)
+    if heartbeat is None:
+        m.close()
+        raise TimeoutError(f"sin HEARTBEAT inicial en {ep}")
+    # Conservar el heartbeat de alta inicial: leer la cola después de provisionar roles puede
+    # coincidir con un hueco entre emisiones de 1 Hz y producir un falso FAIL de preflight.
+    m.initial_heartbeat = heartbeat
     m.mav.request_data_stream_send(m.target_system, 1, mavutil.mavlink.MAV_DATA_STREAM_ALL, 10, 1)
     return m
 
@@ -94,51 +99,65 @@ def _pid(msg):
     return pid.split("\0")[0]
 
 
-def read_tap_text(port, seconds=4.0):
-    """Lee el log serie de la placa (texto) que el bridge reenvia por el tap."""
-    try:
-        s = socket.create_connection(("127.0.0.1", port), 3)
-    except Exception:  # noqa: BLE001
-        return ""
-    s.settimeout(0.4)
-    buf = b""
-    t0 = time.time()
-    while time.time() - t0 < seconds:
-        try:
-            d = s.recv(4096)
-            if d:
-                buf += d
-        except Exception:  # noqa: BLE001
-            pass
-    try:
-        s.close()
-    except Exception:  # noqa: BLE001
-        pass
-    return "".join(chr(b) if (32 <= b < 127 or b in (10, 13)) else "." for b in buf)
-
-
 class TapReader:
-    """Lector no bloqueante del log serie de la placa (para contar eventos como la guarda)."""
+    """Lee diagnósticos MAVLink del FWM; el runtime SIM silencia el Log de texto en UART0."""
 
     def __init__(self, port):
-        self.s = socket.create_connection(("127.0.0.1", port), 3)
-        self.s.settimeout(0.0)
-        self.buf = ""
+        self.m = mavutil.mavlink_connection(f"tcp:127.0.0.1:{port}", source_system=254)
+        self.statuses = []
+        self.named_values = {}
 
     def poll(self):
-        try:
-            d = self.s.recv(4096)
-        except Exception:  # noqa: BLE001
-            d = b""
-        if d:
-            self.buf += "".join(chr(b) if (32 <= b < 127 or b in (10, 13)) else "." for b in d)
-        return self.buf
+        while True:
+            try:
+                message = self.m.recv_match(blocking=False)
+            except Exception:  # noqa: BLE001
+                break
+            if message is None:
+                break
+            if message.get_srcComponent() != FWM_COMPID:
+                continue
+            if message.get_type() == "STATUSTEXT":
+                raw = message.text
+                text = raw.decode("latin-1", "ignore") if isinstance(raw, bytes) else str(raw)
+                self.statuses.append((text.rstrip("\0"), int(message.severity),
+                                      message.get_srcSystem(), message.get_srcComponent()))
+            elif message.get_type() == "NAMED_VALUE_INT":
+                raw_name = message.name
+                name = raw_name.decode("ascii", "ignore") if isinstance(raw_name, bytes) else str(raw_name)
+                name = name.split("\0", 1)[0]
+                self.named_values.setdefault(name, []).append((time.monotonic(), int(message.value)))
+        return self
+
+    def values(self, name):
+        return self.named_values.get(name, [])
+
+    def last_value(self, name):
+        values = self.values(name)
+        return values[-1][1] if values else None
 
     def close(self):
         try:
-            self.s.close()
+            self.m.close()
         except Exception:  # noqa: BLE001
             pass
+
+
+def _counter_delta(samples):
+    if len(samples) < 2:
+        return 0
+    return max(0, samples[-1][1] - samples[0][1])
+
+
+def _max_counter_step(samples):
+    return max((b[1] - a[1] for a, b in zip(samples, samples[1:]) if b[1] >= a[1]), default=0)
+
+
+def _counter_rate(samples):
+    if len(samples) < 2:
+        return 0.0
+    elapsed = samples[-1][0] - samples[0][0]
+    return _counter_delta(samples) / elapsed if elapsed > 0 else 0.0
 
 
 class FwmLink:
@@ -276,7 +295,8 @@ class Suite:
         self.lead = self.fol = None
         self.results = []
         self.stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        self.outdir = REPORTS / self.stamp
+        report_root = Path(getattr(args, "report_root", None) or REPORTS)
+        self.outdir = report_root / self.stamp
         self.outdir.mkdir(parents=True, exist_ok=True)
 
     def add(self, name, status, metrics=None, notes=""):
@@ -288,10 +308,32 @@ class Suite:
 
     # ---- escenarios ----
     def test_link(self):
-        lp = drain(self.lead).get('HEARTBEAT')
-        fp = drain(self.fol).get('HEARTBEAT')
-        m = {"leader_mode": self.lead.flightmode, "follower_mode": self.fol.flightmode}
-        self.add("link", "PASS" if (lp and fp) else "FAIL", m)
+        # Prueba bidireccional y fresca: PARAM_REQUEST_READ es de solo lectura y no depende
+        # de que el heartbeat periódico coincida con el instante del escenario.
+        def read_fc_parameter(master, expected):
+            master.mav.param_request_read_send(
+                master.target_system, 1, b"", 0)
+            deadline = time.monotonic() + 5.0
+            while time.monotonic() < deadline:
+                response = master.recv_match(
+                    type="PARAM_VALUE", blocking=True,
+                    timeout=min(1.0, max(0.0, deadline - time.monotonic())))
+                if (response is not None and response.get_srcSystem() == expected and
+                        response.get_srcComponent() == 1 and response.param_index == 0):
+                    return {"id": _pid(response), "value": float(response.param_value)}
+            return None
+
+        leader_param = read_fc_parameter(self.lead, 1)
+        follower_param = read_fc_parameter(self.fol, 2)
+        leader_ok = leader_param is not None
+        follower_ok = follower_param is not None
+        metrics = {
+            "leader_param_readback": leader_param,
+            "follower_param_readback": follower_param,
+            "leader_mode": self.lead.flightmode,
+            "follower_mode": self.fol.flightmode,
+        }
+        self.add("link", "PASS" if leader_ok and follower_ok else "FAIL", metrics)
 
     def provision_roles(self):
         """Asegura roles líder/seguidor en NVS usando el tap directo del bridge."""
@@ -300,7 +342,8 @@ class Suite:
             leader = FwmLink(LEADER_TAP, None)
             follower = FwmLink(FOLLOWER_TAP, None)
             if not leader.ok or not follower.ok:
-                self.add("role_setup", "SKIP", {}, "no hay FWM en ambos taps; se omite provisión automática")
+                status = "FAIL" if getattr(self.args, "firmware", False) else "SKIP"
+                self.add("role_setup", status, {}, "no hay FWM en ambos taps; no se pudo validar/provisionar rol")
                 return
 
             lp = leader.read_params()
@@ -453,7 +496,7 @@ class Suite:
 
     def test_mode_gate(self):
         """Gate de modo: con el lider en modo inestable y cerca, el seguidor NO guia (hold); al volver
-        a un modo estable, reanuda. Se detecta por el log del seguidor (tap)."""
+        a un modo estable, reanuda. Se detecta por STATUSTEXT MAVLink en el TAP."""
         set_guided(self.lead); set_guided(self.fol)
         time.sleep(2)
         g = drain(self.lead).get('GLOBAL_POSITION_INT')
@@ -474,27 +517,30 @@ class Suite:
             tap = None
         self.log("    mode_gate: lider a ACRO (inestable) y cerca...")
         set_mode(self.lead, 4)  # ACRO = inestable
-        txt = ""
         t0 = time.time()
         while time.time() - t0 < 12:
             drain(self.lead); drain(self.fol)
             if tap:
-                txt = tap.poll()
+                tap.poll()
             time.sleep(0.5)
-        held = "mode unstable" in txt.lower()
+        held = bool(tap and any("mode unstable" in e[0].lower() for e in tap.statuses))
         self.log("    mode_gate: lider de vuelta a GUIDED (estable)...")
-        # Marcar el cursor ANTES de cambiar el modo: la reanudación puede registrarse inmediatamente.
         if tap:
-            txt = tap.poll()
-        n = len(txt)
+            tap.poll()
+            status_mark = len(tap.statuses)
+        else:
+            status_mark = 0
         set_guided(self.lead)
         t0 = time.time()
         while time.time() - t0 < 10:
             drain(self.lead); drain(self.fol)
             if tap:
-                txt = tap.poll()
+                tap.poll()
             time.sleep(0.5)
-        resumed = "mode gate released" in txt[n:].lower()
+        resumed = bool(tap and any(
+            "leader stable - follow resumed" in e[0].lower()
+            for e in tap.statuses[status_mark:]
+        ))
         if tap:
             tap.close()
         self.add("mode_gate", "PASS" if (held and resumed) else "FAIL",
@@ -564,10 +610,10 @@ class Suite:
             tap = TapReader(self.args.follower_tap)
         except Exception:  # noqa: BLE001
             tap = None
+        status_mark = len(tap.statuses) if tap else 0
         dists, rolls = [], []
         t0 = time.time()
         last_log = 0.0
-        taptext = ""
         while time.time() - t0 < 75:
             s = sample_once(drain(self.lead), drain(self.fol))
             if s:
@@ -575,25 +621,29 @@ class Suite:
                 if s["roll"] is not None:
                     rolls.append(s["roll"])
             if tap:
-                taptext = tap.poll()
+                tap.poll()
             el = time.time() - t0
             if el - last_log >= 10:
                 last_log = el
                 last = f"dist={dists[-1]:.0f}m (min {min(dists):.0f})" if dists else "sin datos"
                 self.log(f"    head_on: {int(el)}/75s  {last}")
             time.sleep(0.5)
-        guard_hits = taptext.count("HEAD_ON guard")
-        faces = [int(x) for x in re.findall(r"face=(\d+)", taptext)]
-        rngs = [int(x) for x in re.findall(r"rng=(\d+)m", taptext)]
+        status_events = tap.statuses[status_mark:] if tap else []
+        guard_hits = sum(1 for event in status_events if "HEAD_ON guard active" in event[0])
+        faces = [value for _when, value in (tap.values("FWM_FACE") if tap else [])]
+        rngs = [value for _when, value in (tap.values("FWM_RNG") if tap else [])]
+        guard_samples = [value for _when, value in (tap.values("FWM_GUARD") if tap else [])]
+        if guard_hits == 0 and any(value == 1 for value in guard_samples):
+            guard_hits = sum(1 for value in guard_samples if value == 1)
         if tap:
             tap.close()
         d = _stats(dists)
         ok = bool(d) and d["min"] >= 20.0 and guard_hits > 0
         self.add("head_on", "PASS" if ok else "FAIL",
-                 {"dist": d, "roll_abs": _stats(rolls), "guard_hits": guard_hits,
-                  "face_max": max(faces) if faces else None,
-                  "rng_min": min(rngs) if rngs else None,
-                  "dbg_n": len(faces)})
+                  {"dist": d, "roll_abs": _stats(rolls), "guard_hits": guard_hits,
+                   "face_max": max(faces) if faces else None,
+                   "rng_min": min(rngs) if rngs else None,
+                   "dbg_n": len(faces), "guard_diagnostics": len(guard_samples)})
 
     def test_safety(self):
         # Lider muy lejos: el seguidor debe mantenerse acotado (no diverger) y sin emergencia.
@@ -624,21 +674,26 @@ class Suite:
         self.add("safety", "PASS" if ok else "FAIL", {"dist": d, "min_safe_required": 10.0})
 
     def test_preflight(self):
-        """Puerta previa: comprobar por el tap que el lider TIENE FC (si no, no emitira beacons)."""
-        lt = read_tap_text(self.args.leader_tap, 3.0)
-        ft = read_tap_text(self.args.follower_tap, 3.0)
-        leader_fc = "No FC connection" not in lt
-        link_line = ""
-        for line in ft.splitlines():
-            if "Link:" in line:
-                link_line = line.strip()
+        """Comprueba FC MAVLink vivos y desarmados; en SIM el TAP ya no lleva texto serie."""
+        leader_hb = getattr(self.lead, "initial_heartbeat", None)
+        follower_hb = getattr(self.fol, "initial_heartbeat", None)
+        leader_fc = leader_hb is not None and leader_hb.get_srcSystem() == 1
+        follower_fc = follower_hb is not None and follower_hb.get_srcSystem() == 2
+        leader_armed = bool(leader_hb and
+                            leader_hb.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED)
+        follower_armed = bool(follower_hb and
+                              follower_hb.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED)
+        ok = leader_fc and follower_fc and not leader_armed and not follower_armed
         notes = []
         if not leader_fc:
-            notes.append("lider: 'No FC connection' (no emite beacons)")
-        # en tierra el seguidor puede estar SEARCHING (el lider aun no se mueve): solo informativo
-        ok = leader_fc
+            notes.append("no se recibió HEARTBEAT ArduPlane SYSID 1")
+        if not follower_fc:
+            notes.append("no se recibió HEARTBEAT ArduPlane SYSID 2")
+        if leader_armed or follower_armed:
+            notes.append("una instancia SITL está armada; preflight bloqueado")
         self.add("preflight", "PASS" if ok else "FAIL",
-                 {"leader_fc": leader_fc, "follower_link": link_line or "n/d"},
+                 {"leader_fc": leader_fc, "follower_fc": follower_fc,
+                  "leader_armed": leader_armed, "follower_armed": follower_armed},
                  "; ".join(notes))
 
     def test_setup(self):
@@ -675,17 +730,6 @@ class Suite:
         fl.close(); ll.close()
         self.add("setup", "PASS" if aligned else "FAIL", info)
 
-    def _follower_rx(self):
-        """Ultimo contador rx=N del log del seguidor (paquetes VALIDOS recibidos)."""
-        txt = read_tap_text(self.args.follower_tap, 4.0)
-        m = re.findall(r"rx=(\d+)", txt)
-        return int(m[-1]) if m else None
-
-    @staticmethod
-    def _link_counters(text):
-        return [(int(rx), int(tx)) for rx, tx in
-                re.findall(r"Link: [^\r\n]*?rx=(\d+) tx=(\d+)", text)]
-
     def test_session(self):
         """Valida JOIN/REPLY, tasa activa, timeout de sesión y recuperación (solo EN TIERRA).
 
@@ -711,75 +755,69 @@ class Suite:
             self.add("session", "FAIL", {}, "no pude leer netid del seguidor")
             return
 
-        ltxt = ftxt = ""
-        leader_osd_events = []
         active_reply = slow_after_timeout = recovered = False
-        active_metrics = timeout_metrics = recovery_metrics = []
+        active_rate = discovery_rate = 0.0
+        active_beacons = timeout_beacons = recovery_beacons = []
         try:
             self.log("    session: esperando JOIN/REPLY (20s)...")
             t0 = time.time(); last_log = 0.0
             while time.time() - t0 < 20:
-                ltxt = lead_tap.poll(); ftxt = fol_tap.poll()
-                while True:
-                    stat = self.lead.recv_match(type="STATUSTEXT", blocking=False)
-                    if stat is None:
-                        break
-                    text = stat.text.decode("latin-1", "ignore") if isinstance(stat.text, bytes) else str(stat.text)
-                    leader_osd_events.append((text.rstrip("\0"), int(stat.severity),
-                                              stat.get_srcSystem(), stat.get_srcComponent()))
+                lead_tap.poll(); fol_tap.poll()
                 elapsed = time.time() - t0
                 if elapsed - last_log >= 10:
                     last_log = elapsed
                     self.log(f"    session: {int(elapsed)}/20s")
                 time.sleep(0.1)
-            active_metrics = self._link_counters(ltxt)
-            fol_active = self._link_counters(ftxt)
-            active_reply = (max((x[0] for x in active_metrics), default=0) > 0
-                            and max((x[1] for x in fol_active), default=0) > 0)
-            active_deltas = [b[1] - a[1] for a, b in zip(active_metrics, active_metrics[1:])
-                             if b[1] >= a[1]]
-            active_rate = max(active_deltas, default=0)
+            active_lead_rx = lead_tap.values("FWM_RX")
+            active_lead_tx = lead_tap.values("FWM_TX")
+            active_fol_tx = fol_tap.values("FWM_TX")
+            active_beacons = fol_tap.values("FWM_RX")
+            active_rate = _counter_rate(active_beacons)
+            active_reply = (_counter_delta(active_lead_rx) > 0 and
+                            _counter_delta(active_fol_tx) > 0 and
+                            lead_tap.last_value("FWM_LINK") == 1 and
+                            fol_tap.last_value("FWM_LINK") == 1)
 
             # Cortar solo la dirección seguidor->líder (mismatch) para comprobar timeout y fallback.
             silence_id = (int(original) + 1) & 0xFFFF
-            mark = len(ltxt)
+            lead_tx_mark = len(active_lead_tx)
             self.log("    session: netid temporal distinto en seguidor; espero expiracion (18s)...")
             fl.set_param("netid", silence_id)
             set_back = fl.read_params().get("netid") == silence_id
             t0 = time.time()
             while time.time() - t0 < 18:
-                ltxt = lead_tap.poll(); ftxt = fol_tap.poll()
+                lead_tap.poll(); fol_tap.poll()
                 time.sleep(0.1)
-            timeout_metrics = self._link_counters(ltxt[mark:])
-            slow_deltas = [b[1] - a[1] for a, b in zip(timeout_metrics, timeout_metrics[1:])
-                           if b[1] >= a[1]]
-            slow_after_timeout = set_back and bool(slow_deltas) and min(slow_deltas) <= 5
+            timeout_beacons = lead_tap.values("FWM_TX")[lead_tx_mark:]
+            discovery_rate = _counter_rate(timeout_beacons)
+            slow_after_timeout = (set_back and active_rate > 0.0 and
+                                  discovery_rate < active_rate * 0.5 and
+                                  lead_tap.last_value("FWM_LINK") == 0)
 
-            mark = len(ltxt)
+            recovery_rx_mark = len(fol_tap.values("FWM_RX"))
             self.log("    session: restaurando netid; compruebo re-JOIN (12s)...")
             fl.set_param("netid", original)
             restore_ok = fl.read_params().get("netid") == original
             t0 = time.time()
             while time.time() - t0 < 12:
-                ltxt = lead_tap.poll(); ftxt = fol_tap.poll()
+                lead_tap.poll(); fol_tap.poll()
                 time.sleep(0.1)
-            recovery_metrics = self._link_counters(ltxt[mark:])
-            recovery_rx = [x[0] for x in recovery_metrics]
-            recovered = restore_ok and len(recovery_rx) >= 2 and recovery_rx[-1] > recovery_rx[0]
+            recovery_beacons = fol_tap.values("FWM_RX")[recovery_rx_mark:]
+            recovered = (restore_ok and _counter_delta(recovery_beacons) > 0 and
+                         fol_tap.last_value("FWM_LINK") == 1 and
+                         lead_tap.last_value("FWM_LINK") == 1)
         finally:
             # Pase lo que pase, no dejar las placas en redes diferentes.
             fl.set_param("netid", original)
             fl.close(); lead_tap.close(); fol_tap.close()
 
-        active_deltas = [b[1] - a[1] for a, b in zip(active_metrics, active_metrics[1:])
-                         if b[1] >= a[1]]
-        active_rate = max(active_deltas, default=0)
-        ok = active_reply and active_rate >= 5 and slow_after_timeout and recovered
+        ok = active_reply and active_rate >= 2.0 and slow_after_timeout and recovered
         self.add("session", "PASS" if ok else "FAIL",
-                 {"reply_bidireccional": active_reply, "max_beacon_delta_active": active_rate,
+                 {"reply_bidireccional": active_reply, "active_beacons_per_s": round(active_rate, 2),
+                  "discovery_beacons_per_s": round(discovery_rate, 2),
                   "discovery_after_timeout": slow_after_timeout, "rejoin_after_restore": recovered,
                   "restored_netid": original})
-        osd_events = [e for e in leader_osd_events if "Follower " in e[0]]
+        osd_events = [e for e in lead_tap.statuses if "Follower " in e[0]]
         duplicate_pairs = sum(1 for a, b in zip(osd_events, osd_events[1:])
                               if a[0] == b[0] and a[1] == b[1])
         osd_severity_ok = all(e[1] in (mavutil.mavlink.MAV_SEVERITY_INFO,
@@ -787,20 +825,22 @@ class Suite:
         osd_status = "PASS" if (osd_events and osd_severity_ok and duplicate_pairs == 0) else (
             "FAIL" if osd_events else "SKIP")
         self.add("leader_osd", osd_status,
-                 {"statustext_count": len(leader_osd_events), "follower_distance_messages": len(osd_events),
+                 {"statustext_count": len(lead_tap.statuses), "follower_distance_messages": len(osd_events),
                   "severities": sorted(set(e[1] for e in osd_events)), "duplicate_pairs": duplicate_pairs,
                   "sources": sorted(set((e[2], e[3]) for e in osd_events))},
                  "el bench verifica MAVLink, no píxeles del HUD" if osd_events else
-                 "sin STATUSTEXT nuevo en esta ventana; puede haber sido enviado antes y deduplicado")
+                 "sin STATUSTEXT de distancia en esta ventana; puede estar deduplicado o no haber posiciones válidas")
 
     def test_netid(self):
         """Filtro de red (netid): mismo id -> recibe beacons; distinto -> deja de recibirlos.
 
-        Se hace EN TIERRA (netid es ground-only). Mide el contador rx del seguidor por el tap.
+        Se hace EN TIERRA (netid es ground-only). Mide FWM_RX estructurado por MAVLink en el TAP.
         """
+        fol_tap = None
         try:
             fl = FwmLink(f"tcp:127.0.0.1:{self.args.follower_tap}", 2)
             ll = FwmLink(f"tcp:127.0.0.1:{self.args.leader_tap}", 1)
+            fol_tap = TapReader(self.args.follower_tap)
         except Exception as e:  # noqa: BLE001
             self.add("netid", "SKIP", {}, f"tap no disponible: {e}")
             return
@@ -808,6 +848,8 @@ class Suite:
         orig_f = fl.read_params().get("netid")
         if orig_l is None or orig_f is None:
             fl.close(); ll.close()
+            if fol_tap:
+                fol_tap.close()
             self.add("netid", "FAIL", {}, "no se pudieron leer ambos netid; no modifico NVS")
             return
         same = orig_l == orig_f
@@ -816,24 +858,29 @@ class Suite:
         linked = dropped = False
         restore_ok = False
         try:
+            fol_tap.poll()
             ll.set_param("netid", new)
             fl.set_param("netid", new)
             time.sleep(1)
             both_new = (ll.read_params().get("netid") == new
                         and fl.read_params().get("netid") == new)
             if both_new:
+                fol_tap.poll()
+                rx_a = fol_tap.last_value("FWM_RX")
                 time.sleep(6)
-                rx_a = self._follower_rx()
-                time.sleep(6)
-                rx_b = self._follower_rx()
+                fol_tap.poll()
+                rx_b = fol_tap.last_value("FWM_RX")
                 linked = rx_a is not None and rx_b is not None and rx_b > rx_a
+
                 fl.set_param("netid", 0x2B2C)  # probar rechazo de red distinta
                 time.sleep(1)
                 if fl.read_params().get("netid") == 0x2B2C:
                     time.sleep(6)
-                    rx_c = self._follower_rx()
+                    fol_tap.poll()
+                    rx_c = fol_tap.last_value("FWM_RX")
                     time.sleep(6)
-                    rx_d = self._follower_rx()
+                    fol_tap.poll()
+                    rx_d = fol_tap.last_value("FWM_RX")
                     dropped = rx_c is not None and rx_d is not None and rx_d <= rx_c + 1
         finally:
             # Restauración incondicional: nunca dejar el banco en redes diferentes.
@@ -843,6 +890,8 @@ class Suite:
             restore_ok = (ll.read_params().get("netid") == orig_l
                           and fl.read_params().get("netid") == orig_f)
             fl.close(); ll.close()
+            if fol_tap:
+                fol_tap.close()
         ok = same and linked and dropped and restore_ok
         self.add("netid", "PASS" if ok else "FAIL",
                  {"mismo_id": same, "id_nuevo": new, "enlaza": linked, "corta_al_cambiar": dropped,
@@ -923,6 +972,10 @@ class Suite:
         self.lead = connect(LEADER, 255)
         self.fol = connect(FOLLOWER, 253)
         self.provision_roles()
+        if (getattr(self.args, "firmware", False) and self.results and
+                self.results[-1]["test"] == "role_setup" and self.results[-1]["status"] != "PASS"):
+            self.log("role_setup falló; se bloquea el resto del bench HIL")
+            return self.write_report()
         only = None
         if getattr(self.args, "only", None):
             only = {x.strip() for x in self.args.only.split(",") if x.strip()}
@@ -959,7 +1012,7 @@ class Suite:
             self.log(f"=== [{i}/{len(todo)}] {name} ===")
             self._safe(name, fn)
         self.log(f"== Todos los escenarios terminados en {time.time() - t_all:.0f}s ==")
-        self.write_report()
+        return self.write_report()
 
     def write_report(self):
         passed = sum(1 for r in self.results if r["status"] == "PASS")
@@ -989,12 +1042,20 @@ class Suite:
         (self.outdir / "report.md").write_text("\n".join(md), encoding="utf-8")
         print(f"\n# RESULTADO: PASS={passed} FAIL={failed} SKIP={skipped}")
         print(f"reporte: {self.outdir / 'report.md'}")
+        return 1 if failed else 0
 
 
 def main():
     ap = argparse.ArgumentParser(description="FlyWithMe bench completo")
     ap.add_argument("--start-bench", action="store_true", help="levantar el banco antes")
+    ap.add_argument("--stop-bench-after", action="store_true",
+                    help="detener solo los procesos SITL/bridge iniciados por este run al terminar")
     ap.add_argument("--firmware", action="store_true", help="conectar tambien las placas (puentes)")
+    ap.add_argument("--sitl-exe", default=None, help="ruta a ArduPlane SITL")
+    ap.add_argument("--leader-com", default="COMx", help="puerto de la placa líder")
+    ap.add_argument("--slave-com", default="COMx", help="puerto de la placa seguidora")
+    ap.add_argument("--mp-udp", type=int, default=14550, help="puerto UDP de Mission Planner")
+    ap.add_argument("--report-root", default=None, help="directorio de reportes (default tools/reports)")
     ap.add_argument("--dist-offset", type=float, default=None,
                     help="fijar dist_offset EN TIERRA (m) para probar vuelo cercano (p. ej. 10)")
     ap.add_argument("--netid", type=int, default=4660,
@@ -1010,14 +1071,42 @@ def main():
     ap.add_argument("--only", default=None,
                     help="ejecutar solo estos escenarios (coma): link,takeoff,straight,turn,head_on,safety,...")
     args = ap.parse_args()
-    if args.start_bench:
-        import sys
-        sys.path.insert(0, str(ROOT / "tools"))
-        from lab import Lab, DEFAULTS
-        cfg = dict(DEFAULTS); cfg["firmware"] = args.firmware
-        Lab(cfg).start_bench()
-    Suite(args).run()
+
+    def interrupt(signum, _frame):
+        raise KeyboardInterrupt
+
+    for stop_signal in (signal.SIGINT, getattr(signal, "SIGBREAK", None)):
+        if stop_signal is not None:
+            try:
+                signal.signal(stop_signal, interrupt)
+            except (OSError, ValueError):
+                pass
+
+    lab = None
+    cleanup_required = False
+    try:
+        if args.start_bench:
+            import sys
+            sys.path.insert(0, str(ROOT / "tools"))
+            from lab import Lab, DEFAULTS
+            cfg = dict(DEFAULTS)
+            cfg.update(firmware=args.firmware, leader_com=args.leader_com, slave_com=args.slave_com,
+                       mp_udp=args.mp_udp)
+            if args.sitl_exe:
+                cfg["sitl_exe"] = Path(args.sitl_exe)
+            lab = Lab(cfg)
+            cleanup_required = True  # también cubre cancelación durante start_bench()
+            if not lab.start_bench():
+                cleanup_required = False  # start_bench ya limpia fallos parciales
+                return 2
+        return Suite(args).run()
+    except KeyboardInterrupt:
+        print("\n[bench] cancelado por usuario; limpiando el banco...", flush=True)
+        return 130
+    finally:
+        if lab is not None and args.stop_bench_after and cleanup_required:
+            lab.stop_bench()
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

@@ -1,0 +1,54 @@
+name: Firmware release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Versión (ej. v1.2.3)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-firmware:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install PlatformIO
+        run: python -m pip install --upgrade platformio
+
+      - name: Build locked production flight profile
+        run: pio run -e ttgo-lora32-v1-flight
+
+      - name: Package firmware bundles
+        env:
+          RELEASE_VERSION: ${{ inputs.version || github.ref_name }}
+          RELEASE_COMMIT: ${{ github.sha }}
+        run: |
+          python tools/package_firmware_release.py \
+            --version "$RELEASE_VERSION" \
+            --commit "$RELEASE_COMMIT" \
+            --output release-assets
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.version || github.ref_name }}
+          name: FlyWithMe ${{ inputs.version || github.ref_name }}
+          generate_release_notes: true
+          files: |
+            release-assets/*.zip
+            release-assets/release-manifest.json

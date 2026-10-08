@@ -1,8 +1,10 @@
 #include "FWM.h"
 
 #include <esp_idf_version.h>
+#include <esp_mac.h>
 #include <cstring>
 #include <cstdlib>
+#include "wifi_identity.h"
 
 FWM *FWM::self = nullptr;
 
@@ -41,6 +43,7 @@ void FWM::begin()
 
         // Default params
         params.role = FWM_DEFAULT_ROLE;
+        params.ap_mode = FWM_DEFAULT_AP_MODE;
         params.foll_enable = FOLL_ENABLE;
         params.foll_ofs_type = FOLL_OFS_TYPE;
         params.foll_alt_type = FOLL_ALT_TYPE;
@@ -69,14 +72,7 @@ void FWM::begin()
     {
         params.role = FWM_ROLE_OFF;
     }
-    char oldSsid[sizeof(params.ssid)];
-    strncpy(oldSsid, params.ssid, sizeof(oldSsid));
-    oldSsid[sizeof(oldSsid) - 1] = '\0';
-    updateRoleSsid();
-    if (strcmp(oldSsid, params.ssid) != 0)
-    {
-        saveParams();
-    }
+    logDeviceIdentity();
 
     // Init instances
 
@@ -115,9 +111,12 @@ void FWM::begin()
     
     // FASE 4: Inicializar WiFi AP y servidor web (si está habilitado)
     #if WEB_START_AP_IMMEDIATELY
-    // Primero iniciar AP (WiFi debe estar listo ANTES del servidor web)
-    web->startAP();
-    delay(500);  // Dar tiempo al AP para estabilizarse
+    // AP solo si la preferencia lo permite y la comprobación segura confirma tierra.
+    if (params.ap_mode != FWM_AP_MODE_OFF && canChangeApMode())
+    {
+        web->startAP();
+        delay(500);
+    }
     #endif
     
     #if USE_WEB_SERVER
@@ -198,6 +197,31 @@ void FWM::runRt()
 {
     // FASE 1: Reset watchdog en cada ciclo (el loopTask de Arduino corre en el core 1)
     esp_task_wdt_reset();
+
+#if FWM_ALLOW_RUNTIME_SITL
+    // En SIM la consola serie queda silenciada para no mezclar texto con MAVLink. Publicar
+    // contadores estructurados por MAVLink para que el bench mida RX/TX/sesión por el TAP.
+    static uint32_t lastRuntimeDiagnostics = 0;
+    const uint32_t diagnosticsNow = millis();
+    if (runtimeSitlMode && mav && comm && diagnosticsNow - lastRuntimeDiagnostics >= 1000)
+    {
+        lastRuntimeDiagnostics = diagnosticsNow;
+        const bool linkActive = params.role == FWM_ROLE_FOLLOWER
+                                    ? comm->commData.have_beacon
+                                    : (params.role == FWM_ROLE_LEADER && lastFollowerMs != 0 &&
+                                       diagnosticsNow - lastFollowerMs < SESSION_TIMEOUT_MS);
+        auto sendNamedInt = [this, diagnosticsNow](const char *name, int32_t value)
+        {
+            mavlink_message_t message;
+            mavlink_msg_named_value_int_pack(fwmSystemId(), COMPID, &message,
+                                             diagnosticsNow, name, value);
+            mav->send_to_fc(message);
+        };
+        sendNamedInt("FWM_RX", (int32_t)comm->commData.rx_packet_counter);
+        sendNamedInt("FWM_TX", (int32_t)comm->commData.tx_packet_counter);
+        sendNamedInt("FWM_LINK", linkActive ? 1 : 0);
+    }
+#endif
 
     // Mensajeria (seguidor): notificar distancia de seguimiento al FC/GCS periodicamente
     static uint32_t lastFollowStatus = 0;
@@ -414,9 +438,8 @@ void FWM::processSendPacket()
         Log.error("Failed to send packet after retries" CR);
     }
 
-#if ADAPTIVE_RATE
-    updateTransmissionRate();
-#endif
+    if (adaptiveRateEnabled)
+        updateTransmissionRate();
 }
 
 /**
@@ -439,7 +462,7 @@ void FWM::changeFollowMode(uint8_t mode)
     else if (follow_mode == FOLL_MODE_LEADER)
     {
         // Start ticker
-        send_packet_ticker.attach_ms(SEND_PACKET_INTERVAL, FWM::send_packet_ticker_callback);
+        send_packet_ticker.attach_ms(sendPacketIntervalMs, FWM::send_packet_ticker_callback);
     }
 }
 
@@ -471,22 +494,77 @@ uint8_t FWM::peerSystemId() const
     return 0;
 }
 
-void FWM::updateRoleSsid()
+bool FWM::enableRuntimeSitlMode(String &error)
 {
-    const bool automatic = params.ssid[0] == '\0' ||
-                           strcmp(params.ssid, DEFAULT_SSID) == 0 ||
-                           strcmp(params.ssid, "FWM AP 1") == 0 ||
-                           strcmp(params.ssid, "FWM AP 2") == 0;
-    if (!automatic)
-        return;
+#if FWM_ALLOW_RUNTIME_SITL && !FC_LINK_USB && !FC_EMULATION
+    if (runtimeSitlMode)
+        return true;
+    if (mav == nullptr || mav->link || mav->lock_ap)
+    {
+        error = "SIM requiere ausencia de FC desde el arranque; un enlace previo bloquea la conmutación";
+        return false;
+    }
+    if (!mav->linkTimeout)
+    {
+        error = "WAIT: esperando timeout inicial de FC antes de habilitar SIM";
+        return false;
+    }
+    if (!canChangeApMode())
+    {
+        error = "SIM bloqueado por el interlock de tierra";
+        return false;
+    }
+    if (mav == nullptr || comm == nullptr)
+    {
+        error = "telemetría o LoRa todavía no inicializados";
+        return false;
+    }
 
-    const char *ssid = DEFAULT_SSID;
-    if (params.role == FWM_ROLE_LEADER)
-        ssid = "FWM AP 1";
-    else if (params.role == FWM_ROLE_FOLLOWER)
-        ssid = "FWM AP 2";
-    strncpy(params.ssid, ssid, sizeof(params.ssid) - 1);
+    // Responder antes de convertir UART0 a MAVLink y silenciar la consola. Así el host
+    // recibe el ACK completo antes de que el SITL/bridge empiece a mandar bytes binarios.
+    Serial.println("SIMCFG OK mode=sim; reset returns to flight");
+    Serial.flush();
+    Log.begin(LOG_LEVEL_SILENT, &Serial);
+
+    adaptiveRateEnabled = false;
+    sendPacketIntervalMs = FWM_SITL_SEND_PACKET_INTERVAL;
+    currentTransmissionInterval = FWM_SITL_SEND_PACKET_INTERVAL;
+    if (follow_mode == FOLL_MODE_LEADER)
+    {
+        send_packet_ticker.detach();
+        send_packet_ticker.attach_ms(sendPacketIntervalMs, FWM::send_packet_ticker_callback);
+    }
+    comm->requestRuntimeSitlProfile();
+    mav->enableRuntimeSitlUsb();
+    runtimeSitlMode = true; // volátil: un reset siempre vuelve a UART1/modo vuelo
+    error = "";
+    return true;
+#else
+    error = "modo runtime SITL bloqueado en este firmware";
+    return false;
+#endif
+}
+
+void FWM::logDeviceIdentity()
+{
+    uint8_t apMac[6] = {};
+    char macText[18] = {};
+    char generatedSsid[sizeof(params.ssid)] = {};
+    if (esp_read_mac(apMac, ESP_MAC_WIFI_SOFTAP) != ESP_OK ||
+        !fwmWifiIdentityFromMac(apMac, macText, sizeof(macText), generatedSsid, sizeof(generatedSsid)))
+    {
+        Serial.println("FWM_ID_ERR unable to read SoftAP MAC");
+        return;
+    }
+
+    strncpy(params.ssid, generatedSsid, sizeof(params.ssid) - 1);
     params.ssid[sizeof(params.ssid) - 1] = '\0';
+    const char *roleName = params.role == FWM_ROLE_LEADER ? "leader" :
+                           params.role == FWM_ROLE_FOLLOWER ? "follower" : "off";
+    // Línea estable, independiente del nivel DEBUG_MODE, para que GUI/herramientas puedan
+    // identificar la placa incluso en la imagen normal de vuelo.
+    Serial.printf("FWM_ID ap_mac=%s ap_ssid=\"%s\" role=%s sysid=%u\r\n",
+                  macText, params.ssid, roleName, (unsigned)fwmSystemId());
 }
 
 void FWM::requestRoleRestart()
@@ -498,6 +576,9 @@ void FWM::requestRoleRestart()
 void FWM::processSerialProvisioning()
 {
 #if !FC_LINK_USB
+    if (runtimeSitlMode)
+        return; // UART0 queda dedicado al MAVLink del SITL mientras dure esta sesión.
+
     static String line;
     while (Serial.available() > 0)
     {
@@ -514,7 +595,20 @@ void FWM::processSerialProvisioning()
         }
 
         line.trim();
-        if (line.startsWith("FWM ROLE "))
+        if (line == "FWM ID")
+        {
+            logDeviceIdentity();
+        }
+        else if (line == "FWM SIM ON")
+        {
+            String error;
+            if (!enableRuntimeSitlMode(error))
+            {
+                Serial.print(error.startsWith("WAIT:") ? "SIMCFG WAIT " : "SIMCFG ERR ");
+                Serial.println(error);
+            }
+        }
+        else if (line.startsWith("FWM ROLE "))
         {
             String requested = line.substring(9);
             requested.trim();
@@ -552,7 +646,47 @@ void FWM::processSerialProvisioning()
                 }
             }
         }
+        else if (line.startsWith("FWM AP "))
+        {
+            String requested = line.substring(7);
+            requested.trim();
+            int mode = -1;
+            if (requested.equalsIgnoreCase("auto"))
+                mode = FWM_AP_MODE_AUTO;
+            else if (requested.equalsIgnoreCase("on"))
+                mode = FWM_AP_MODE_ON;
+            else if (requested.equalsIgnoreCase("off"))
+                mode = FWM_AP_MODE_OFF;
+
+            if (mode < 0)
+            {
+                Serial.println("APCFG ERR invalid mode (auto|on|off)");
+            }
+            else if (params.ap_mode != mode && !canChangeApMode())
+            {
+                Serial.println("APCFG WAIT FC must be connected, disarmed and on ground");
+            }
+            else
+            {
+                const bool changed = params.ap_mode != mode;
+                String value = String(mode);
+                String error;
+                if (!setParamByKey("ap_mode", value.c_str(), error))
+                {
+                    Serial.print("APCFG ERR ");
+                    Serial.println(error);
+                }
+                else
+                {
+                    Serial.print("APCFG OK mode=");
+                    Serial.print(requested);
+                    Serial.println(changed ? " saved" : " already set");
+                }
+            }
+        }
         line = "";
+        if (runtimeSitlMode)
+            return;
     }
 #endif
 }
@@ -607,6 +741,7 @@ void FWM::saveParams()
 {
     preferences.begin("storage", false);
     preferences.putInt("role", params.role);
+    preferences.putInt("ap_mode", params.ap_mode);
     preferences.putInt("foll_enable", params.foll_enable);
     preferences.putInt("foll_ofs_type", params.foll_ofs_type);
     preferences.putInt("foll_alt_type", params.foll_alt_type);
@@ -644,10 +779,15 @@ void FWM::loadParams()
 {
     preferences.begin("storage", true);
     params.role = preferences.getInt("role", FWM_DEFAULT_ROLE);
+    params.ap_mode = preferences.getInt("ap_mode", FWM_DEFAULT_AP_MODE);
     params.foll_enable = preferences.getInt("foll_enable", 0);
     params.foll_ofs_type = preferences.getInt("foll_ofs_type", 0);
     params.foll_alt_type = preferences.getInt("foll_alt_type", 0);
-    params.link_timeout = preferences.getInt("link_timeout", 0);
+    // `0` provenía del default de versiones antiguas; check_link() lo interpretaría como
+    // timeout inmediato y detendría el heartbeat antes de que SITL llegara por el bridge.
+    const int savedLinkTimeout = preferences.getInt("link_timeout", LINK_TIMEOUT);
+    params.link_timeout = (savedLinkTimeout >= 2 && savedLinkTimeout <= 120)
+                              ? savedLinkTimeout : LINK_TIMEOUT;
     // Fase 2: offsets y ganancias (defaults = #define de config.h)
     params.dist_offset = preferences.getFloat("dist_offset", DIST_OFFSET);
     params.lateral_offset = preferences.getFloat("lateral_offset", FORMATION_LATERAL_OFFSET);
@@ -756,24 +896,36 @@ bool FWM::canChangeRole() const
 #endif
 }
 
+bool FWM::canChangeApMode() const
+{
+    // Si nunca se conectó un FC y expiró la búsqueda inicial, se trata como banco/setup.
+    // Si el FC llegó a conectar, lock_ap queda enclavado y una pérdida posterior del enlace
+    // nunca se interpreta como tierra (evita reactivar WiFi por un fallo en vuelo).
+    if (mav != nullptr && !mav->lock_ap && !mav->link && mav->linkTimeout)
+        return true;
+    return canChangeRole();
+}
+
 /**
  * @brief Levanta/apaga el AP segun "en tierra" (WEB_AP_GROUND_ONLY). Llamar periodicamente.
  */
 void FWM::updateApGate()
 {
-#if USE_WEB_SERVER && WEB_AP_GROUND_ONLY
+#if USE_WEB_SERVER
     static bool lastGround = true;
-    bool ground = isOnGround();
+    bool ground = canChangeApMode();
     if (ground != lastGround)
     {
         Log.notice("AP gate: %s" CR, ground ? "tierra -> AP ON" : "vuelo -> AP OFF");
         lastGround = ground;
     }
-    if (ground && !web->server_up)
+    const bool apRequested = params.ap_mode != FWM_AP_MODE_OFF;
+    const bool apAllowed = WEB_AP_FORCE || !WEB_AP_GROUND_ONLY || ground;
+    if (apRequested && apAllowed && !web->server_up)
     {
         web->startAP();
     }
-    else if (!ground && web->server_up)
+    else if ((!apRequested || !apAllowed) && web->server_up)
     {
         web->stopAP();
     }
@@ -798,6 +950,7 @@ static const ParamDef_t s_paramTable[] = {
     {"netid",            "Network ID",           PARAM_INT,   0.0f,  65535.0f,"",       1, PARAM_SCOPE_COMMON},
     {"approach_dist",    "Approach distance",    PARAM_FLOAT, 50.0f, 5000.0f, "m",      0, PARAM_SCOPE_FOLLOWER},
     {"role",             "Device role",          PARAM_ENUM,  0.0f,  2.0f,   "",       1, PARAM_SCOPE_COMMON},
+    {"ap_mode",          "AP mode",              PARAM_ENUM,  0.0f,  2.0f,   "",       1, PARAM_SCOPE_COMMON},
 };
 
 int FWM::paramCount()
@@ -844,6 +997,7 @@ float FWM::getParamByIndex(int idx)
     case 11: return (float)params.netid;
     case 12: return params.approach_dist;
     case 13: return (float)params.role;
+    case 14: return (float)params.ap_mode;
     default: return 0.0f;
     }
 }
@@ -863,6 +1017,14 @@ bool FWM::setParamByIndex(int idx, float value, bool persist)
         if (requestedRole == params.role)
             return true;
         if (!canChangeRole())
+            return false;
+    }
+    if (idx == 14)
+    {
+        const int32_t requestedMode = (int32_t)(value + 0.5f);
+        if (requestedMode == params.ap_mode)
+            return true;
+        if (!canChangeApMode())
             return false;
     }
     bool restartForRole = false;
@@ -887,11 +1049,11 @@ bool FWM::setParamByIndex(int idx, float value, bool persist)
         if (newRole != params.role)
         {
             params.role = newRole;
-            updateRoleSsid();
             restartForRole = persist;
         }
         break;
     }
+    case 14: params.ap_mode = (int32_t)(value + 0.5f); break;
     default: return false;
     }
     if (persist)
@@ -926,6 +1088,18 @@ bool FWM::setParamByKey(const char *key, const char *valueStr, String &err)
             return false;
         }
     }
+    if (idx == 14)
+    {
+        const ParamDef_t &d = s_paramTable[idx];
+        const float bounded = constrain(v, d.min, d.max);
+        if ((int32_t)(bounded + 0.5f) == params.ap_mode)
+            return true;
+        if (!canChangeApMode())
+        {
+            err = "AP solo editable con FC conectado, desarmado y en tierra";
+            return false;
+        }
+    }
     if (s_paramTable[idx].groundOnly && !isOnGround())
     {
         err = "solo editable en tierra";
@@ -933,8 +1107,9 @@ bool FWM::setParamByKey(const char *key, const char *valueStr, String &err)
     }
     if (!setParamByIndex(idx, v, true))
     {
-        err = idx == 13 ? "rol editable solo con FC conectado, desarmado y en tierra"
-                        : "no se pudo aplicar el parametro";
+        err = idx == 13 ? "rol editable solo con FC conectado, desarmado y en tierra" :
+              idx == 14 ? "AP solo editable con FC conectado, desarmado y en tierra" :
+                          "no se pudo aplicar el parametro";
         return false;
     }
     return true;
@@ -1183,10 +1358,10 @@ void FWM::updateTransmissionRate()
     }
     
     // Solo actualizar si el intervalo cambia significativamente (> 100ms diferencia)
-    static uint32_t currentInterval = SEND_PACKET_INTERVAL;
-    if (abs((int32_t)(newInterval - currentInterval)) > 100)
+    if (abs((int32_t)(newInterval - currentTransmissionInterval)) > 100)
     {
-        currentInterval = newInterval;
+        currentTransmissionInterval = newInterval;
+        sendPacketIntervalMs = newInterval;
         send_packet_ticker.detach();
         send_packet_ticker.attach_ms(newInterval, send_packet_ticker_callback);
         

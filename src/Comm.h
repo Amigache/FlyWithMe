@@ -37,6 +37,7 @@ public:
     bool validatePacket(const LoraPacket_t &packet); // FASE 1: Validación completa de paquete
     bool acceptSequence(uint16_t seq);
     void applyNetid();                        // v2: re-fija el sync word de radio desde params.netid
+    void requestRuntimeSitlProfile();          // core0 solicita; el owner del SX1276 lo aplica en run()
     void sendReplyPacket();                   // v2: REPLY/JOIN del seguidor (enlace de vuelta)
     uint16_t txSeq = 0;                        // v2: secuencia de TX (perdidas/duplicados)
     uint16_t lastRxSeq = 0;                    // v2: ultima secuencia RX valida
@@ -44,6 +45,7 @@ public:
     bool replyPending = false;
     uint32_t replyDueMs = 0;
     volatile bool syncWordPending = false;
+    volatile bool runtimeSitlProfilePending = false;
     
     // FASE 2: Compresión y optimización
     CompressedLoraPacket_t compressPacket(LoraPacket_t packet);

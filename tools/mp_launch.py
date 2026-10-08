@@ -12,22 +12,25 @@ Uso (igual que mavproxy):
 import os
 import runpy
 import sys
+import inspect
+import platform
+import textwrap
 
-# Parche pymavlink (Windows): las salidas UDP bindean el puerto DESTINO, lo que choca con
-# Mission Planner en el mismo PC. Lo cambiamos a un bind efimero. Idempotente.
+# Parche en memoria de pymavlink (Windows): las salidas UDP bindean el puerto DESTINO, lo que
+# choca con Mission Planner en el mismo PC. No modificar site-packages ni el bundle instalado.
 try:
     import pymavlink.mavutil as _mavutil
 
-    _f = _mavutil.__file__
-    _src = open(_f, encoding="utf-8").read()
-    _old = ("            if platform.system() == \"Windows\":\n"
-            "                self.port.bind(('0.0.0.0', int(a[1])))")
-    if _old in _src:
-        open(_f, "w", encoding="utf-8").write(
-            _src.replace(_old,
-                         "            if platform.system() == \"Windows\":\n"
-                         "                # FlyWithMe: no bindear el puerto destino (MP en el mismo PC)\n"
-                         "                self.port.bind(('0.0.0.0', 0))"))
+    if platform.system() == "Windows":
+        _method = _mavutil.mavudp.__init__
+        _source = inspect.getsource(_method)
+        _old = "self.port.bind(('0.0.0.0', int(a[1])))"
+        if _old in _source:
+            _patched = _source.replace(_old, "self.port.bind(('0.0.0.0', 0))", 1)
+            _namespace = {}
+            exec(compile(textwrap.dedent(_patched), inspect.getsourcefile(_method) or "<mavudp>", "exec"),
+                 _mavutil.__dict__, _namespace)
+            _mavutil.mavudp.__init__ = _namespace["__init__"]
 except Exception:  # noqa: BLE001
     pass
 

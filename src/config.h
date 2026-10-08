@@ -131,6 +131,12 @@
 #define FWM_SETUP_SYSID 254
 #define FWM_DEFAULT_ROLE FWM_ROLE_OFF
 
+// Modo AP configurable desde el GUI; la política de tierra tiene prioridad sobre ON.
+#define FWM_AP_MODE_AUTO 0
+#define FWM_AP_MODE_ON 1
+#define FWM_AP_MODE_OFF 2
+#define FWM_DEFAULT_AP_MODE FWM_AP_MODE_AUTO
+
 // SAFETY LIMITS (FASE 1 - Seguridad Crítica) -----------------------------------------------------------
 #define MAX_FOLLOW_DISTANCE 5000  // metros - 5km máximo de distancia de seguimiento
 #define MAX_FOLLOW_SPEED 5000     // cm/s - 50 m/s máximo de velocidad
@@ -277,7 +283,7 @@ inline bool isLeaderModeStable(uint8_t mode)
 #define FOLL_OFS_TYPE 1
 #define FOLL_ALT_TYPE 0
 #define LINK_TIMEOUT 10
-#define DEFAULT_SSID "FWM SETUP"
+#define DEFAULT_SSID "FWM SETUP" // marcador NVS/arranque; FWM::begin lo reemplaza por SSID derivado de MAC
 #define DEFAULT_PASS "12345678"
 #define FOLL_MODE_CH 0 // El rol se configura en NVS; no lo sobrescribe un canal RC.
 #define ALT_OFFSET 10 // m
@@ -290,6 +296,7 @@ inline bool isLeaderModeStable(uint8_t mode)
 typedef struct
 {
   int32_t role;            // FWM_ROLE_OFF/FOLLOWER/LEADER; NVS, editable solo en tierra
+  int32_t ap_mode;         // FWM_AP_MODE_AUTO/ON/OFF; la protección de vuelo siempre prevalece
   int32_t foll_enable;
   int32_t foll_ofs_type;
   int32_t foll_alt_type;
@@ -696,14 +703,24 @@ public:
 
 // --- Enlace de FC para pruebas ---
 // FC_EMULATION=1: el ESP32 sintetiza telemetría válida en APdata (sin UART). Modo banco.
-// FC_LINK_USB=1 : el MAVLink del FC se lee/escribe por el USB (UART0) en lugar del UART1.
-//                 Para pruebas con SITL (puente serie <-> TCP). NO usar junto a FC_EMULATION.
+// FC_LINK_USB=1 : modo USB/UART0 fijado al arranque (compatibilidad de banco antiguo).
+// FWM_ALLOW_RUNTIME_SITL=1: imagen dev que arranca por UART1 y acepta FWM SIM ON en tierra.
 #ifndef FC_EMULATION
 #define FC_EMULATION 1
 #endif
 #ifndef FC_LINK_USB
 #define FC_LINK_USB 0
 #endif
+
+// Solo imágenes de desarrollo pueden cambiar UART1↔USB/UART0 para HIL sin reflashear.
+// El perfil de producción fija esto a 0; el comando FWM SIM ON queda rechazado.
+#ifndef FWM_ALLOW_RUNTIME_SITL
+#define FWM_ALLOW_RUNTIME_SITL 0
+#endif
+#define FWM_SITL_LORA_SPREADING_FACTOR 7
+#define FWM_SITL_LORA_SIGNAL_BANDWIDTH 250000
+#define FWM_SITL_SEND_PACKET_INTERVAL 200
+#define FWM_SITL_MIN_SAFE_ALTITUDE 0
 
 // --- Enumeraciones de Menú ---
 enum MenuState {

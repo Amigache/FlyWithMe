@@ -80,6 +80,12 @@ def provision(port, role, timeout):
 
 
 def main():
+    # Las líneas del firmware pueden incluir Unicode; fuerza UTF-8 también para esta consola
+    # (el PYTHONIOENCODING definido en upload() solo afecta al proceso PlatformIO hijo).
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
     parser = argparse.ArgumentParser(
         description="Carga el firmware FlyWithMe y configura el rol sin compilar una variante por rol."
     )
@@ -87,9 +93,9 @@ def main():
     parser.add_argument("--role", required=True, choices=ROLES, help="off, leader o follower")
     parser.add_argument(
         "--environment",
-        choices=("ttgo-lora32-v1-flight", "ttgo-lora32-v1"),
+        choices=("ttgo-lora32-v1-flight", "ttgo-lora32-v1-sitl", "ttgo-lora32-v1"),
         default="ttgo-lora32-v1-flight",
-        help="perfil de vuelo (default) o perfil de banco con FC emulado",
+        help="flight para producción; sitl es imagen universal dev/HIL con FWM SIM ON; ttgo-lora32-v1 es emulación",
     )
     parser.add_argument(
         "--provision-only",

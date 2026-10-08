@@ -30,7 +30,7 @@ tierra** para FWM, y que sus parámetros se puedan **leer/descargar y modificar*
   `foll_ofs_type`, `foll_alt_type`, `link_timeout`, `ssid`, `pass`.
 - Config en caliente ya implementada y **validada**: `/api/config` (GET/POST) aplica `formation`,
   `prediction`, `filter`; `FWM::setFormation/setPrediction/setFilter`; persistencia en NVS; la web
-  carga la config al abrir. AP: `FWM AP 2` / `http://192.168.4.1`.
+  carga la config al abrir. AP: SSID `FWM XXXXXX` derivado de la MAC SoftAP / `http://192.168.4.1`.
 - Hay un **WebSocket de telemetría** (`/ws`, puerto 81) — a revisar/retirar del flujo normal.
 - Fix del cristal ya aplicado (`-DF_XTAL_MHZ=26`) → la WiFi funciona.
 

@@ -15,9 +15,10 @@ calcula una posición de formación y envía el waypoint resultante a su propio 
 
 - **Hardware objetivo:** TTGO LoRa32 V1 (ESP32 + SX1276), OLED SSD1306 128x64, LoRa 866 MHz (Europa).
 - **Framework:** Arduino sobre **PlatformIO**.
-- **Un único firmware de vuelo para todas las placas** (`ttgo-lora32-v1-flight`, UART1,
-  `FC_EMULATION=0`). El rol `OFF/FOLLOWER/LEADER` es un parámetro NVS configurable, no una build flag;
-  SysID líder=1 y seguidor=2. Los perfiles SITL/emulación son solo para desarrollo.
+- **Un único firmware de producción para todas las placas** (`ttgo-lora32-v1-flight`, UART1,
+  `FC_EMULATION=0`, `FWM_ALLOW_RUNTIME_SITL=0`). El rol `OFF/FOLLOWER/LEADER` es un parámetro NVS,
+  no una build flag. El perfil dev `ttgo-lora32-v1-sitl` arranca igual en vuelo, pero permite `FWM SIM ON`
+  por sesión HIL; un reset vuelve a UART1. El perfil dev nunca se publica en releases de producción.
 
 ---
 
@@ -29,13 +30,17 @@ Ejecutar siempre desde la raíz del repositorio. Requiere PlatformIO (`pio`).
 # Compilar una única imagen para vuelo real
 pio run -e ttgo-lora32-v1-flight
 
-# Perfiles de desarrollo
+# Perfil universal dev/HIL (inicialmente arranca en modo vuelo; SIM solo por comando)
 pio run -e ttgo-lora32-v1-sitl
 pio run -e ttgo-lora32-v1
 
 # Cargar el mismo binario y provisionar el rol individual en NVS
 python tools/flash_firmware.py --port COMx --role leader
 python tools/flash_firmware.py --port COMy --role follower
+
+# Solo banco/dev: imagen universal con FWM SIM ON temporal para HIL
+python tools/flash_firmware.py --environment ttgo-lora32-v1-sitl --port COMx --role leader
+python tools/flash_firmware.py --environment ttgo-lora32-v1-sitl --port COMy --role follower
 
 # Monitor serie (57600 baudios; ver nota más abajo)
 pio device monitor
@@ -45,8 +50,9 @@ pio run -t clean
 ```
 
 - `COMx` es solo el puerto por defecto de PlatformIO, no una identidad de rol. Los CP210x pueden
-  reenumerar; identificar cada placa y pasar el puerto explícitamente al script. Tras provisionar,
-  los AP usan `FWM AP 1` (líder) y `FWM AP 2` (seguidor); antes, una placa nueva muestra `FWM SETUP`.
+  reenumerar; identificar cada placa y pasar el puerto explícitamente al script. El SSID es
+  `FWM XXXXXX`, derivado de los últimos 3 bytes de la MAC SoftAP, no del rol. La placa imprime
+  `FWM_ID ap_mac=... ap_ssid="..." role=... sysid=...` al arrancar y responde a `FWM ID` por USB serie.
 - `monitor_speed = 57600`. ⚠️ Estas placas (TTGO LoRa32 V1.0) llevan cristal de **26 MHz**, así que
   el firmware **debe compilarse con `-DF_XTAL_MHZ=26`** (ya está en `platformio.ini`). Ese define
   hace que el core de Arduino fije el cristal y reconfigue los relojes en `app_main()`; sin él el
@@ -70,6 +76,7 @@ pio run -t clean
     firmware común (~1.15 MB) usa ~**36.7 %**. Con la partición por defecto (`default.csv`, app 1.25 MB)
     llegaría al ~92 %; **no la cambies** sin revisar el tamaño con `pio run`.
   - Verificado: builds `ttgo-lora32-v1-flight` y `ttgo-lora32-v1-sitl` → **SUCCESS**.
+  - `ttgo-lora32-v1-flight` bloquea `FWM SIM ON`; el perfil dev acepta el comando temporalmente.
   - **Menú OLED desactivado** (`USE_INTERACTIVE_MENU 0`): sus pines (12/13/14/15) chocan con el
     UART MAVLink (12/13), LoRa RST (14) y OLED SCL (15). No reactivar sin reasignar a GPIOs libres.
   - **Compresión LoRa**: `Comm::compressPacket` debe usar `floor()` para lat/lon. Con truncado
@@ -81,10 +88,14 @@ pio run -t clean
 
 ```bash
 pio test
+python -m unittest discover -s tools/tests -p "test_*.py" -v
+python tools/proto_sim.py
+python tools/follow_sim_test.py
 ```
 
-- **Pruebas con FC simulado (SITL):** entorno común `ttgo-lora32-v1-sitl` (`FC_LINK_USB=1`) +
-  `tools/sitl_bridge.py` (puente serie↔TCP). Procedimiento completo en
+- **Pruebas con FC simulado (SITL):** imagen universal dev `ttgo-lora32-v1-sitl` + `FWM SIM ON` por USB,
+  `tools/sitl_bridge.py` (puente serie↔TCP). `tools/lab.py --firmware` activa SIM al iniciar y resetea
+  las placas al parar; producción solo distribuye `ttgo-lora32-v1-flight`. Procedimiento completo en
   `docs/ROADMAP.md` §3.
 - **Arnés HIL:** `tools/hil_test.py` valida el enlace líder/seguidor por serial (`FC_EMULATION=1`).
 - **Laboratorio (CLI):** `python tools/lab.py` — menú interactivo que levanta **2 SITL** (ArduPlane)
@@ -189,10 +200,12 @@ Documentación: `README.md` (manual de usuario), `DEVELOP.md` (desarrollo, SITL 
 | `GUIDED_ALT_REFRESH_MS` | `2000` | Cada cuánto se envía `DO_REPOSITION` para fijar la altitud (`next_WP_loc`). |
 | `GUIDED_AIRSPEED_MIN` / `GUIDED_AIRSPEED_MAX` | `10` / `30` | Topes de la airspeed comandada (m/s). |
 | `MAX_FOLLOW_DISTANCE` | `5000` | m — límite de seguridad. |
-| `HEAD_ON_GUARD` | `0` | 1 = **guarda de colisión frente a frente**: si el líder viene de cara y < `HEAD_ON_RANGE` (500 m), rompe perpendicular a la visual y frena. Validado con `tools/follow_sim.py`. |
+| `HEAD_ON_GUARD` | `0` en `config.h`/flight; `1` en perfil dev/HIL | 1 = **guarda de colisión frente a frente**: si el líder viene de cara y < `HEAD_ON_RANGE` (500 m), rompe perpendicular a la visual y frena. Perfil flight conserva `0`; SITL dev la habilita para validar el escenario. |
 | `TIGHT_FORMATION` | `0` | 1 = **tasa LoRa rápida cuando cerca** (200/500/1000 ms) para vuelo a 10–20 m. Emparejar con SF bajo (`-D LORA_SPREADING_FACTOR=7`). |
 | `netid` | `4660` (0x1234) | Red del protocolo v2: filtra tráfico de otros sistemas **a nivel de paquete**. Debe coincidir en ambos; configurable por parámetro y WebUI. La distancia/OSD solo se publica si el paquete indica posición válida. |
 | `role` NVS/WebUI/MAVLink | `OFF` en placa nueva | `0=OFF`, `1=FOLLOWER`, `2=LEADER`; editable solo en tierra, cambio con reinicio. SYSID FWM/FC: líder 1, seguidor 2. Provisionar con `tools/flash_firmware.py`; las placas antiguas sin esta clave deben reasignarse. |
+| `ap_mode` NVS/WebUI/REST/USB | `AUTO` | `0=AUTO`, `1=ON (solo tierra)`, `2=OFF`; la policy ground-only prevalece siempre en vuelo. REST `/api/ap`; consola USB `FWM AP auto|on|off`. |
+| SSID WiFi | Derivado de MAC | `FWM XXXXXX`, donde `XXXXXX` son los últimos 3 bytes de la MAC SoftAP en hexadecimal; lectura serie con `FWM_ID` al arranque o comando `FWM ID`. No configurable manualmente. |
 | `approach_dist` | `300` | m — bajo esta distancia el seguidor **exige modo estable del líder** (FBWA/FBWB/CRUISE/AUTO/RTL/LOITER/TAKEOFF/GUIDED); por encima **acude igualmente** a buscarlo. |
 | `FWM_DUAL_CORE` | `1` | **Core 1** es propietario del loop de vuelo; **core 0** ejecuta UI/log. El callback Ticker solo marca TX pendiente; no toca SPI/LoRa. Validado en SITL. |
 | `FOLLOWER_REPLY` | `1` | REPLY/JOIN solo en slots solicitados por BEACON; líder abre ventana RX con timeout, follower responde desde el loop único. Validado con pérdida/timeout/rejoin en SITL. |
@@ -204,12 +217,13 @@ Documentación: `README.md` (manual de usuario), `DEVELOP.md` (desarrollo, SITL 
 | `WEB_TELEMETRY_WS` | `0` | Telemetría en vivo por WebSocket (retirada del flujo normal; solo diagnóstico en tierra). |
 | `MAVLINK_PARAM_SERVER` | `1` | El ESP32 responde a `PARAM_REQUEST_LIST/READ/SET` como componente propio (`SYSID`,`COMPID=158`) → parámetros FWM visibles/editables en Mission Planner. `PARAM_SET` solo en tierra. |
 | `STATUSTEXT` | dedupe exacto | Prefijo `FWM:` único; texto+severidad idénticos no se reenvían. Distancias usan INFO(6); la captura de Mission Planner confirmó overlay HUD + Messages. |
-| `WEB_AP_GROUND_ONLY` | `1` | El AP/WiFi solo se levanta **en tierra** (o sin FC); se apaga al armar/moverse. |
+| `WEB_AP_GROUND_ONLY` | `1` | El AP/WiFi solo se levanta **en tierra**; si nunca hubo enlace FC, el timeout inicial habilita setup en banco. Tras enlazar una vez (`lock_ap`), perder el FC no habilita el AP. |
 | `WEB_AP_FORCE` | `0` | 1 = forzar el AP siempre (banco; ignora la detección de tierra). |
 | `WEB_AP_GS_MAX_CMS` / `WEB_AP_ALT_MAX_MM` | `200` / `3000` | Umbrales de "en vuelo": velocidad (cm/s) y altitud (mm) por encima de los cuales no es tierra. |
 | `SIMULATION_MODE` | `0` | Simulación sin hardware en el **seguidor** (genera paquetes locales, no usa LoRa). |
 | `FC_EMULATION` | `1` (banco) | Emula el FC: sintetiza telemetría en `APdata` sin UART1, **mantiene el LoRa real**. Poner `0` para vuelo con FC. |
-| `FC_LINK_USB` | `0` | 1 = MAVLink por USB (UART0) en lugar de UART1 → pruebas con **SITL** (entornos `*-sitl`). En producción `0`. |
+| `FC_LINK_USB` | `0` | 1 = ruta UART0 fija (legacy); los perfiles actuales arrancan con UART1. En dev `FWM SIM ON` cambia a UART0 solo en RAM; reset vuelve a UART1. |
+| `FWM_ALLOW_RUNTIME_SITL` | `0` | Build guard: solo el perfil dev `ttgo-lora32-v1-sitl` acepta `FWM SIM ON`; producción lo fija a `0`. No persiste en NVS. |
 | `WEB_START_AP_IMMEDIATELY` | `1` | Inicia el AP WiFi al arrancar. |
 
 ---
@@ -220,6 +234,7 @@ Documentación: `README.md` (manual de usuario), `DEVELOP.md` (desarrollo, SITL 
 |---|---|---|
 | `README.md` | Manual de usuario | Descripción breve, carga de firmware de vuelo, configuración, preparación y operación en formación. Evitar contenido de desarrollo/pruebas. |
 | `DEVELOP.md` | Desarrollo y banco | Arquitectura, perfiles PlatformIO, SITL, MAVProxy, simuladores, bench y tests. |
+| `docs/PLAN_PRUEBAS_SISTEMA.md` | Plan de validación integral | Matriz L0–L5 de código, firmware, herramientas CLI, SITL/HIL, AP y releases; registra estado y bloqueos. |
 | `AGENTS.md` | Guía para agentes | Este documento. |
 | `docs/FLYWITHME.md` | Documentación de desarrollo | **Consolidado**: roadmap (`MEJORAS_RECOMENDADAS`) + informes Fases 1–4. Alineado con el código. |
 | `docs/ROADMAP.md` | Estado y plan vivo | Validación en banco, fallos corregidos y fases A–E. **Actualizar al completar tareas.** |
@@ -229,6 +244,8 @@ Documentación: `README.md` (manual de usuario), `DEVELOP.md` (desarrollo, SITL 
 | `tools/mp_launch.py` | Lanzador MAVProxy headless | Sin wxPython en Windows; aplica el parche UDP de pymavlink. |
 | `tools/sitl_bridge.py` | Puente SITL ↔ placa | Pipe serie↔TCP; `--tap-port N` expone un enlace **MAVLink directo a la placa** (config del periférico **sin WiFi**). |
 | `tools/bench_suite.py` | Bench completo | Escenarios (preflight/link/setup/params/formations/takeoff/straight/turn/mode_gate/head_on/safety) + reporte MD/JSON + **CSV** por escenario. `netid` requiere `--netid-test`. |
+| `requirements-dev.txt` | Dependencias Python del banco | MAVProxy, pymavlink, pyserial y prompt_toolkit para herramientas CLI. |
+| `tools/tests/` | Tests Python de herramientas CLI | Regresión de orden DTR/RTS al abrir el bridge serie. |
 | `tools/follow_sim.py` | Simulador de la ley (sin hardware) | Replica la ley cross-track + modelo de avión y **latencia del enlace**; escenarios trail/head_on/lateral y barridos de distancia/latencia. |
 | `tools/follow_sim_test.py` | Regresión del predictor/offset | Comprueba que la predicción no cancele offsets TRAIL de 5/10/20/96 m. |
 | `tools/proto_sim.py` | Simulador del **protocolo** (sin hardware) | Modela discovery por defecto, reply/sesión opcional, timeouts, pérdidas, blackout, filtro netid y gate de modo; **matriz de casos/fallos**. |

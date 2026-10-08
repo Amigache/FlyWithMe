@@ -16,7 +16,9 @@ Web::Web(FWM *fwm)
 void Web::begin()
 {
   #if USE_WEB_SERVER
-  setupWebServer();
+  // AsyncTCP depende del stack lwIP que levanta WiFi.softAP(). Si el interlock
+  // mantiene el AP apagado al arranque, el servidor se creará al activarlo después.
+  if (server_up) setupWebServer();
   #endif
 }
 
@@ -29,7 +31,12 @@ void Web::startAP()
   WiFi.mode(WIFI_AP);
   delay(300);  // Dar tiempo al WiFi para (re)inicializar
 
-  WiFi.softAP(fwm->params.ssid, fwm->params.pass);
+  if (!WiFi.softAP(fwm->params.ssid, fwm->params.pass))
+  {
+    server_up = false;
+    Log.error("WiFi.softAP failed" CR);
+    return;
+  }
 
   // Esperar a que el AP esté completamente activo
   delay(500);
@@ -42,8 +49,12 @@ void Web::startAP()
 
   Log.notice("Access Point Ready" CR);
   
-  // Marcar servidor como activo (para ambos modos)
+  // El flag solo confirma AP arriba; no darlo por hecho si WiFi.softAP() falló.
   server_up = true;
+
+  #if USE_WEB_SERVER
+  setupWebServer();
+  #endif
 
   #if !USE_WEB_SERVER
   Log.notice("Init WebServer" CR);
@@ -64,28 +75,21 @@ void Web::stopAP()
 
 void Web::run()
 {
-  // Mostrar información del AP cuando hay linkTimeout
+  // La única autoridad que inicia/detiene WiFi es FWM::updateApGate(). Aquí solo se muestra
+  // estado: iniciar AP también desde este método hacía que el gate lo apagara al ciclo siguiente.
   if (fwm->mav->linkTimeout && !fwm->mav->lock_ap)
   {
     if (!server_up)
     {
-      // AP no iniciado - iniciar con mensajes
-      fwm->screen->showCenterText("Not FC connection");
-      delay(1000);
-      fwm->screen->showCenterText("Starting AP Mode");
-      delay(1000);
-
-      // Start the server
-      startAP();
+      fwm->screen->showCenterText(fwm->params.ap_mode == FWM_AP_MODE_OFF
+                                      ? "AP disabled"
+                                      : "AP blocked/failed");
     }
     #if WEB_START_AP_IMMEDIATELY
     else if (server_up && !ap_info_shown)
     {
-      // AP ya iniciado - solo mostrar mensajes una vez
-      fwm->screen->showCenterText("Not FC connection");
-      delay(1000);
+      // AP ya iniciado - informar una vez, sin retrasos ni tocar su estado.
       fwm->screen->showCenterText("AP Mode Active");
-      delay(1000);
       ap_info_shown = true;
     }
     #endif
@@ -139,14 +143,6 @@ void Web::run()
                   fwm->params.link_timeout = linkStabTimeout.toInt();
                 }
 
-                // Extract the parameter "ssid" from the POST body
-                String ssid = getPostParam(postBody, "ssid");
-                if (ssid.length() > 0)
-                {
-                  // Update params
-                  ssid.toCharArray(fwm->params.ssid, sizeof(fwm->params.ssid));
-                }
-
                 // Extract the parameter "pass" from the POST body
                 String pass = getPostParam(postBody, "pass");
                 if (pass.length() > 0)
@@ -183,8 +179,7 @@ void Web::run()
               // Display the current link_stab_timeout value
               client.println("<p>AP enter Timeout (s): <input type=\"text\" id=\"link_stab_timeout\" name=\"link_stab_timeout\" value=\"" + String(fwm->params.link_timeout) + "\"></p>");
 
-              // Display the current SSID value
-              client.println("<p>SSID: <input type=\"text\" id=\"ssid\" name=\"ssid\" value=\"" + String(fwm->params.ssid) + "\"></p>");
+              client.println("<p>SSID generado automáticamente desde la MAC Wi-Fi: " + String(fwm->params.ssid) + "</p>");
 
               // Display the current Password value
               client.println("<p>Password: <input type=\"text\" id=\"pass\" name=\"pass\" value=\"" + String(fwm->params.pass) + "\"></p>");
@@ -345,6 +340,46 @@ void Web::setupWebServer()
       }
     }
     request->send(ok ? 200 : 400, "application/json", generateAPIResponse(ok, err.c_str()));
+  });
+
+  // Estado/control del AP. La decisión final de encenderlo siempre la aplica updateApGate()
+  // desde el core propietario de WiFi; el firmware impide habilitarlo en vuelo.
+  server->on("/api/ap", HTTP_GET, [this](AsyncWebServerRequest *request){
+    const char *modes[] = {"AUTO", "ON", "OFF"};
+    const int mode = (fwm->params.ap_mode >= FWM_AP_MODE_AUTO && fwm->params.ap_mode <= FWM_AP_MODE_OFF)
+                         ? fwm->params.ap_mode : FWM_AP_MODE_AUTO;
+    String body = "{";
+    body += "\"mode\":\"" + String(modes[mode]) + "\",";
+    body += "\"up\":" + String(fwm->web->server_up ? "true" : "false") + ",";
+    body += "\"on_ground\":" + String(fwm->isOnGround() ? "true" : "false") + ",";
+    body += "\"safe_to_change\":" + String(fwm->canChangeApMode() ? "true" : "false") + ",";
+    body += "\"armed\":" + String((int)fwm->mav->APdata.armed) + ",";
+    body += "\"link_timeout\":" + String(fwm->mav->linkTimeout ? "true" : "false");
+    body += "}";
+    request->send(200, "application/json", body);
+  });
+  server->on("/api/ap", HTTP_POST, [this](AsyncWebServerRequest *request){
+    if (!request->hasParam("mode", true)) {
+      request->send(400, "application/json", generateAPIResponse(false, "falta parámetro mode"));
+      return;
+    }
+    String mode = request->getParam("mode", true)->value();
+    mode.trim();
+    int value = -1;
+    if (mode.equalsIgnoreCase("auto") || mode == "0") value = FWM_AP_MODE_AUTO;
+    else if (mode.equalsIgnoreCase("on") || mode == "1") value = FWM_AP_MODE_ON;
+    else if (mode.equalsIgnoreCase("off") || mode == "2") value = FWM_AP_MODE_OFF;
+    if (value < 0) {
+      request->send(400, "application/json", generateAPIResponse(false, "mode debe ser AUTO, ON u OFF"));
+      return;
+    }
+    String error;
+    String valueText = String(value);
+    if (!fwm->setParamByKey("ap_mode", valueText.c_str(), error)) {
+      request->send(403, "application/json", generateAPIResponse(false, error.c_str()));
+      return;
+    }
+    request->send(200, "application/json", generateAPIResponse(true, "modo AP guardado; se aplica en el siguiente ciclo"));
   });
   
   // API REST - Obtener estadísticas
@@ -516,8 +551,9 @@ String Web::generateHTML()
        help:'Configuration help',hdef:'Choose the board role first; only applicable parameters are shown. Configure <b>on the ground</b> and press Save. Changing the role restarts the board.',
       saved:'Saved',serr:'Save failed',lerr:'Error loading parameters',cur:'Current value',
       form:['Trail','Left','Right','Above','Below'],
-      roles:['Off','Follower','Leader'],
-      lb:{formation:'Formation',dist_offset:'Trail distance',lateral_offset:'Lateral offset',vertical_offset:'Vertical offset',cross_gain:'Lateral gain',hdg_corr_max:'Max heading correction',along_gain:'Longitudinal gain',prediction:'Prediction',filter:'Position filter',foll_enable:'Follow enable',link_timeout:'Link timeout',netid:'Network ID',approach_dist:'Approach distance',role:'Board role'},
+       roles:['Off','Follower','Leader'],
+       apModes:['Auto (ground only)','On (ground only)','Off'],
+       lb:{formation:'Formation',dist_offset:'Trail distance',lateral_offset:'Lateral offset',vertical_offset:'Vertical offset',cross_gain:'Lateral gain',hdg_corr_max:'Max heading correction',along_gain:'Longitudinal gain',prediction:'Prediction',filter:'Position filter',foll_enable:'Follow enable',link_timeout:'Link timeout',netid:'Network ID',approach_dist:'Approach distance',role:'Board role',ap_mode:'WiFi access point'},
      d:{formation:'Geometry relative to the leader: <b>Trail</b> behind, <b>Left/Right</b> lateral, <b>Above/Below</b> vertical.',
         dist_offset:'Longitudinal separation behind the leader for TRAIL (m). Typical ~90-110 m.',
         lateral_offset:'Sideways separation for LEFT/RIGHT (m).',
@@ -531,14 +567,16 @@ String Web::generateHTML()
         link_timeout:'Seconds without a heartbeat before the FC link is considered lost.',
         netid:'Shared network ID ("phrase"): packets from other IDs are ignored. Must match on both aircraft. 0 = accept any.',
          approach_dist:'Below this distance (m) the follower only keeps following if the leader is in a stable mode (FBWA/FBWB/CRUISE/AUTO/RTL/LOITER/TAKEOFF/GUIDED).',
-         role:'Select OFF, FOLLOWER or LEADER. Role changes are accepted only on the ground and restart the board; match the aircraft SYSID (leader=1, follower=2).'}},
+          role:'Select OFF, FOLLOWER or LEADER. Role changes are accepted only on the ground and restart the board; match the aircraft SYSID (leader=1, follower=2).',
+          ap_mode:'WiFi access point mode. It is always disabled when the aircraft is airborne.'}},
     es:{stats:'Estado',cfg:'Configuración FWM',act:'Acciones',save:'Guardar',logs:'Descargar logs',reload:'Recargar',ground:'EN TIERRA',flight:'EN VUELO',
      st:{state:'Estado',up:'Tiempo',rx:'RX / TX',rssi:'RSSI',snr:'SNR',loss:'Pérdidas',dist:'Distancia'},
        help:'Ayuda de configuración',hdef:'Selecciona primero el rol; solo se muestran los parámetros disponibles para ese rol. Configura <b>en tierra</b> y pulsa Guardar. Cambiar el rol reinicia la placa.',
       saved:'Guardado',serr:'Error al guardar',lerr:'Error al cargar parámetros',cur:'Valor actual',
       form:['Cola','Izquierda','Derecha','Arriba','Abajo'],
-      roles:['Desactivado','Seguidor','Líder'],
-      lb:{formation:'Formación',dist_offset:'Distancia TRAIL',lateral_offset:'Offset lateral',vertical_offset:'Offset vertical',cross_gain:'Ganancia lateral',hdg_corr_max:'Corrección de rumbo máx',along_gain:'Ganancia longitudinal',prediction:'Predicción',filter:'Filtro de posición',foll_enable:'Activar seguimiento',link_timeout:'Timeout de enlace',netid:'ID de red',approach_dist:'Distancia de aproximación',role:'Rol de placa'},
+       roles:['Desactivado','Seguidor','Líder'],
+       apModes:['Auto (solo tierra)','Activado (solo tierra)','Desactivado'],
+       lb:{formation:'Formación',dist_offset:'Distancia TRAIL',lateral_offset:'Offset lateral',vertical_offset:'Offset vertical',cross_gain:'Ganancia lateral',hdg_corr_max:'Corrección de rumbo máx',along_gain:'Ganancia longitudinal',prediction:'Predicción',filter:'Filtro de posición',foll_enable:'Activar seguimiento',link_timeout:'Timeout de enlace',netid:'ID de red',approach_dist:'Distancia de aproximación',role:'Rol de placa',ap_mode:'Punto de acceso WiFi'},
      d:{formation:'Geometría relativa al líder: <b>Cola</b> detrás, <b>Izquierda/Derecha</b> lateral, <b>Arriba/Abajo</b> vertical.',
         dist_offset:'Separación longitudinal detrás del líder para TRAIL (m). Típico ~90-110 m.',
         lateral_offset:'Separación lateral para Izquierda/Derecha (m).',
@@ -552,7 +590,8 @@ String Web::generateHTML()
         link_timeout:'Segundos sin heartbeat antes de considerar perdido el enlace con el FC.',
         netid:'ID de red compartido ("frase"): se ignoran paquetes de otros IDs. Debe coincidir en ambos aviones. 0 = aceptar cualquiera.',
          approach_dist:'Por debajo de esta distancia (m) el seguidor solo sigue si el líder está en un modo estable (FBWA/FBWB/CRUISE/AUTO/RTL/LOITER/TAKEOFF/GUIDED).',
-         role:'Selecciona DESACTIVADO, SEGUIDOR o LÍDER. Solo se cambia en tierra y la placa se reinicia; SYSID del avión: líder=1, seguidor=2.'}}
+          role:'Selecciona DESACTIVADO, SEGUIDOR o LÍDER. Solo se cambia en tierra y la placa se reinicia; SYSID del avión: líder=1, seguidor=2.',
+          ap_mode:'Modo del punto de acceso WiFi. Se apaga siempre cuando la aeronave está en vuelo.'}}
     };
     let P=[],ALL_P=[],DRAFT={},LANG=localStorage.getItem('lang')||(((navigator.language||'en').slice(0,2)==='es')?'es':'en');
     const L=()=>I18N[LANG];
@@ -580,7 +619,7 @@ String Web::generateHTML()
       P=visible;let h='';
       visible.forEach(p=>{const id='p_'+p.key,t=p.type,lb=L().lb[p.key]||p.label,u=p.unit?' ('+p.unit+')':'';
         let fld;
-        if(t===3){const opts=p.key==='role'?L().roles:L().form;fld='<label>'+lb+'<select id="'+id+'">'+opts.map((n,i)=>'<option value="'+i+'">'+n+'</option>').join('')+'</select></label>';}
+        if(t===3){const opts=p.key==='role'?L().roles:(p.key==='ap_mode'?L().apModes:L().form);fld='<label>'+lb+'<select id="'+id+'">'+opts.map((n,i)=>'<option value="'+i+'">'+n+'</option>').join('')+'</select></label>';}
         else if(t===2)fld='<label class="chk"><input type="checkbox" id="'+id+'">'+lb+'</label>';
         else fld='<label>'+lb+u+'<input type="number" step="any" min="'+p.min+'" max="'+p.max+'" id="'+id+'"></label>';
         h+='<div class="prow">'+fld+'<div class="desc">'+(L().d[p.key]||'')+'</div></div>';});

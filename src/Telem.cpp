@@ -506,6 +506,33 @@ void Telem::status_text(const char *text, uint8_t severity)
     send_to_fc(msg);
 }
 
+void Telem::enableRuntimeSitlUsb()
+{
+    // Serial/UART0 ya está inicializado a 57600 por setup(); el perfil runtime dev
+    // reserva ese puerto para MAVLink y deja de usarlo como consola.
+    fcPort = &Serial;
+    link = false;
+    linkTimeout = false;
+    linkTryTime = 0;
+    positionValid = false;
+    is_connecting = true;
+    // check_link() convierte last_heartbeat de ms a s; guardar aquí la misma unidad que
+    // las actualizaciones MAVLink para no disparar falsamente el timeout al entrar en SIM.
+    last_heartbeat = millis();
+    autopilotSystemId = 0;
+    // El timeout de búsqueda inicial detuvo el ticker. Reanudarlo para negociar heartbeats
+    // con SITL cuando el bridge serie aparezca.
+    heartbeat_ticker.detach();
+    heartbeat_ticker.attach_ms(HEARTBEAT_INTERVAL, Telem::heartbeat_ticker_callback);
+}
+
+uint32_t Telem::minimumSafeAltitude() const
+{
+    return fwm != nullptr && fwm->isRuntimeSitlMode()
+               ? FWM_SITL_MIN_SAFE_ALTITUDE
+               : MIN_SAFE_ALTITUDE;
+}
+
 /**
  * @brief Sets the value of a parameter on the vehicle.
  *
@@ -779,6 +806,24 @@ void Telem::guided_follow(LoraPacket_t leader, int32_t targetLat, int32_t target
         float lhdg = leader.hdg / 100.0f;                     // rumbo del lider (deg)
         float diff = fmodf(fabsf(lhdg - brg), 360.0f);
         if (diff > 180.0f) diff = 360.0f - diff;
+        const bool guardActive = rng < HEAD_ON_RANGE && diff > HEAD_ON_FACE_DEG;
+#if FWM_ALLOW_RUNTIME_SITL
+        static uint32_t lastHeadOnDiag = 0;
+        if (fwm->isRuntimeSitlMode() && rng < 800.0f && millis() - lastHeadOnDiag > 1000)
+        {
+            auto sendNamedInt = [this](const char *name, int32_t value)
+            {
+                mavlink_message_t diagnostic;
+                mavlink_msg_named_value_int_pack(fwm->fwmSystemId(), COMPID, &diagnostic,
+                                                 millis(), name, value);
+                send_to_fc(diagnostic);
+            };
+            sendNamedInt("FWM_RNG", (int32_t)rng);
+            sendNamedInt("FWM_FACE", (int32_t)diff);
+            sendNamedInt("FWM_GUARD", guardActive ? 1 : 0);
+            lastHeadOnDiag = millis();
+        }
+#endif
         static uint32_t lastDbg = 0;
         if (rng < 800.0f && millis() - lastDbg > 1500)
         {
@@ -786,12 +831,14 @@ void Telem::guided_follow(LoraPacket_t leader, int32_t targetLat, int32_t target
                        (int)rng, (int)diff, (int)lhdg, (int)brg);
             lastDbg = millis();
         }
-        if (rng < HEAD_ON_RANGE && diff > HEAD_ON_FACE_DEG)   // el lider mira hacia nosotros
+        if (guardActive)   // el lider mira hacia nosotros
         {
             static uint32_t lastGuardLog = 0;
             if (millis() - lastGuardLog > 1000)
             {
                 Log.warning("HEAD_ON guard: rng=%dm face=%d" CR, (int)rng, (int)diff);
+                if (fwm->isRuntimeSitlMode())
+                    status_text("HEAD_ON guard active", MAV_SEVERITY_WARNING);
                 lastGuardLog = millis();
             }
             float hb = brg + HEAD_ON_BREAK_DEG;          // perpendicular a la visual
@@ -1016,10 +1063,11 @@ bool Telem::isSafeToFollow(LoraPacket_t leaderData)
     }
     
     // 2. Verificar altitud mínima del líder
-    if (leaderData.relative_alt < MIN_SAFE_ALTITUDE)
+    const uint32_t minSafeAltitude = minimumSafeAltitude();
+    if (leaderData.relative_alt < minSafeAltitude)
     {
         Log.warning("Leader altitude too low: %d mm (min: %d mm)" CR, 
-                   leaderData.relative_alt, MIN_SAFE_ALTITUDE);
+                   leaderData.relative_alt, (int)minSafeAltitude);
         status_text("Leader altitude too low");
         return false;
     }
@@ -1034,10 +1082,10 @@ bool Telem::isSafeToFollow(LoraPacket_t leaderData)
     }
     
     // 4. Verificar nuestra propia altitud
-    if (APdata.relative_alt < MIN_SAFE_ALTITUDE)
+    if (APdata.relative_alt < minSafeAltitude)
     {
         Log.warning("Own altitude too low: %d mm (min: %d mm)" CR, 
-                   APdata.relative_alt, MIN_SAFE_ALTITUDE);
+                   APdata.relative_alt, (int)minSafeAltitude);
         status_text("Altitude too low");
         return false;
     }

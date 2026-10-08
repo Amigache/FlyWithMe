@@ -74,6 +74,18 @@ void Comm::markBeaconReceived()
 
 void Comm::run()
 {
+  // Solo este loop del core propietario toca SPI/SX1276: el comando serie deja la petición.
+  if (runtimeSitlProfilePending)
+  {
+    runtimeSitlProfilePending = false;
+    LoRa.setSignalBandwidth(FWM_SITL_LORA_SIGNAL_BANDWIDTH);
+    LoRa.setSpreadingFactor(FWM_SITL_LORA_SPREADING_FACTOR);
+    LoRa.setCodingRate4(LORA_CODING_RATE);
+    LoRa.setTxPower(LORA_TX_POWER);
+    LoRa.setSyncWord(LORA_SYNC_WORD);
+    Log.notice("Runtime SITL radio profile applied (SF7/BW250)" CR);
+  }
+
 #if NETID_USE_SYNCWORD
   // Las escrituras de parámetros pueden venir de Web/core0; el SX1276 solo lo toca este loop.
   if (syncWordPending)
@@ -504,6 +516,11 @@ bool Comm::validateChecksum(const LoraPacket_t &packet)
 uint8_t Comm::calChecksum(const LoraPacket_t &packet)
 {
   return loraPacketChecksum(packet);
+}
+
+void Comm::requestRuntimeSitlProfile()
+{
+  runtimeSitlProfilePending = true;
 }
 
 bool Comm::acceptSequence(uint16_t seq)

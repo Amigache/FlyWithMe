@@ -3,7 +3,7 @@
 Documento **vivo** de seguimiento. Registra el estado de validación, los fallos corregidos y el
 plan de trabajo por fases. Actualizar al completar cada tarea.
 
-> Última actualización: validación en banco con `FC_EMULATION=1` (dos TTGO LoRa32 V1, sin FC).
+> Última actualización: suite completa del bench; 20 PASS, 0 FAIL, 0 SKIP en ArduPlane SITL; cancelación ordenada limpia y restaura las placas.
 
 ---
 
@@ -12,10 +12,13 @@ plan de trabajo por fases. Actualizar al completar cada tarea.
 | Área | Estado |
 |---|---|
 | Compilación (perfil común `ttgo-lora32-v1-flight` y SITL) | ✅ SUCCESS |
+| SITL runtime universal | ✅ flight/dev compilan; COMx/COMx aceptan `SIMCFG OK`; reporte `20261008-211545` valida suite HIL completa y Stop/cancel limpian y restauran UART1; solo ArduPlane SITL, no vuelo físico |
+| Dependencias MAVProxy / puente TAP | ✅ `prompt-toolkit`; bridge abre COM sin reset, TAP de ambos FWM y diagnóstico RX/TX/enlace por MAVLink |
+| SSID/identidad por placa | ✅ Flasheado y verificado físicamente en COMx (líder) y COMx (seguidor): SSID y BSSID coinciden con MAC SoftAP; `FWM ID` devuelve identidad correcta en ambos |
 | Flasheo/provisión de rol | ✅ `tools/flash_firmware.py`; misma imagen, rol individual en NVS |
 | Arranque | ✅ sin crashes ni errores I2C |
 | Enlace LoRa líder → seguidor | ✅ **verificado** (`BEACON LOCK`, `FOLLOWING`, `Formation position`) |
-| Integración con FC real | ⏳ pendiente (por ahora `FC_EMULATION=1`) |
+| Integración con FC real | ⏳ pendiente; HIL actual usa ArduPlane SITL por USB, no un autopiloto físico |
 | Arnés de pruebas HIL | ✅ `tools/hil_test.py` |
 
 ## 2. Fallos corregidos (histórico)
@@ -30,6 +33,14 @@ plan de trabajo por fases. Actualizar al completar cada tarea.
 | 6 | **El seguidor no enlazaba** (error ~100 km) | Compresión truncaba hacia cero: longitudes negativas mal reconstruidas | `floor()` en `compressPacket` |
 | 7 | FSM bloqueada | `SEARCHING/LOST_LINK → FOLLOWING` no permitidas | Ampliadas transiciones válidas |
 | 8 | Logs ilegibles (`2f`, `1fm`) | ArduinoLog no soporta `%f` | Formatear como enteros escalados |
+| 9 | Aserción FreeRTOS al iniciar el servidor web con AP inhibido | `AsyncWebServer::begin()` se llamaba antes de inicializar WiFi/lwIP | Crear/iniciar AsyncWebServer solo desde `startAP()` después de `WiFi.softAP()` |
+| 10 | El AP aparecía brevemente y desaparecía sin FC | `Web::run()` lo arrancaba por su cuenta y el gate lo apagaba al siguiente ciclo | `updateApGate()` es la única autoridad; sin enlace FC inicial, el timeout permite setup; tras un enlace previo, la pérdida mantiene el AP bloqueado. Reflasheado: COMx informa `Access Point Ready`, pero el escaneo local aún no ve `FWM C5C559` (pendiente comprobar alcance/otro cliente WiFi). |
+| 11 | El bench SITL se detenía al iniciar MAVProxy | Faltaba la dependencia transitiva opcional `prompt-toolkit` en el entorno Python de desarrollo | Dependencia añadida; MAVProxy corrió en la suite HIL (`20261008-211545`). Verificación visual del GCS pendiente. |
+| 12 | `role_setup` no detectaba heartbeat FWM por TAP | SIM se activaba >10 s antes de abrir bridges; sin heartbeat FC, el ticker expiraba durante el arranque de SITL | Arrancar bridges inmediatamente después de crear SITL; `role_setup` PASS con SYSID 1/2 y COMPID 158. Fallback NVS fuera de rango a `LINK_TIMEOUT` añadido como robustez. |
+| 13 | El bridge podía resetear el ESP32 al abrir CP210x | DTR/RTS se cambiaban después de abrir el puerto | Configurarlos antes de `Serial.open()`; test unitario PASS |
+| 14 | Bench medía logs de texto durante SIM, aunque el USB transporta MAVLink y el firmware silencia Log | Session/netid/head-on y mode gate no observaban RX ni eventos; generaba falsos FAIL | Añadir `NAMED_VALUE_INT` solo en runtime dev y STATUSTEXT para la guarda; suite completa PASS (`20261008-211545`). |
+| 15 | El bench `head_on` requiere la guarda compilada | `HEAD_ON_GUARD` es 0 por defecto y el test exige eventos de ruptura | El perfil dev/HIL `ttgo-lora32-v1-sitl` habilita `HEAD_ON_GUARD=1`; flight de producción conserva 0. |
+| 16 | CtrlBreak del bench podía omitir limpieza de SITL/placas | El proceso Python terminaba al recibir SIGBREAK sin ejecutar `finally` | `bench_suite` captura SIGBREAK y limpia; cancelación probada con exit 130, puertos liberados e identidades confirmadas. |
 
 ## 3. Entorno y notas de banco
 
@@ -79,12 +90,14 @@ es para **aviones**, así que se usa `ArduPlane.exe` (no ArduCopter).
    **Seguimiento (validado):** el firmware usa `MAV_CMD_DO_REPOSITION` (ArduPlane GUIDED ignora
    `NAV_WAYPOINT`). Los paquetes van **sin comprimir** (`USE_COMPRESSED_PACKETS 0`): el formato
    comprimido cuantiza lat/lon a ~1/255° (**~436 m**), lo que hacía el seguimiento errático.
-2. Flashear ambas placas con la misma imagen de banco SITL (`FC_LINK_USB=1`, MAVLink por USB/UART0):
+2. Para el HIL runtime actual, flashear una sola vez ambas placas con el mismo perfil universal dev y
+   activar SIM con `tools/lab.py --firmware` (`FWM SIM ON`); reset devuelve a UART1. La validación histórica
+   anterior usaba `FC_LINK_USB=1` al arranque:
     ```
     pio run -e ttgo-lora32-v1-sitl -t upload --upload-port COMx
     ```
-   El perfil no contiene el rol. Asignarlo por el parámetro NVS `role` o ejecutar el bench completo,
-   que lo provisiona por TAP (`leader=2`, `follower=1`) antes de los escenarios.
+    El perfil dev no contiene el rol ni persiste el modo SIM. Asignar el rol en tierra; el bench confirma
+    `SIMCFG OK` por USB antes de conectar los bridges.
 3. Puente serie ↔ TCP (uno por placa):
    ```
    .\.platformio\penv\Scripts\python.exe tools\sitl_bridge.py --tcp 127.0.0.1:5760 --port COMx
@@ -120,8 +133,8 @@ ESP32, por eso el GCS usa SERIAL1.)
 > **Identidad:** el parámetro `role` determina el SYSID FWM/autopiloto esperado: líder=1, seguidor=2.
 > Los builds de vuelo y SITL no fijan el rol en compile time; placa nueva queda `OFF` hasta provisionarla.
 >
-> **Formación en banco:** el perfil común `ttgo-lora32-v1-sitl` añade `MIN_SAFE_ALTITUDE=0` para validar
-> `Formation position` con el avión SITL en el suelo. Producción mantiene 50 m.
+> **Formación en banco:** `FWM SIM ON` activa `MIN_SAFE_ALTITUDE=0`, SF7/BW250k y 200ms durante la
+> sesión, para validar el avión SITL en el suelo. Reset y el firmware de producción mantienen 50 m/SF12.
 >
 > Nota: los puertos USB reenumeran (COMx→21→22); comprobar el puerto antes de cada prueba.
 
@@ -139,9 +152,9 @@ ESP32, por eso el GCS usa SERIAL1.)
   - Web: `/api/stats` y WebSocket con `lost_packets`, `packet_loss`, `distance`, `state`; panel HTML con Pérdidas/Distancia/Estado.
 
 ### Fase B — Integración con FC real (`FC_EMULATION 0`)
-- [x] **B5a** Enlace de pruebas con SITL por USB (`FC_LINK_USB=1`): **líder y seguidor verificados**
-  (`LINK TO FC OK`, `BEACON LOCK`, `dist`). Añadidos `tools/sitl_bridge.py` y el perfil SITL común;
-  el rol y SYSID se determinan por el parámetro persistente `role`.
+- [x] **B5a** Enlace de pruebas con SITL por USB (históricamente `FC_LINK_USB=1`): **líder y seguidor verificados**
+  (`LINK TO FC OK`, `BEACON LOCK`, `dist`). Añadidos `tools/sitl_bridge.py`; el rol/SYSID se determinan
+  por NVS. El flujo runtime dev `FWM SIM ON` está implementado; HIL físico con esa ruta pendiente.
 - [ ] **B5b** Verificar/ajustar el baud del UART1 con FC real (posible desfase por cristal).
 - [ ] **B6** Validar MAVLink real: RX (HEARTBEAT/GLOBAL_POSITION_INT), `request_data_streams`,
   `nav_waypoint` en GUIDED, `do_change_speed`. **Requiere el FC en modo GUIDED** para seguir.
@@ -199,7 +212,8 @@ giro, alabeo y velocidades). `tools/sitl_takeoff.py` robusto (reintentos de arma
 **Cambio de formación en vuelo (web):** la API `POST /api/config` aplica `formation` (0–4),
 `prediction` y `filter` en caliente y los **persiste en NVS** (`FWM::setFormation/...`);
 `GET /api/config` los devuelve y la página web los carga al abrir. AP del seguidor:
-`FWM AP 2` / `http://192.168.4.1`.
+`http://192.168.4.1`. La validación histórica usó el SSID anterior `FWM AP 2`; el firmware actual
+deriva `FWM XXXXXX` de la MAC SoftAP y publica la identidad por serie.
 
 **Config del periférico SIN WiFi (tap del bridge):** para el banco HIL, `sitl_bridge.py --tap-port N`
 expone un enlace **MAVLink directo a cada placa** por el mismo cable USB (el bench lee/escribe los
@@ -290,7 +304,8 @@ con/sin guarda).
 Arduino 3.x asumía 40 MHz → la **WiFi/BT quedaban fuera de banda** (no emitían AP ni escaneaban).
 La solución es compilar con **`-DF_XTAL_MHZ=26`** (ya en `platformio.ini`): el core lo aplica en
 `app_main()` antes de `initArduino()`/WiFi, fija el cristal y reconfigura los relojes. Validado
-end-to-end: la placa **escanea 16 redes** y el PC ve/conecta a `FWM AP 2`; `GET/POST /api/config`
+end-to-end: la placa **escanea 16 redes** y el PC ve/conecta al SSID histórico `FWM AP 2`; el firmware
+actual deriva el SSID de la MAC SoftAP. `GET/POST /api/config`
 funcionan y la formación **persiste** tras reiniciar. (No requiere recompilar las libs.)
 
 > **Puertos USB no son identidades:** los CP210x reenumeran/intercambian COM al reconectar. En la

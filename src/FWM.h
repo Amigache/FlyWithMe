@@ -41,6 +41,7 @@ public:
     uint8_t fwmSystemId() const;
     uint8_t targetSystemId() const;
     uint8_t peerSystemId() const;
+    bool isRuntimeSitlMode() const { return runtimeSitlMode; }
 
     // FASE 1: State Machine
     SystemState currentState = STATE_INIT;
@@ -80,6 +81,7 @@ public:
     // AP/WiFi solo en tierra (configuracion); nunca en vuelo
     bool isOnGround();
     bool canChangeRole() const;
+    bool canChangeApMode() const;
     void updateApGate();
 
     // Fase 2: tabla de parametros FWM (fuente de verdad)
@@ -98,7 +100,12 @@ private:
     Preferences preferences;
 
     void processSerialProvisioning();
-    void updateRoleSsid();
+    void logDeviceIdentity();
+    bool enableRuntimeSitlMode(String &error);
+    volatile bool runtimeSitlMode = false;
+    volatile bool adaptiveRateEnabled = ADAPTIVE_RATE;
+    volatile uint32_t sendPacketIntervalMs = SEND_PACKET_INTERVAL;
+    uint32_t currentTransmissionInterval = SEND_PACKET_INTERVAL;
     void requestRoleRestart();
     volatile bool roleRestartPending = false;
     volatile uint32_t roleRestartAtMs = 0;

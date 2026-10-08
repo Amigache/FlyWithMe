@@ -88,8 +88,12 @@ public:
   boolean lock_ap = false;
   boolean is_connecting = false;
 
+  // En el firmware universal de desarrollo se cambia a USB/UART0 tras FWM SIM ON.
+  void enableRuntimeSitlUsb();
+  uint32_t minimumSafeAltitude() const;
+
   HardwareSerial SerialPort;
-  HardwareSerial *fcPort = nullptr; // puerto de MAVLink: UART1 (FC real) o UART0 (SITL por USB)
+  HardwareSerial * volatile fcPort = nullptr; // UART1 en vuelo o UART0 en HIL runtime
 
 private:
   void check_link();

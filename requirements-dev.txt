@@ -1,0 +1,4 @@
+MAVProxy
+prompt_toolkit
+pymavlink
+pyserial

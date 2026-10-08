@@ -77,7 +77,9 @@ Criterios de niveles: `docs/PLAN_PRUEBAS_SISTEMA.md` §2.
 
 Antes de crear el primer tag `v*`:
 
-- [ ] CI verde en GitHub (`ci.yml`) tras el push.
+- [x] CI verde en GitHub (`ci.yml`) y CodeQL en verde en `main` (`5ff16ca`). Tag `v1.0.0` creado; release publicada.
+- [x] Pages activo (`https://amigache.github.io/FlyWithMe/`); flasheador `v1.0.0` desplegado.
+- [x] Reglas de `main` y tags `v*`, releases inmutables, Dependabot, secret scanning y Actions restringidas (configurado con `gh`).
 - [ ] Verificar en placa FW-11 (66 checks), PW-01 y F05-01.
 - [ ] Cerrar F-08: reflashear COMx/COMx con `ttgo-lora32-v1-flight` y comprobar `SIMCFG ERR`.
 - [ ] Repetir L4 (`tools/bench_suite.py`) con el firmware nuevo.

@@ -15,9 +15,10 @@ calcula una posición de formación y envía el waypoint resultante a su propio 
 
 - **Hardware objetivo:** TTGO LoRa32 V1 (ESP32 + SX1276), OLED SSD1306 128x64, LoRa 866 MHz (Europa).
 - **Framework:** Arduino sobre **PlatformIO**.
-- **Dos variantes de firmware** (mismo código, distinto `build_flag`):
-  - `ttgo-lora32-v1-master` → líder (`MASTER_BUILD_FLAG`)
-  - `ttgo-lora32-v1-slave` → seguidor (`SLAVE_BUILD_FLAG`)
+- **Dos roles de firmware** (mismo código, distinto `build_flag`), con perfiles separados:
+  - `ttgo-lora32-v1-master-flight` / `ttgo-lora32-v1-slave-flight` → vuelo real (UART1, `FC_EMULATION=0`).
+  - `ttgo-lora32-v1-master-sitl` / `ttgo-lora32-v1-slave-sitl` → ArduPlane SITL por USB/UART0.
+  - `ttgo-lora32-v1-master` / `ttgo-lora32-v1-slave` → emulación FC local; **no flashear para vuelo real**.
 
 ---
 
@@ -26,13 +27,17 @@ calcula una posición de formación y envía el waypoint resultante a su propio 
 Ejecutar siempre desde la raíz del repositorio. Requiere PlatformIO (`pio`).
 
 ```bash
-# Compilar
-pio run -e ttgo-lora32-v1-master
-pio run -e ttgo-lora32-v1-slave
+# Compilar para vuelo real (sin FC sintético)
+pio run -e ttgo-lora32-v1-master-flight
+pio run -e ttgo-lora32-v1-slave-flight
 
-# Flashear
-pio run -e ttgo-lora32-v1-master -t upload
-pio run -e ttgo-lora32-v1-slave  -t upload
+# Compilar para banco SITL
+pio run -e ttgo-lora32-v1-master-sitl
+pio run -e ttgo-lora32-v1-slave-sitl
+
+# Flashear (sustituir COMx/COMy tras identificar SYSID del FC)
+pio run -e ttgo-lora32-v1-master-flight -t upload --upload-port COMx
+pio run -e ttgo-lora32-v1-slave-flight  -t upload --upload-port COMy
 
 # Monitor serie (57600 baudios; ver nota más abajo)
 pio device monitor

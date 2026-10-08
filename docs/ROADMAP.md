@@ -263,16 +263,13 @@ marca TX pendiente: **todas las operaciones SX1276 se ejecutan secuencialmente d
 Si faltan REPLYs, `SESSION_TIMEOUT_MS` expira y vuelve discovery; al regresar el peer, re-JOIN/reactiva
 la tasa normal. Hardware SITL: reply bidireccional, timeout, discovery y rejoin **PASS**; el FC/GCS
 recibe `STATUSTEXT` del líder. El envío ya usa **deduplicación exacta** (texto prefijado + severidad):
-si no cambió, no vuelve a transmitirlo; si cambia distancia se actualiza. Los mensajes de distancia
-usan `MAV_SEVERITY_INFO` (6): la captura del usuario confirma que Mission Planner muestra `FWM:
-Follower 48m` tanto en el overlay HUD como en Messages. `src/selftest.h` prueba la deduplicación. El líder
-ignora la posición del seguidor hasta que el REPLY lleve `POSITION_VALID`, evitando el mensaje inicial
-de distancia absurda cuando aún no llegó GPS.
-
-> **Pendiente de aplicar la última versión al líder:** el usuario ya conectó el HUD y confirmó el overlay;
-> sin embargo, el líder COMx volvió a dejar de responder al bootloader/serie durante el último reflasheo.
-> El dedupe y el filtro de posición están compilados, pero el líder conserva un firmware anterior hasta
-> recuperar COMx.
+si no cambió, no vuelve a transmitirlo; la distancia se anuncia solo al variar al menos 5 m. Los
+mensajes de distancia usan `MAV_SEVERITY_INFO` (6). La captura enviada por el usuario confirma que
+Mission Planner muestra `158: FWM: Follower 48m` tanto en el overlay HUD como en Messages. El test de
+sesión además verifica severidad/origen cuando aparece un STATUSTEXT nuevo; puede no ver uno si el
+deduper ya envió exactamente el mismo texto antes. `src/selftest.h` prueba igualdad y cambios de texto
+y severidad. El líder publica distancia solo si ambos paquetes declaran posición válida, evitando el
+mensaje inicial absurdo antes de recibir GPS.
 
 **Dual-core (`FWM_DUAL_CORE=1`, activo):** core 1 ejecuta el loop de vuelo y es propietario de LoRa;
 core 0 ejecuta web/pantalla/logger. `FWM::send_packet_ticker_callback` ya no toca SPI: solo pone una

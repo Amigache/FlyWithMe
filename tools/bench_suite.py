@@ -727,8 +727,8 @@ class Suite:
                  {"statustext_count": len(leader_osd_events), "follower_distance_messages": len(osd_events),
                   "severities": sorted(set(e[1] for e in osd_events)), "duplicate_pairs": duplicate_pairs,
                   "sources": sorted(set((e[2], e[3]) for e in osd_events))},
-                 "ver captura de MP: el bench verifica MAVLink, no píxeles del HUD" if osd_events else
-                 "el FC/GCS no reenviò STATUSTEXT del componente FWM")
+                 "el bench verifica MAVLink, no píxeles del HUD" if osd_events else
+                 "sin STATUSTEXT nuevo en esta ventana; puede haber sido enviado antes y deduplicado")
 
     def test_netid(self):
         """Filtro de red (netid): mismo id -> recibe beacons; distinto -> deja de recibirlos.

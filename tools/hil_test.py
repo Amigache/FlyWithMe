@@ -11,15 +11,17 @@ Requisitos:
   - Ambas placas con el mismo perfil `ttgo-lora32-v1` (FC_EMULATION=1).
   - Roles provisionados: leader en una placa y follower en la otra.
   - pyserial instalado en el Python que lo ejecute. Con PlatformIO:
-      .platformio\\penv\\Scripts\\python.exe tools\\hil_test.py --master COMx --slave COMx
+      .platformio\\penv\\Scripts\\python.exe tools\\hil_test.py --master COMx --slave COMy
 
 Uso:
-  python tools/hil_test.py --master COMx --slave COMx [--seconds 35] [--baud 57600]
+  python tools/hil_test.py --master COMx --slave COMy [--seconds 35] [--baud 57600]
 """
 import argparse
 import sys
 import threading
 import time
+
+import bench_config
 
 try:
     import serial
@@ -49,8 +51,8 @@ def read_port(results, name, port, baud, seconds):
 
 def main():
     ap = argparse.ArgumentParser(description="HIL test FlyWithMe (lider/seguidor por LoRa)")
-    ap.add_argument("--master", default="COMx", help="puerto serie del lider")
-    ap.add_argument("--slave", default="COMx", help="puerto serie del seguidor")
+    ap.add_argument("--master", default=bench_config.load()["leader_com"], help="puerto serie del lider")
+    ap.add_argument("--slave", default=bench_config.load()["slave_com"], help="puerto serie del seguidor")
     ap.add_argument("--baud", type=int, default=57600)
     ap.add_argument("--seconds", type=int, default=35)
     args = ap.parse_args()

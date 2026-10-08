@@ -110,6 +110,27 @@ temporalmente a UART0. No conectar dos dueños al mismo puerto.
 
 ## Banco SITL y MAVProxy
 
+### Configuración local del banco
+
+Coordenadas del campo de pruebas, puertos COM y ruta de ArduPlane **no se versionan**. Crea
+`tools/bench.local.json` a partir de `tools/bench.example.json` (ignorado por git):
+
+```json
+{
+  "sitl_exe": "C:/ruta/a/ArduPlane.exe",
+  "leader_com": "COMx",
+  "slave_com": "COMy",
+  "leader_home": "lat,lon,alt,yaw",
+  "follower_home": "lat,lon,alt,yaw",
+  "bench_target": "lat,lon,alt",
+  "bench_turn_target": "lat,lon,alt"
+}
+```
+
+Las claves que omitas toman el valor de `bench.example.json`. `lab.py`, `bench_suite.py`, `hil_test.py`,
+`bench_restart.ps1` y `sitl_start.ps1` leen este fichero. Sin él, `lab.py` avisa y usa valores genéricos.
+Los COM de `platformio.ini` no se fijan: usa `tools/flash_firmware.py --port COMx` o `--upload-port`.
+
 Se usa **ArduPlane** (no ArduCopter). `tools/lab.py` levanta dos SITL y MAVProxy, que combina ambos
 vehículos en una salida UDP para Mission Planner. SERIAL0 del SITL va a la placa por `sitl_bridge.py`;
 SERIAL1 va a MAVProxy/MP y SERIAL2 es el enlace de control.
@@ -119,7 +140,7 @@ SERIAL1 va a MAVProxy/MP y SERIAL2 es el enlace de control.
 python tools\lab.py
 
 # Opcional: conecta las placas SITL por puentes serie; los COM son ejemplos
-python tools\lab.py --firmware --leader-com COMx --slave-com COMx
+python tools\lab.py --firmware --leader-com COMx --slave-com COMy
 # Menú: 1 iniciar/reiniciar banco; 2 estado; 9 bench completo; 8 parar banco; 0 salir
 ```
 

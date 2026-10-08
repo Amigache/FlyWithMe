@@ -1,0 +1,11 @@
+{
+  "_comentario": "Plantilla del banco. Copia este fichero a tools/bench.local.json (ignorado por git) y pon tus valores reales.",
+  "sitl_exe": "C:/SITL/ArduPlane.exe",
+  "sitl_base": "tools/sitl_run",
+  "leader_com": "COM3",
+  "slave_com": "COM4",
+  "leader_home": "40.000000,-3.000000,600,180",
+  "follower_home": "40.000300,-3.000000,600,180",
+  "bench_target": "40.010000,-3.000000,80",
+  "bench_turn_target": "40.010000,-2.990000,80"
+}

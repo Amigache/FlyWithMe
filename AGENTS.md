@@ -275,7 +275,9 @@ El estado de Git cambia entre tareas; comprobar `git status` antes de editar, bo
 ## 8. Reglas para agentes (importante)
 
 1. **No editar** nada bajo `lib/mavlink/` (código generado).
-2. **Ajustar los puertos COM** de `platformio.ini` al hardware real; no hardcodear otros.
+2. **Puertos COM, coordenadas y rutas de SITL** no van en el repositorio. Se configuran en
+   `tools/bench.local.json` (ignorado por git; plantilla en `tools/bench.example.json`). Los scripts Python
+   y PowerShell lo leen con `tools/bench_config.py` y `tools/bench_config.ps1`.
 3. **Compatibilidad de protocolo LoRa:** si cambias `LoraPacket_t`/`CompressedLoraPacket_t`,
    mantén la recepción de ambos formatos (backward compatibility entre versiones de firmware).
 4. **Seguridad primero:** cualquier cambio en seguimiento debe respetar `isSafeToFollow()` y los

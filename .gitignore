@@ -10,6 +10,10 @@ mav.parm
 tools/reports/
 sitl/
 
+# Configuración local del banco (coordenadas, puertos y rutas reales) y directorio de trabajo SITL
+tools/bench.local.json
+tools/sitl_run/
+
 # Salidas generadas de release y flasheador web
 site/
 release-assets/

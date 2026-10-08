@@ -36,7 +36,10 @@ Criterios de niveles: `docs/PLAN_PRUEBAS_SISTEMA.md` §2.
 | PW-01 | L2 | Cambio de clave desde la WebUI y MAVLink | `POST /api/ap/pass`, `WIFI_CONFIG_AP` | **Compilado**. Pendiente en placa; MAVLink no validado con Mission Planner |
 | PW-02 | L2 | Bloqueo opcional con clave de fábrica | `FWM_FORCE_AP_PASS_CHANGE=0` (por defecto) | **No aplica** por decisión |
 | F05-01 | L2 | Escrituras fail-closed (`canWriteConfig`) | `groundOnly`, `/api/config`, `PARAM_SET` | **Compilado**. Pendiente en placa: enlazado y luego desconectado en vuelo → denegado; banco sin FC nunca enlazado → permitido |
-| CI-01 | L2 | Workflows en GitHub | `ci.yml` en `push` y `pull_request` | **Pendiente**: se verifica al primer run tras el push |
+| CI-01 | L2 | Workflows en GitHub | `ci.yml` en `push` y `pull_request` | **Primer run (0ea5cc5 y 8a90c08): FAIL** en «Set up Python» de los tres jobs por `cache: pip` (buscaba `requirements.txt`). **Corregido** quitando la caché; pendiente de verificar en el próximo run |
+| CQ-01 | L2 | CodeQL | `codeql.yml` (cpp con build manual, python) | **Pendiente**: primer run tras el push. Requiere desactivar el *default setup* de code scanning en GitHub |
+| F10-01 | L0 | Configuración del banco fuera del repo | búsqueda de coordenadas, COM y rutas en `git ls-files` | **PASS**: solo quedaban coordenadas en `docs/ROADMAP.md`; sustituidas por marcadores |
+| F10-02 | L1 | Cargador de configuración | sobreescritura desde `bench.local.json` (con BOM, como lo escribe PowerShell) en Python y PowerShell | **PASS** en ambos lenguajes; la plantilla se usa si falta una clave |
 | FLASH-01 | L2 | Carga y provisión por script | `tools/flash_firmware.py` | **No ejecutado**: requiere placa |
 | L3 | L3 | SITL sin placas | `python tools/lab.py` | **No ejecutado**: sin ArduPlane |
 | L4 | L4 | HIL completo | `tools/bench_suite.py` | **No repetido**. Último reporte documentado: `20261008-211545`, PASS 20/20. Debe repetirse con el firmware nuevo |

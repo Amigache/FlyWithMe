@@ -32,6 +32,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+import bench_config
 from pymavlink import mavutil
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -1052,8 +1053,8 @@ def main():
                     help="detener solo los procesos SITL/bridge iniciados por este run al terminar")
     ap.add_argument("--firmware", action="store_true", help="conectar tambien las placas (puentes)")
     ap.add_argument("--sitl-exe", default=None, help="ruta a ArduPlane SITL")
-    ap.add_argument("--leader-com", default="COMx", help="puerto de la placa líder")
-    ap.add_argument("--slave-com", default="COMx", help="puerto de la placa seguidora")
+    ap.add_argument("--leader-com", default=bench_config.load()["leader_com"], help="puerto de la placa líder")
+    ap.add_argument("--slave-com", default=bench_config.load()["slave_com"], help="puerto de la placa seguidora")
     ap.add_argument("--mp-udp", type=int, default=14550, help="puerto UDP de Mission Planner")
     ap.add_argument("--report-root", default=None, help="directorio de reportes (default tools/reports)")
     ap.add_argument("--dist-offset", type=float, default=None,

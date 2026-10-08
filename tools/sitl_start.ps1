@@ -1,21 +1,30 @@
 # Arranca el banco de pruebas SITL: 2 aviones ArduPlane + puentes a las placas.
-# Uso:  powershell -ExecutionPolicy Bypass -File tools\sitl_start.ps1 [-MasterCom COMx] [-SlaveCom COMx]
+# Valores (ruta de ArduPlane, puertos COM, coordenadas de inicio) en tools/bench.local.json.
+# Uso:  powershell -ExecutionPolicy Bypass -File tools\sitl_start.ps1 [-MasterCom COMx] [-SlaveCom COMy]
 param(
-    [string]$Exe = "$env:USERPROFILE\Documents\Mission Planner\sitl\ArduPlane.exe",
-    [string]$MasterCom = "COMx",
-    [string]$SlaveCom = "COMx",
+    [string]$Exe,
+    [string]$MasterCom,
+    [string]$SlaveCom,
     # yaw 180 => despegue hacia el SUR (evita las montanas que hay al norte)
-    [string]$LeaderHome = "0.000000,0.000000,302,180",
-    [string]$FollowerHome = "0.000000,0.000000,302,180",
+    [string]$LeaderHome,
+    [string]$FollowerHome,
     [string]$Python = "$env:USERPROFILE\.platformio\penv\Scripts\python.exe",
     [int]$Baud = 57600
 )
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot 'bench_config.ps1')
+$cfg = Get-BenchConfig
+if (-not $Exe) { $Exe = $cfg.sitl_exe }
+if (-not $MasterCom) { $MasterCom = $cfg.leader_com }
+if (-not $SlaveCom) { $SlaveCom = $cfg.slave_com }
+if (-not $LeaderHome) { $LeaderHome = $cfg.leader_home }
+if (-not $FollowerHome) { $FollowerHome = $cfg.follower_home }
+
 $repo = Split-Path -Parent $PSScriptRoot
-$base = "$env:LOCALAPPDATA\Temp\opencode\sitl"
+$base = Resolve-BenchPath $cfg.sitl_base
 New-Item -ItemType Directory -Force "$base\l0", "$base\l1" | Out-Null
 
-if (-not (Test-Path $Exe)) { Write-Error "No existe el binario SITL: $Exe" }
+if (-not (Test-Path $Exe)) { Write-Error "No existe el binario SITL: $Exe (configura sitl_exe en tools/bench.local.json)" }
 $leaderParm = Join-Path $repo "tools\sitl\leader.parm"
 $followerParm = Join-Path $repo "tools\sitl\follower.parm"
 

@@ -10,7 +10,7 @@ Despues ofrece un menu para lanzar acciones/benchmarks y genera un reporte por e
 
 Uso:
   python tools/lab.py                 # menu interactivo
-  python tools/lab.py --firmware --master-com COMx --slave-com COMx
+  python tools/lab.py --firmware --leader-com COMx --slave-com COMy   (valores en tools/bench.local.json)
   python tools/lab.py --mp-udp 14550
 """
 import argparse
@@ -23,6 +23,8 @@ import socket
 from datetime import datetime
 from pathlib import Path
 
+import bench_config
+
 ROOT = Path(__file__).resolve().parent.parent
 TOOLS = ROOT / "tools"
 REPORTS = TOOLS / "reports"
@@ -33,20 +35,21 @@ def python_tool_command(script, *args):
     """Ejecuta tools/*.py con el intérprete Python actual."""
     return [PY, str(script), *[str(arg) for arg in args]]
 
-# --- Configuracion (ajustable por args) ---
+# --- Configuracion (ajustable por args; coordenadas, COM y rutas en tools/bench.local.json) ---
+BENCH = bench_config.load()
 DEFAULTS = {
-    "sitl_exe": Path(os.environ.get("LOCALAPPDATA", "")) / "Temp/opencode/sitl-stable/ArduPlane.exe",
-    "sitl_base": Path(os.environ.get("LOCALAPPDATA", "")) / "Temp/opencode/sitl",
+    "sitl_exe": Path(BENCH["sitl_exe"]),
+    "sitl_base": Path(BENCH["sitl_base"]) if Path(BENCH["sitl_base"]).is_absolute() else ROOT / BENCH["sitl_base"],
     "leader_parm": TOOLS / "sitl/leader.parm",
     "follower_parm": TOOLS / "sitl/follower.parm",
     "fallback_parm": TOOLS / "sitl_plane.parm",
     # SITL: instancia N -> SERIAL0 = 5760+10N (puente/HIL), SERIAL1 = +2 (MAVProxy/MP), SERIAL2 = +3 (control)
-    "leader_home": "0.000000,0.000000,302,180",
-    "follower_home": "0.000000,0.000000,302,180",
+    "leader_home": BENCH["leader_home"],
+    "follower_home": BENCH["follower_home"],
     "mp_udp": 14550,        # UDP donde escucha Mission Planner
     "baud": 57600,
-    "leader_com": "COMx",
-    "slave_com": "COMx",
+    "leader_com": BENCH["leader_com"],
+    "slave_com": BENCH["slave_com"],
     "leader_tap": 5790,     # tap MAVLink directo a la placa del lider
     "slave_tap": 5791,      # tap MAVLink directo a la placa del seguidor
 }
@@ -350,8 +353,8 @@ class Lab:
         self._call([TOOLS / "sitl_guided.py", "--conn", "tcp:127.0.0.1:5773", "--mode", "15"], "seguidor GUIDED")
 
     def benchmark(self, kind):
-        tgt = {"straight": ("0.000000,0.000000,80", None),
-               "turn": ("0.000000,0.000000,80", "0.000000,0.000000,80")}[kind]
+        tgt = {"straight": (BENCH["bench_target"], None),
+               "turn": (BENCH["bench_target"], BENCH["bench_turn_target"])}[kind]
         args = [TOOLS / "hil_sitl_validate.py", "--target", tgt[0], "--seconds", "130", "--follower-guided"]
         if tgt[1]:
             args += ["--target2", tgt[1]]
@@ -405,6 +408,8 @@ def main():
     ap.add_argument("--mp-udp", type=int, default=DEFAULTS["mp_udp"])
     ap.add_argument("--sitl-exe", default=str(DEFAULTS["sitl_exe"]))
     args = ap.parse_args()
+    if not bench_config.is_configured():
+        print("AVISO: no existe tools/bench.local.json; se usan valores de ejemplo (tools/bench.example.json).")
 
     cfg = dict(DEFAULTS)
     cfg.update(firmware=args.firmware, leader_com=args.leader_com, slave_com=args.slave_com,

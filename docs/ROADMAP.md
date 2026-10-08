@@ -11,8 +11,8 @@ plan de trabajo por fases. Actualizar al completar cada tarea.
 
 | Área | Estado |
 |---|---|
-| Compilación (`master` + `slave`) | ✅ SUCCESS (Flash ~35.6 %, RAM ~15 %) |
-| Flasheo | ✅ (requiere `PYTHONIOENCODING=utf-8`, ver §3) |
+| Compilación (perfil común `ttgo-lora32-v1-flight` y SITL) | ✅ SUCCESS |
+| Flasheo/provisión de rol | ✅ `tools/flash_firmware.py`; misma imagen, rol individual en NVS |
 | Arranque | ✅ sin crashes ni errores I2C |
 | Enlace LoRa líder → seguidor | ✅ **verificado** (`BEACON LOCK`, `FOLLOWING`, `Formation position`) |
 | Integración con FC real | ⏳ pendiente (por ahora `FC_EMULATION=1`) |
@@ -35,8 +35,9 @@ plan de trabajo por fases. Actualizar al completar cada tarea.
 
 - **Baud serie: 57600**. La placa lleva cristal de **26 MHz**; con `-DF_XTAL_MHZ=26` el core ajusta el
   reloj y el baud es correcto. Sin esa flag saldría ~37440 (×0.65) **y la WiFi/BT no funcionarían**.
-- **Flashear en Windows:** `$env:PYTHONIOENCODING='utf-8'; pio run -e <env> -t upload`.
-- **Puertos actuales:** `COMx` (master) / `COMx` (slave). **USB inestable** (cable/puerto).
+- **Flashear/provisionar en Windows:** `python tools\flash_firmware.py --port COMx --role leader|follower`;
+  carga la imagen común y persiste el rol sin compilar variantes.
+- **Puertos observados históricamente:** `COMx` y `COMx`; no son identidad fija. **USB inestable** (cable/puerto).
 - **`FC_EMULATION = 1`**: sintetiza telemetría en `APdata` sin UART1 y **mantiene el LoRa real**.
   Poner `0` para vuelo con FC.
 - **`USE_INTERACTIVE_MENU = 0`** por conflicto de pines.
@@ -44,7 +45,11 @@ plan de trabajo por fases. Actualizar al completar cada tarea.
 ### Arnés HIL
 
 ```powershell
-# Ambas placas flasheadas con FC_EMULATION=1
+# Cargar la misma imagen de emulación y asignar roles en NVS
+python tools\flash_firmware.py --environment ttgo-lora32-v1 --port COMx --role leader
+python tools\flash_firmware.py --environment ttgo-lora32-v1 --port COMy --role follower
+
+# Ejecutar el HIL con los roles ya provisionados
 .\.platformio\penv\Scripts\python.exe tools\hil_test.py --master COMx --slave COMx --seconds 35
 ```
 
@@ -74,11 +79,12 @@ es para **aviones**, así que se usa `ArduPlane.exe` (no ArduCopter).
    **Seguimiento (validado):** el firmware usa `MAV_CMD_DO_REPOSITION` (ArduPlane GUIDED ignora
    `NAV_WAYPOINT`). Los paquetes van **sin comprimir** (`USE_COMPRESSED_PACKETS 0`): el formato
    comprimido cuantiza lat/lon a ~1/255° (**~436 m**), lo que hacía el seguimiento errático.
-2. Flashear la placa con el entorno SITL (`FC_LINK_USB=1`, MAVLink por USB/UART0):
-   ```
-   pio run -e ttgo-lora32-v1-master-sitl -t upload        # COMx (líder)
-   pio run -e ttgo-lora32-v1-slave-sitl  -t upload        # COMx (seguidor)
-   ```
+2. Flashear ambas placas con la misma imagen de banco SITL (`FC_LINK_USB=1`, MAVLink por USB/UART0):
+    ```
+    pio run -e ttgo-lora32-v1-sitl -t upload --upload-port COMx
+    ```
+   El perfil no contiene el rol. Asignarlo por el parámetro NVS `role` o ejecutar el bench completo,
+   que lo provisiona por TAP (`leader=2`, `follower=1`) antes de los escenarios.
 3. Puente serie ↔ TCP (uno por placa):
    ```
    .\.platformio\penv\Scripts\python.exe tools\sitl_bridge.py --tcp 127.0.0.1:5760 --port COMx
@@ -111,11 +117,11 @@ ESP32, por eso el GCS usa SERIAL1.)
 > **Armado:** SITL lanzado "a pelo" pide calibración 3D de acelerómetros (Mission Planner lo evita
 > porque pasa `--defaults`). `tools/sitl_takeoff.py` hace `param_set(ARMING_CHECK,0)` antes de armar.
 >
-> ⚠️ **sysid:** SITL emite `sysid=1`; el seguidor espera `TARGET_SYSID=2`, por eso `slave-sitl`
-> añade `-D TARGET_SYSID=1`.
+> **Identidad:** el parámetro `role` determina el SYSID FWM/autopiloto esperado: líder=1, seguidor=2.
+> Los builds de vuelo y SITL no fijan el rol en compile time; placa nueva queda `OFF` hasta provisionarla.
 >
-> **Formación en banco:** `slave-sitl` añade `-D MIN_SAFE_ALTITUDE=0` para validar `Formation position`
-> con el avión SITL en el suelo. Producción mantiene 50 m.
+> **Formación en banco:** el perfil común `ttgo-lora32-v1-sitl` añade `MIN_SAFE_ALTITUDE=0` para validar
+> `Formation position` con el avión SITL en el suelo. Producción mantiene 50 m.
 >
 > Nota: los puertos USB reenumeran (COMx→21→22); comprobar el puerto antes de cada prueba.
 
@@ -134,8 +140,8 @@ ESP32, por eso el GCS usa SERIAL1.)
 
 ### Fase B — Integración con FC real (`FC_EMULATION 0`)
 - [x] **B5a** Enlace de pruebas con SITL por USB (`FC_LINK_USB=1`): **líder y seguidor verificados**
-  (`LINK TO FC OK`, `BEACON LOCK`, `dist`). Añadidos `tools/sitl_bridge.py` y entornos `*-sitl`
-  (el de seguidor con `-D TARGET_SYSID=1`).
+  (`LINK TO FC OK`, `BEACON LOCK`, `dist`). Añadidos `tools/sitl_bridge.py` y el perfil SITL común;
+  el rol y SYSID se determinan por el parámetro persistente `role`.
 - [ ] **B5b** Verificar/ajustar el baud del UART1 con FC real (posible desfase por cristal).
 - [ ] **B6** Validar MAVLink real: RX (HEARTBEAT/GLOBAL_POSITION_INT), `request_data_streams`,
   `nav_waypoint` en GUIDED, `do_change_speed`. **Requiere el FC en modo GUIDED** para seguir.

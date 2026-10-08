@@ -36,8 +36,11 @@ public:
 
     // Follow
     int stage_follow = STAGE_IDLE;
-    int follow_mode = FOLL_MODE;
+    int follow_mode = FOLL_MODE_OFF;
     void changeFollowMode(uint8_t mode);
+    uint8_t fwmSystemId() const;
+    uint8_t targetSystemId() const;
+    uint8_t peerSystemId() const;
 
     // FASE 1: State Machine
     SystemState currentState = STATE_INIT;
@@ -76,6 +79,7 @@ public:
 
     // AP/WiFi solo en tierra (configuracion); nunca en vuelo
     bool isOnGround();
+    bool canChangeRole() const;
     void updateApGate();
 
     // Fase 2: tabla de parametros FWM (fuente de verdad)
@@ -92,6 +96,12 @@ public:
 
 private:
     Preferences preferences;
+
+    void processSerialProvisioning();
+    void updateRoleSsid();
+    void requestRoleRestart();
+    volatile bool roleRestartPending = false;
+    volatile uint32_t roleRestartAtMs = 0;
     
     Ticker send_packet_ticker;
     volatile bool beaconDue = false; // el Ticker solo marca; el loop propietario opera el SX1276

@@ -8,7 +8,8 @@ Lee simultaneamente el serial de ambas placas y comprueba, en estado estacionari
   - No entra en modo EMERGENCY.
 
 Requisitos:
-  - Ambas placas flasheadas con el mismo firmware (FC_EMULATION=1, ver src/config.h).
+  - Ambas placas con el mismo perfil `ttgo-lora32-v1` (FC_EMULATION=1).
+  - Roles provisionados: leader en una placa y follower en la otra.
   - pyserial instalado en el Python que lo ejecute. Con PlatformIO:
       .platformio\\penv\\Scripts\\python.exe tools\\hil_test.py --master COMx --slave COMx
 
@@ -73,7 +74,7 @@ def main():
         print(f"ERROR abriendo {args.slave}: {results['slave_error']}")
 
     checks = [
-        ("lider transmite (Sent compressed packet)", "Sent compressed packet" in master),
+        ("lider transmite (Send Packet)", "Send Packet:" in master),
         ("lider sin emergencia", "EMERGENCY MODE" not in master),
         ("seguidor arranca (FWM Ready)", "FWM Ready" in slave),
         ("seguidor engancha beacon (BEACON LOCK)", "BEACON LOCK" in slave),

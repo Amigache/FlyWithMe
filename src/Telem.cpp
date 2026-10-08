@@ -66,7 +66,7 @@ void Telem::heartbeat_ticker_callback()
         digitalWrite(LED_BUILTIN, (!self->led_status) ? LOW : HIGH);
 
         // Enviamos heartbeat
-        self->heartbeat(SYSID, COMPID, MAV_TYPE_GENERIC, MAV_AUTOPILOT_INVALID, MAV_MODE_PREFLIGHT, 0, MAV_STATE_ACTIVE);
+        self->heartbeat(self->fwm->fwmSystemId(), COMPID, MAV_TYPE_GENERIC, MAV_AUTOPILOT_INVALID, MAV_MODE_PREFLIGHT, 0, MAV_STATE_ACTIVE);
 
         // Comprobamos link
         self->check_link();
@@ -99,8 +99,19 @@ void Telem::run()
 
             if (mavlink_parse_char(MAVLINK_COMM_0, fcPort->read(), &msg, &status))
             {
+                // Antes de asignar rol, aprender el SYSID del ArduPilot conectado para
+                // permitir provisión en cualquier avión (incluido el futuro seguidor SYSID 2).
+                if (fwm->params.role == FWM_ROLE_OFF && msg.msgid == MAVLINK_MSG_ID_HEARTBEAT &&
+                    msg.compid == TARGET_COMPID)
+                {
+                    mavlink_heartbeat_t candidate;
+                    mavlink_msg_heartbeat_decode(&msg, &candidate);
+                    if (candidate.autopilot == MAV_AUTOPILOT_ARDUPILOTMEGA)
+                        autopilotSystemId = msg.sysid;
+                }
+
                 // MSGS que vienen de la FC
-                if (msg.sysid == TARGET_SYSID && msg.compid == TARGET_COMPID)
+                if (msg.sysid == fwm->targetSystemId() && msg.compid == TARGET_COMPID)
                 {
                     switch (msg.msgid)
                     {
@@ -299,7 +310,7 @@ void Telem::send_param_value(uint16_t index)
     memset(id, 0, sizeof(id));
     strncpy(id, d->key, sizeof(id) - 1);
     mavlink_message_t msg;
-    mavlink_msg_param_value_pack(SYSID, COMPID, &msg, id, fwm->getParamByIndex(index),
+    mavlink_msg_param_value_pack(fwm->fwmSystemId(), COMPID, &msg, id, fwm->getParamByIndex(index),
                                  MAV_PARAM_TYPE_REAL32, (uint16_t)fwm->paramCount(), index);
     send_to_fc(msg);
 }
@@ -320,7 +331,7 @@ void Telem::handle_param_message(mavlink_message_t &msg)
     {
         mavlink_param_request_list_t r;
         mavlink_msg_param_request_list_decode(&msg, &r);
-        if ((r.target_system == 0 || r.target_system == SYSID) &&
+        if ((r.target_system == 0 || r.target_system == fwm->fwmSystemId()) &&
             (r.target_component == 0 || r.target_component == COMPID))
         {
             send_all_params();
@@ -331,7 +342,7 @@ void Telem::handle_param_message(mavlink_message_t &msg)
     {
         mavlink_param_request_read_t r;
         mavlink_msg_param_request_read_decode(&msg, &r);
-        if (!((r.target_system == 0 || r.target_system == SYSID) &&
+        if (!((r.target_system == 0 || r.target_system == fwm->fwmSystemId()) &&
               (r.target_component == 0 || r.target_component == COMPID)))
         {
             break;
@@ -358,7 +369,7 @@ void Telem::handle_param_message(mavlink_message_t &msg)
     {
         mavlink_param_set_t s;
         mavlink_msg_param_set_decode(&msg, &s);
-        if (!((s.target_system == 0 || s.target_system == SYSID) &&
+        if (!((s.target_system == 0 || s.target_system == fwm->fwmSystemId()) &&
               (s.target_component == 0 || s.target_component == COMPID)))
         {
             break;
@@ -410,7 +421,7 @@ void Telem::receive_mavlink_serial()
         uint8_t serial_byte = fcPort->read();
         if (mavlink_parse_char(MAVLINK_COMM_0, serial_byte, &message, &status))
         {
-            if (message.sysid == TARGET_SYSID && message.compid == TARGET_COMPID)
+            if (message.sysid == fwm->targetSystemId() && message.compid == TARGET_COMPID)
             {
                 switch (message.msgid)
                 {
@@ -490,7 +501,7 @@ void Telem::status_text(const char *text, uint8_t severity)
     }
 
     mavlink_message_t msg;
-    mavlink_msg_statustext_pack(SYSID, COMPID, &msg, severity, wireText, 0, 0);
+    mavlink_msg_statustext_pack(fwm->fwmSystemId(), COMPID, &msg, severity, wireText, 0, 0);
     Log.notice("STATUSTEXT sent sev=%d text=%s" CR, severity, wireText);
     send_to_fc(msg);
 }
@@ -507,7 +518,7 @@ void Telem::status_text(const char *text, uint8_t severity)
 void Telem::set_param_value(std::string param_name, float param_value)
 {
     mavlink_message_t msg;
-    mavlink_msg_param_set_pack(SYSID, COMPID, &msg, TARGET_SYSID, TARGET_COMPID, param_name.c_str(), param_value, MAVLINK_TYPE_UINT8_T);
+    mavlink_msg_param_set_pack(fwm->fwmSystemId(), COMPID, &msg, fwm->targetSystemId(), TARGET_COMPID, param_name.c_str(), param_value, MAVLINK_TYPE_UINT8_T);
     send_to_fc(msg);
 }
 
@@ -522,7 +533,7 @@ void Telem::set_param_value(std::string param_name, float param_value)
 void Telem::request_param_value(std::string param_name)
 {
     mavlink_message_t msg;
-    mavlink_msg_param_request_read_pack(SYSID, COMPID, &msg, TARGET_SYSID, TARGET_COMPID, param_name.c_str(), -1);
+    mavlink_msg_param_request_read_pack(fwm->fwmSystemId(), COMPID, &msg, fwm->targetSystemId(), TARGET_COMPID, param_name.c_str(), -1);
     send_to_fc(msg);
 }
 
@@ -539,7 +550,7 @@ void Telem::request_param_value(std::string param_name)
 void Telem::request_data_streams(uint8_t req_stream_id, uint16_t req_message_rate, uint8_t start_stop)
 {
     mavlink_message_t msg;
-    mavlink_msg_request_data_stream_pack(SYSID, COMPID, &msg, TARGET_SYSID, TARGET_COMPID, req_stream_id, req_message_rate, start_stop);
+    mavlink_msg_request_data_stream_pack(fwm->fwmSystemId(), COMPID, &msg, fwm->targetSystemId(), TARGET_COMPID, req_stream_id, req_message_rate, start_stop);
     send_to_fc(msg);
 }
 
@@ -549,7 +560,7 @@ void Telem::request_data_streams(uint8_t req_stream_id, uint16_t req_message_rat
  * @param speed Target speed in m/s, adjusted by SPEED_OFFSET if applicable.
  *
  * This method packs and sends a `MAV_CMD_DO_CHANGE_SPEED` message with the specified speed.
- * The message is sent to the target system and component defined by `TARGET_SYSID` and `TARGET_COMPID`.
+ * The message is sent to the autopilot system/component selected by the configured role.
  */
 void Telem::do_change_speed(uint16_t speed)
 {
@@ -564,10 +575,10 @@ void Telem::do_change_speed(uint16_t speed)
 
     mavlink_message_t msg;
     mavlink_msg_command_long_pack(
-        SYSID,                   // Sender system ID
+        fwm->fwmSystemId(),      // Sender system ID
         COMPID,                  // Sender component ID
         &msg,                    // MAVLink message
-        TARGET_SYSID,            // Target system ID
+        fwm->targetSystemId(),   // Target system ID
         TARGET_COMPID,           // Target component ID
         MAV_CMD_DO_CHANGE_SPEED, // Command ID
         0,                       // Confirmation
@@ -591,7 +602,7 @@ void Telem::do_change_speed(uint16_t speed)
  * @param alt Altitude in meters, adjusted by ALT_OFFSET if applicable.
  *
  * This method packs and sends a `MAV_CMD_NAV_WAYPOINT` message with the specified coordinates and altitude.
- * The message is sent to the target system and component defined by `TARGET_SYSID` and `TARGET_COMPID`.
+ * The message is sent to the autopilot system/component selected by the configured role.
  */
 void Telem::nav_waypoint(int32_t lat, int32_t lon, int32_t alt)
 {
@@ -602,10 +613,10 @@ void Telem::nav_waypoint(int32_t lat, int32_t lon, int32_t alt)
     // MAV_CMD_DO_REPOSITION (COMMAND_INT). Antes enviabamos mission_item_int y el avion no se movia.
     mavlink_message_t msg;
     mavlink_msg_command_int_pack(
-        SYSID,                             // Sender system ID
+        fwm->fwmSystemId(),                // Sender system ID
         COMPID,                            // Sender component ID
         &msg,                              // MAVLink message
-        TARGET_SYSID,                      // Target system ID
+        fwm->targetSystemId(),             // Target system ID
         TARGET_COMPID,                     // Target component ID
         MAV_FRAME_GLOBAL_RELATIVE_ALT_INT, // Frame
         MAV_CMD_DO_REPOSITION,             // Command
@@ -631,7 +642,7 @@ void Telem::guided_change_heading(float heading_deg, float rate_dps)
 {
     mavlink_message_t msg;
     mavlink_msg_command_int_pack(
-        SYSID, COMPID, &msg, TARGET_SYSID, TARGET_COMPID,
+        fwm->fwmSystemId(), COMPID, &msg, fwm->targetSystemId(), TARGET_COMPID,
         MAV_FRAME_GLOBAL_RELATIVE_ALT_INT, MAV_CMD_GUIDED_CHANGE_HEADING,
         0, 0,
         0.0f,       // param1: 0 = course over ground
@@ -656,7 +667,7 @@ void Telem::guided_change_speed(float speed_mps, float accel_mps2)
 
     mavlink_message_t msg;
     mavlink_msg_command_int_pack(
-        SYSID, COMPID, &msg, TARGET_SYSID, TARGET_COMPID,
+        fwm->fwmSystemId(), COMPID, &msg, fwm->targetSystemId(), TARGET_COMPID,
         MAV_FRAME_GLOBAL_RELATIVE_ALT_INT, MAV_CMD_GUIDED_CHANGE_SPEED,
         0, 0,
         0.0f,        // param1: 0 = airspeed (unico soportado por ArduPlane)
@@ -671,7 +682,7 @@ void Telem::guided_change_altitude(float alt_m, float rate_mps)
 {
     mavlink_message_t msg;
     mavlink_msg_command_int_pack(
-        SYSID, COMPID, &msg, TARGET_SYSID, TARGET_COMPID,
+        fwm->fwmSystemId(), COMPID, &msg, fwm->targetSystemId(), TARGET_COMPID,
         MAV_FRAME_GLOBAL_RELATIVE_ALT_INT, MAV_CMD_GUIDED_CHANGE_ALTITUDE,
         0, 0,
         0.0f,
@@ -806,17 +817,17 @@ void Telem::guided_follow(LoraPacket_t leader, int32_t targetLat, int32_t target
  * @param hdg Heading in degrees (multiplied by 100).
  *
  * This method packs and sends a `MAV_CMD_DO_REPOSITION` message with the specified coordinates, altitude, and heading.
- * The message is sent to the target system and component defined by `TARGET_SYSID` and `TARGET_COMPID`.
+ * The message is sent to the autopilot system/component selected by the configured role.
  */
 void Telem::do_reposition(int32_t lat, int32_t lon, float alt, uint16_t hdg)
 {
     // P2: no aplicar ALT_OFFSET aqui (se aplicaba tambien en CalculateFormationPosition).
     mavlink_message_t msg;
     mavlink_msg_command_int_pack(
-        SYSID,                             // Sender system ID
+        fwm->fwmSystemId(),                // Sender system ID
         COMPID,                            // Sender component ID
         &msg,                              // MAVLink message
-        TARGET_SYSID,                      // Target system ID
+        fwm->targetSystemId(),             // Target system ID
         TARGET_COMPID,                     // Target component ID
         MAV_FRAME_GLOBAL_RELATIVE_ALT_INT, // Frame
         MAV_CMD_DO_REPOSITION,             // Command ID

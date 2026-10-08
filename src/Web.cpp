@@ -513,10 +513,11 @@ String Web::generateHTML()
     const I18N={
     en:{stats:'Status',cfg:'Configuration',act:'Actions',save:'Save',logs:'Download logs',reload:'Reload',ground:'ON GROUND',flight:'IN FLIGHT',
      st:{state:'State',up:'Uptime',rx:'RX / TX',rssi:'RSSI',snr:'SNR',loss:'Losses',dist:'Distance'},
-     help:'Configuration help',hdef:'Adjust FWM parameters here <b>on the ground</b>, then press Save. Changes are stored on the device and applied immediately.',
-     saved:'Saved',serr:'Save failed',lerr:'Error loading parameters',cur:'Current value',
-     form:['Trail','Left','Right','Above','Below'],
-     lb:{formation:'Formation',dist_offset:'Trail distance',lateral_offset:'Lateral offset',vertical_offset:'Vertical offset',cross_gain:'Lateral gain',hdg_corr_max:'Max heading correction',along_gain:'Longitudinal gain',prediction:'Prediction',filter:'Position filter',foll_enable:'Follow enable',link_timeout:'Link timeout',netid:'Network ID',approach_dist:'Approach distance'},
+       help:'Configuration help',hdef:'Choose the board role first; only applicable parameters are shown. Configure <b>on the ground</b> and press Save. Changing the role restarts the board.',
+      saved:'Saved',serr:'Save failed',lerr:'Error loading parameters',cur:'Current value',
+      form:['Trail','Left','Right','Above','Below'],
+      roles:['Off','Follower','Leader'],
+      lb:{formation:'Formation',dist_offset:'Trail distance',lateral_offset:'Lateral offset',vertical_offset:'Vertical offset',cross_gain:'Lateral gain',hdg_corr_max:'Max heading correction',along_gain:'Longitudinal gain',prediction:'Prediction',filter:'Position filter',foll_enable:'Follow enable',link_timeout:'Link timeout',netid:'Network ID',approach_dist:'Approach distance',role:'Board role'},
      d:{formation:'Geometry relative to the leader: <b>Trail</b> behind, <b>Left/Right</b> lateral, <b>Above/Below</b> vertical.',
         dist_offset:'Longitudinal separation behind the leader for TRAIL (m). Typical ~90-110 m.',
         lateral_offset:'Sideways separation for LEFT/RIGHT (m).',
@@ -529,13 +530,15 @@ String Web::generateHTML()
         foll_enable:'Enables the following function.',
         link_timeout:'Seconds without a heartbeat before the FC link is considered lost.',
         netid:'Shared network ID ("phrase"): packets from other IDs are ignored. Must match on both aircraft. 0 = accept any.',
-        approach_dist:'Below this distance (m) the follower only keeps following if the leader is in a stable mode (FBWA/FBWB/CRUISE/AUTO/RTL/LOITER/TAKEOFF/GUIDED).'}},
+         approach_dist:'Below this distance (m) the follower only keeps following if the leader is in a stable mode (FBWA/FBWB/CRUISE/AUTO/RTL/LOITER/TAKEOFF/GUIDED).',
+         role:'Select OFF, FOLLOWER or LEADER. Role changes are accepted only on the ground and restart the board; match the aircraft SYSID (leader=1, follower=2).'}},
     es:{stats:'Estado',cfg:'Configuración FWM',act:'Acciones',save:'Guardar',logs:'Descargar logs',reload:'Recargar',ground:'EN TIERRA',flight:'EN VUELO',
      st:{state:'Estado',up:'Tiempo',rx:'RX / TX',rssi:'RSSI',snr:'SNR',loss:'Pérdidas',dist:'Distancia'},
-     help:'Ayuda de configuración',hdef:'Ajusta aquí los parámetros de FWM <b>en tierra</b> y pulsa Guardar. Se guardan en el dispositivo y se aplican al momento.',
-     saved:'Guardado',serr:'Error al guardar',lerr:'Error al cargar parámetros',cur:'Valor actual',
-     form:['Cola','Izquierda','Derecha','Arriba','Abajo'],
-     lb:{formation:'Formación',dist_offset:'Distancia TRAIL',lateral_offset:'Offset lateral',vertical_offset:'Offset vertical',cross_gain:'Ganancia lateral',hdg_corr_max:'Corrección de rumbo máx',along_gain:'Ganancia longitudinal',prediction:'Predicción',filter:'Filtro de posición',foll_enable:'Activar seguimiento',link_timeout:'Timeout de enlace',netid:'ID de red',approach_dist:'Distancia de aproximación'},
+       help:'Ayuda de configuración',hdef:'Selecciona primero el rol; solo se muestran los parámetros disponibles para ese rol. Configura <b>en tierra</b> y pulsa Guardar. Cambiar el rol reinicia la placa.',
+      saved:'Guardado',serr:'Error al guardar',lerr:'Error al cargar parámetros',cur:'Valor actual',
+      form:['Cola','Izquierda','Derecha','Arriba','Abajo'],
+      roles:['Desactivado','Seguidor','Líder'],
+      lb:{formation:'Formación',dist_offset:'Distancia TRAIL',lateral_offset:'Offset lateral',vertical_offset:'Offset vertical',cross_gain:'Ganancia lateral',hdg_corr_max:'Corrección de rumbo máx',along_gain:'Ganancia longitudinal',prediction:'Predicción',filter:'Filtro de posición',foll_enable:'Activar seguimiento',link_timeout:'Timeout de enlace',netid:'ID de red',approach_dist:'Distancia de aproximación',role:'Rol de placa'},
      d:{formation:'Geometría relativa al líder: <b>Cola</b> detrás, <b>Izquierda/Derecha</b> lateral, <b>Arriba/Abajo</b> vertical.',
         dist_offset:'Separación longitudinal detrás del líder para TRAIL (m). Típico ~90-110 m.',
         lateral_offset:'Separación lateral para Izquierda/Derecha (m).',
@@ -548,11 +551,12 @@ String Web::generateHTML()
         foll_enable:'Activa la función de seguimiento.',
         link_timeout:'Segundos sin heartbeat antes de considerar perdido el enlace con el FC.',
         netid:'ID de red compartido ("frase"): se ignoran paquetes de otros IDs. Debe coincidir en ambos aviones. 0 = aceptar cualquiera.',
-        approach_dist:'Por debajo de esta distancia (m) el seguidor solo sigue si el líder está en un modo estable (FBWA/FBWB/CRUISE/AUTO/RTL/LOITER/TAKEOFF/GUIDED).'}}
+         approach_dist:'Por debajo de esta distancia (m) el seguidor solo sigue si el líder está en un modo estable (FBWA/FBWB/CRUISE/AUTO/RTL/LOITER/TAKEOFF/GUIDED).',
+         role:'Selecciona DESACTIVADO, SEGUIDOR o LÍDER. Solo se cambia en tierra y la placa se reinicia; SYSID del avión: líder=1, seguidor=2.'}}
     };
-    let P=[],LANG=localStorage.getItem('lang')||(((navigator.language||'en').slice(0,2)==='es')?'es':'en');
+    let P=[],ALL_P=[],DRAFT={},LANG=localStorage.getItem('lang')||(((navigator.language||'en').slice(0,2)==='es')?'es':'en');
     const L=()=>I18N[LANG];
-    function toggleLang(){LANG=(LANG==='en'?'es':'en');localStorage.setItem('lang',LANG);applyI18n();if(P.length)drawForm(P);}
+    function toggleLang(){LANG=(LANG==='en'?'es':'en');localStorage.setItem('lang',LANG);applyI18n();if(ALL_P.length)drawForm(ALL_P);}
     function applyI18n(){
       $('h_stats').textContent=L().stats;$('h_cfg').textContent=L().cfg;$('h_act').textContent=L().act;
       $('saveBtn').textContent=L().save;$('btnLogs').textContent=L().logs;$('btnReload').textContent=L().reload;
@@ -566,16 +570,24 @@ String Web::generateHTML()
         stat(s.dist,d.distance>=0?d.distance+' m':'--');
       const g=$('gt');g.textContent=d.on_ground?L().ground:L().flight;g.className='badge '+(d.on_ground?'g':'a');
     }
-    function drawForm(list){
-      P=list;let h='';
-      list.forEach(p=>{const id='p_'+p.key,t=p.type,lb=L().lb[p.key]||p.label,u=p.unit?' ('+p.unit+')':'';
+    function drawForm(list,roleOverride){
+      P.forEach(p=>{const e=$('p_'+p.key);if(e)DRAFT[p.key]=p.type===2?(e.checked?1:0):Number(e.value);});
+      ALL_P=list;
+      const roleParam=list.find(p=>p.key==='role');
+      const roleValue=roleOverride===undefined?Number(DRAFT.role!==undefined?DRAFT.role:(roleParam?roleParam.value:0)):Number(roleOverride);
+      const visible=list.filter(p=>p.key==='role'||p.scope===0||p.scope===roleValue);
+      visible.sort((a,b)=>a.key==='role'?-1:b.key==='role'?1:0);
+      P=visible;let h='';
+      visible.forEach(p=>{const id='p_'+p.key,t=p.type,lb=L().lb[p.key]||p.label,u=p.unit?' ('+p.unit+')':'';
         let fld;
-        if(t===3)fld='<label>'+lb+'<select id="'+id+'">'+L().form.map((n,i)=>'<option value="'+i+'">'+n+'</option>').join('')+'</select></label>';
+        if(t===3){const opts=p.key==='role'?L().roles:L().form;fld='<label>'+lb+'<select id="'+id+'">'+opts.map((n,i)=>'<option value="'+i+'">'+n+'</option>').join('')+'</select></label>';}
         else if(t===2)fld='<label class="chk"><input type="checkbox" id="'+id+'">'+lb+'</label>';
         else fld='<label>'+lb+u+'<input type="number" step="any" min="'+p.min+'" max="'+p.max+'" id="'+id+'"></label>';
         h+='<div class="prow">'+fld+'<div class="desc">'+(L().d[p.key]||'')+'</div></div>';});
       $('pf').innerHTML=h;
-      list.forEach(p=>{const e=$('p_'+p.key);if(!e)return;if(p.type===2)e.checked=p.value>=0.5;else e.value=p.value;});
+      visible.forEach(p=>{const e=$('p_'+p.key);if(!e)return;const value=p.key==='role'?roleValue:(DRAFT[p.key]!==undefined?DRAFT[p.key]:p.value);if(p.type===2)e.checked=value>=0.5;else e.value=value;});
+      const roleSelect=$('p_role');
+      if(roleSelect)roleSelect.addEventListener('change',ev=>drawForm(ALL_P,Number(ev.target.value)));
     }
     function saveP(ev){
       ev.preventDefault();const fd=new FormData();

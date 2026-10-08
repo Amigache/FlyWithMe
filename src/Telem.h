@@ -80,6 +80,7 @@ public:
 
   APdata_t APdata;
   bool positionValid = false; // solo true tras GLOBAL_POSITION_INT/GPS emulado válido
+  uint8_t autopilotSystemId = 0; // SYSID detectado mientras role=OFF (provisión inicial)
   boolean link = false;
   boolean led_status = false;
   int linkTryTime = 0; 

@@ -8,17 +8,16 @@ El idioma del proyecto y de su documentación es el **español**.
 
 ## 1. Qué es FlyWithMe
 
-Sistema de **vuelo en formación** para aviones con autopiloto **ArduPilot/PX4**. Un vehículo
+Sistema de **vuelo en formación** para aviones con autopiloto **ArduPlane** (PX4 no validado). Un vehículo
 **líder** transmite su posición por radio **LoRa**; un vehículo **seguidor** recibe esos datos,
 calcula una posición de formación y envía el waypoint resultante a su propio autopiloto vía
 **MAVLink** (modo GUIDED).
 
 - **Hardware objetivo:** TTGO LoRa32 V1 (ESP32 + SX1276), OLED SSD1306 128x64, LoRa 866 MHz (Europa).
 - **Framework:** Arduino sobre **PlatformIO**.
-- **Dos roles de firmware** (mismo código, distinto `build_flag`), con perfiles separados:
-  - `ttgo-lora32-v1-master-flight` / `ttgo-lora32-v1-slave-flight` → vuelo real (UART1, `FC_EMULATION=0`).
-  - `ttgo-lora32-v1-master-sitl` / `ttgo-lora32-v1-slave-sitl` → ArduPlane SITL por USB/UART0.
-  - `ttgo-lora32-v1-master` / `ttgo-lora32-v1-slave` → emulación FC local; **no flashear para vuelo real**.
+- **Un único firmware de vuelo para todas las placas** (`ttgo-lora32-v1-flight`, UART1,
+  `FC_EMULATION=0`). El rol `OFF/FOLLOWER/LEADER` es un parámetro NVS configurable, no una build flag;
+  SysID líder=1 y seguidor=2. Los perfiles SITL/emulación son solo para desarrollo.
 
 ---
 
@@ -27,17 +26,16 @@ calcula una posición de formación y envía el waypoint resultante a su propio 
 Ejecutar siempre desde la raíz del repositorio. Requiere PlatformIO (`pio`).
 
 ```bash
-# Compilar para vuelo real (sin FC sintético)
-pio run -e ttgo-lora32-v1-master-flight
-pio run -e ttgo-lora32-v1-slave-flight
+# Compilar una única imagen para vuelo real
+pio run -e ttgo-lora32-v1-flight
 
-# Compilar para banco SITL
-pio run -e ttgo-lora32-v1-master-sitl
-pio run -e ttgo-lora32-v1-slave-sitl
+# Perfiles de desarrollo
+pio run -e ttgo-lora32-v1-sitl
+pio run -e ttgo-lora32-v1
 
-# Flashear (sustituir COMx/COMy tras identificar SYSID del FC)
-pio run -e ttgo-lora32-v1-master-flight -t upload --upload-port COMx
-pio run -e ttgo-lora32-v1-slave-flight  -t upload --upload-port COMy
+# Cargar el mismo binario y provisionar el rol individual en NVS
+python tools/flash_firmware.py --port COMx --role leader
+python tools/flash_firmware.py --port COMy --role follower
 
 # Monitor serie (57600 baudios; ver nota más abajo)
 pio device monitor
@@ -46,19 +44,19 @@ pio device monitor
 pio run -t clean
 ```
 
-- Los puertos serie están en `platformio.ini`: `COMx` (master) y `COMx` (slave). **Ajustar**
-  `monitor_port`/`upload_port` al entorno real antes de flashear. ⚠️ Los CP210x **se reenumeran**
-  (pueden intercambiar COM entre placas); identificar cada placa por su AP (`FWM AP 1`=líder,
-  `FWM AP 2`=seguidor) y usar `--upload-port` explícito.
+- `COMx` es solo el puerto por defecto de PlatformIO, no una identidad de rol. Los CP210x pueden
+  reenumerar; identificar cada placa y pasar el puerto explícitamente al script. Tras provisionar,
+  los AP usan `FWM AP 1` (líder) y `FWM AP 2` (seguidor); antes, una placa nueva muestra `FWM SETUP`.
 - `monitor_speed = 57600`. ⚠️ Estas placas (TTGO LoRa32 V1.0) llevan cristal de **26 MHz**, así que
   el firmware **debe compilarse con `-DF_XTAL_MHZ=26`** (ya está en `platformio.ini`). Ese define
   hace que el core de Arduino fije el cristal y reconfigue los relojes en `app_main()`; sin él el
   core asume 40 MHz, la UART sale ×0.65 (~37440) y **la WiFi/BT queda fuera de banda** (no emite AP
   ni escanea redes). Con la flag, baud correcto (57600) y WiFi operativa. El LoRa no se ve afectado
   (SX1276 con cristal propio). No confundir con el `monitor_speed`: con el cristal corregido, 57600.
-- ⚠️ **En Windows, flashear requiere UTF-8**: sin `PYTHONIOENCODING=utf-8` PlatformIO crashea con
-  `UnicodeEncodeError` (cp1252) y la subida queda colgada. Usar:
-  `$env:PYTHONIOENCODING='utf-8'; pio run -e ... -t upload`.
+- ⚠️ **En Windows, flashear requiere UTF-8**: `tools/flash_firmware.py` fija
+  `PYTHONIOENCODING=utf-8` para el proceso PlatformIO. El script además escribe el rol en NVS por
+  USB serie; requiere `pyserial`. Cambios posteriores pueden hacerse en tierra desde WebUI/MAVLink y
+  reinician la placa.
 - **Compatibilidad de entorno:** se compila con **Arduino core 3.x / ESP-IDF 5**. Implicaciones:
   - Las librerías async son los forks mantenidos `esp32async/ESPAsyncWebServer` y
     `esp32async/AsyncTCP`. Las originales `me-no-dev/*` **fallan al enlazar** con core 3.x
@@ -69,9 +67,9 @@ pio run -t clean
     Arduino rompe con el `#undef F` que hace `config.h` para MAVLink.
   - `config.h` incluye `<string>` (lo usa `FlightModeInfo`).
   - **Partición:** `board_build.partitions = huge_app.csv` (app **3 MB** + SPIFFS 896 KB). El
-    firmware (~1.13 MB) usa ~**36 %**. Con la partición por defecto (`default.csv`, app 1.25 MB)
-    llegaría al ~86 %; **no la cambies** sin revisar el tamaño con `pio run`.
-  - Verificado: `pio run` de `master` y `slave` → **SUCCESS** (RAM 15.0 %, Flash 35.9 %).
+    firmware común (~1.15 MB) usa ~**36.7 %**. Con la partición por defecto (`default.csv`, app 1.25 MB)
+    llegaría al ~92 %; **no la cambies** sin revisar el tamaño con `pio run`.
+  - Verificado: builds `ttgo-lora32-v1-flight` y `ttgo-lora32-v1-sitl` → **SUCCESS**.
   - **Menú OLED desactivado** (`USE_INTERACTIVE_MENU 0`): sus pines (12/13/14/15) chocan con el
     UART MAVLink (12/13), LoRa RST (14) y OLED SCL (15). No reactivar sin reasignar a GPIOs libres.
   - **Compresión LoRa**: `Comm::compressPacket` debe usar `floor()` para lat/lon. Con truncado
@@ -85,8 +83,8 @@ pio run -t clean
 pio test
 ```
 
-- **Pruebas con FC simulado (SITL):** entornos `ttgo-lora32-v1-master-sitl` / `-slave-sitl`
-  (`FC_LINK_USB=1`) + `tools/sitl_bridge.py` (puente serie↔TCP). Procedimiento completo en
+- **Pruebas con FC simulado (SITL):** entorno común `ttgo-lora32-v1-sitl` (`FC_LINK_USB=1`) +
+  `tools/sitl_bridge.py` (puente serie↔TCP). Procedimiento completo en
   `docs/ROADMAP.md` §3.
 - **Arnés HIL:** `tools/hil_test.py` valida el enlace líder/seguidor por serial (`FC_EMULATION=1`).
 - **Laboratorio (CLI):** `python tools/lab.py` — menú interactivo que levanta **2 SITL** (ArduPlane)
@@ -96,8 +94,8 @@ pio test
   el **bench completo** (`tools/bench_suite.py`: link, params, formations, takeoff, straight, turn,
   safety + CSV por escenario).
   - `tools/sitl_bridge.py` une SITL↔placa y, con `--tap-port N`, da un **enlace MAVLink directo a la
-    placa** por el mismo USB: el bench lee/escribe los parámetros FWM (componente 158) y cambia la
-    formación **sin WiFi**. El `lab.py` reinicia las placas (DTR/RTS) al levantar el banco.
+    placa** por el mismo USB: el bench lee/escribe los parámetros FWM (componente 158), provisiona el
+    rol y cambia la formación **sin WiFi**. El `lab.py` reinicia las placas (DTR/RTS) al levantar el banco.
   - `tools/mp_launch.py` arranca MAVProxy **sin wxPython** en Windows (`has_wxpython=False` + `rline`
     dummy) y aplica un **parche a pymavlink** (las salidas UDP bindean el puerto destino y chocan con
     Mission Planner en el mismo PC → se cambia a bind efímero).
@@ -125,8 +123,8 @@ test/          test_main.cpp (Unity) — ver salvedad de arriba.
 include/ lib/  Carpetas estándar de PlatformIO (README).
 ```
 
-Documentación: `README.md` (raíz), `AGENTS.md` (raíz) y `docs/FLYWITHME.md` (documentación de
-desarrollo consolidada: roadmap + Fases 1–4). Ver sección 7.
+Documentación: `README.md` (manual de usuario), `DEVELOP.md` (desarrollo, SITL y pruebas),
+`AGENTS.md` (guía de agentes), `docs/FLYWITHME.md` (diseño y fases) y `docs/ROADMAP.md` (estado vivo).
 
 ---
 
@@ -155,8 +153,9 @@ desarrollo consolidada: roadmap + Fases 1–4). Ver sección 7.
 - **Feature flags** vía `#define` en `config.h` (p. ej. `USE_COMPRESSED_PACKETS`, `ADAPTIVE_RATE`,
   `USE_PREDICTION`, `USE_POSITION_FILTER`, `USE_WEB_SERVER`, `USE_INTERACTIVE_MENU`,
   `SIMULATION_MODE`). Usar `#if` para activar/desactivar bloques.
-- **Compilación condicional por variante**: `#ifdef MASTER_BUILD_FLAG` / `#ifdef SLAVE_BUILD_FLAG`
-  definen `SYSID`, SSID y `FOLL_MODE`. No romper esta separación.
+- **Rol en tiempo de ejecución**: `params.role` se guarda en NVS; `FWM::fwmSystemId()`,
+  `targetSystemId()` y `peerSystemId()` derivan la identidad MAVLink/LoRa del parámetro. No reintroducir
+  macros de compilación que generen imágenes distintas para líder y seguidor.
 - **Logging**:
   - `Log.*` (ArduinoLog) → consola serie (requiere `DEBUG_MODE`).
   - `logger->info/debug/warning/...` → log persistente CSV en SPIFFS (`/flight.log`).
@@ -177,7 +176,7 @@ desarrollo consolidada: roadmap + Fases 1–4). Ver sección 7.
 | `LORA_SPREADING_FACTOR` | `12` | SF LoRa. |
 | `LORA_TX_POWER` | `20` | dBm. |
 | `F_XTAL_MHZ` (build flag) | `26` | Cristal de la TTGO LoRa32 V1.0. **Imprescindible** (`-DF_XTAL_MHZ=26`): sin él el core asume 40 MHz → UART ×0.65 y **WiFi/BT muertas**. |
-| `USE_COMPRESSED_PACKETS` | `0` | Protocolo v2 usa trama normal packed de 39 B; la compresión antigua aún no incorpora todos los campos v2. |
+| `USE_COMPRESSED_PACKETS` | `0` | Protocolo v2 usa trama packed de 40 B; la compresión antigua aún no incorpora todos los campos v2. |
 | `ADAPTIVE_RATE` | `1` | Tasa de TX según distancia (2 s / 1 s / 0.5 s). |
 | `MAX_LORA_RETRIES` | `3` | Reintentos con backoff en el envío. |
 | `USE_PREDICTION` / `PREDICTION_TIME_MS` | `1` / `1000` | Predicción del líder; en TRAIL el adelanto se limita por `PREDICTION_MAX_LEAD_FRACTION`. |
@@ -193,6 +192,7 @@ desarrollo consolidada: roadmap + Fases 1–4). Ver sección 7.
 | `HEAD_ON_GUARD` | `0` | 1 = **guarda de colisión frente a frente**: si el líder viene de cara y < `HEAD_ON_RANGE` (500 m), rompe perpendicular a la visual y frena. Validado con `tools/follow_sim.py`. |
 | `TIGHT_FORMATION` | `0` | 1 = **tasa LoRa rápida cuando cerca** (200/500/1000 ms) para vuelo a 10–20 m. Emparejar con SF bajo (`-D LORA_SPREADING_FACTOR=7`). |
 | `netid` | `4660` (0x1234) | Red del protocolo v2: filtra tráfico de otros sistemas **a nivel de paquete**. Debe coincidir en ambos; configurable por parámetro y WebUI. La distancia/OSD solo se publica si el paquete indica posición válida. |
+| `role` NVS/WebUI/MAVLink | `OFF` en placa nueva | `0=OFF`, `1=FOLLOWER`, `2=LEADER`; editable solo en tierra, cambio con reinicio. SYSID FWM/FC: líder 1, seguidor 2. Provisionar con `tools/flash_firmware.py`; las placas antiguas sin esta clave deben reasignarse. |
 | `approach_dist` | `300` | m — bajo esta distancia el seguidor **exige modo estable del líder** (FBWA/FBWB/CRUISE/AUTO/RTL/LOITER/TAKEOFF/GUIDED); por encima **acude igualmente** a buscarlo. |
 | `FWM_DUAL_CORE` | `1` | **Core 1** es propietario del loop de vuelo; **core 0** ejecuta UI/log. El callback Ticker solo marca TX pendiente; no toca SPI/LoRa. Validado en SITL. |
 | `FOLLOWER_REPLY` | `1` | REPLY/JOIN solo en slots solicitados por BEACON; líder abre ventana RX con timeout, follower responde desde el loop único. Validado con pérdida/timeout/rejoin en SITL. |
@@ -218,11 +218,13 @@ desarrollo consolidada: roadmap + Fases 1–4). Ver sección 7.
 
 | Archivo | Tipo | Estado |
 |---|---|---|
-| `README.md` | Presentación | ✅ Completo: descripción, hardware, arquitectura, build, config, tests y licencia. |
+| `README.md` | Manual de usuario | Descripción breve, carga de firmware de vuelo, configuración, preparación y operación en formación. Evitar contenido de desarrollo/pruebas. |
+| `DEVELOP.md` | Desarrollo y banco | Arquitectura, perfiles PlatformIO, SITL, MAVProxy, simuladores, bench y tests. |
 | `AGENTS.md` | Guía para agentes | Este documento. |
 | `docs/FLYWITHME.md` | Documentación de desarrollo | **Consolidado**: roadmap (`MEJORAS_RECOMENDADAS`) + informes Fases 1–4. Alineado con el código. |
 | `docs/ROADMAP.md` | Estado y plan vivo | Validación en banco, fallos corregidos y fases A–E. **Actualizar al completar tareas.** |
 | `tools/hil_test.py` | Arnés de pruebas HIL | Valida el enlace líder/seguidor por serial (ver §2). |
+| `tools/flash_firmware.py` | Carga y provisión | Sube la imagen común de vuelo y guarda `role` por USB serie; no compila un binario distinto por rol. |
 | `tools/lab.py` | Laboratorio (CLI) | Menú: 2 SITL + MAVProxy headless → UDP para Mission Planner; acciones y reportes. |
 | `tools/mp_launch.py` | Lanzador MAVProxy headless | Sin wxPython en Windows; aplica el parche UDP de pymavlink. |
 | `tools/sitl_bridge.py` | Puente SITL ↔ placa | Pipe serie↔TCP; `--tap-port N` expone un enlace **MAVLink directo a la placa** (config del periférico **sin WiFi**). |
@@ -239,17 +241,15 @@ desarrollo consolidada: roadmap + Fases 1–4). Ver sección 7.
 Los documentos de fase se revisaron y alinearon con el código (el código sigue siendo la fuente
 de verdad). Puntos a tener presentes:
 
-- **Entorno `native`:** `platformio.ini` solo define `ttgo-lora32-v1-master` y
-  `ttgo-lora32-v1-slave`. No hay `[env:native]`, así que `pio test` no corre tal cual; los docs
+- **Entorno `native`:** `platformio.ini` define `ttgo-lora32-v1`, `ttgo-lora32-v1-flight` y
+  `ttgo-lora32-v1-sitl`, pero no `[env:native]`; `pio test` no corre tal cual. Los docs
   ya lo indican como pendiente.
 - **Tests:** `test/test_main.cpp` contiene **13** pruebas (`RUN_TEST`) y duplica sus funciones
   auxiliares en vez de enlazar con `src/`. Si se unifican, actualizar el conteo en los docs.
+- **Documentación:** los pasos de vuelo para el usuario van en `README.md`; los perfiles SITL, bench,
+  comandos de pruebas y detalles internos van en `DEVELOP.md`.
 
-### Estado de git
-
-- `src/*`, `platformio.ini`, `README.md` y `.vscode/` están **modificados sin commitear**;
-  `test/test_main.cpp`, `AGENTS.md` y `docs/FLYWITHME.md` están **sin trackear** (`??`).
-  No asumir que estos cambios están en el historial.
+El estado de Git cambia entre tareas; comprobar `git status` antes de editar, borrar o preparar commits.
 
 ---
 
@@ -266,7 +266,9 @@ de verdad). Puntos a tener presentes:
 6. **`config.h` es central:** la mayoría de structs, enums y la clase `Logger` viven ahí.
    Evita duplicar definiciones.
 7. **Al cambiar comportamiento, actualiza el `.md` correspondiente** (y corrige las discrepancias
-   de la sección 7). Mantén el `README.md` cuando se rellene.
-8. **Antes de proponer un commit**, compila ambas variantes (`pio run -e ...-master` y `-slave`).
+   de la sección 7). Mantén `README.md` orientado al usuario final; coloca el contenido técnico y de
+   pruebas en `DEVELOP.md`.
+8. **Antes de proponer un commit**, compila `ttgo-lora32-v1-flight`; si cambias transporte o flags
+   de simulación, compila también `ttgo-lora32-v1-sitl`.
 9. Este repositorio **no usaba** instrucciones de agente previas; este `AGENTS.md` es el punto
    de referencia.

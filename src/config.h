@@ -121,6 +121,16 @@
 #define FOLL_MODE_FOLLOWER 1
 #define FOLL_MODE_LEADER 2
 
+// Rol configurable en NVS. Todos los firmwares de vuelo se compilan igual; una placa nueva
+// permanece OFF hasta asignarle el rol en tierra (herramienta de provisión/WebUI/MAVLink).
+#define FWM_ROLE_OFF FOLL_MODE_OFF
+#define FWM_ROLE_FOLLOWER FOLL_MODE_FOLLOWER
+#define FWM_ROLE_LEADER FOLL_MODE_LEADER
+#define FWM_LEADER_SYSID 1
+#define FWM_FOLLOWER_SYSID 2
+#define FWM_SETUP_SYSID 254
+#define FWM_DEFAULT_ROLE FWM_ROLE_OFF
+
 // SAFETY LIMITS (FASE 1 - Seguridad Crítica) -----------------------------------------------------------
 #define MAX_FOLLOW_DISTANCE 5000  // metros - 5km máximo de distancia de seguimiento
 #define MAX_FOLLOW_SPEED 5000     // cm/s - 50 m/s máximo de velocidad
@@ -267,55 +277,19 @@ inline bool isLeaderModeStable(uint8_t mode)
 #define FOLL_OFS_TYPE 1
 #define FOLL_ALT_TYPE 0
 #define LINK_TIMEOUT 10
-#define DEFAULT_SSID "FWM AP 1"
+#define DEFAULT_SSID "FWM SETUP"
 #define DEFAULT_PASS "12345678"
-#define FOLL_MODE FOLL_MODE_OFF
-#define FOLL_MODE_CH 7
+#define FOLL_MODE_CH 0 // El rol se configura en NVS; no lo sobrescribe un canal RC.
 #define ALT_OFFSET 10 // m
 #define SPEED_OFFSET 10 // % (sobre-velocidad al recuperar distancia; menor = mas suave)
 #define DIST_OFFSET 96 //m - distancia comandada (la separacion real queda ~100 m por el retraso de la ley)
 
-// Set by target
-#ifdef MASTER_BUILD_FLAG
-#ifndef TARGET_SYSID
-#define TARGET_SYSID 1     ///< Pixhawk (or any other autopilot)
-#endif
-#define TARGET_COMPID 1    ///< Component
-#ifndef SYSID
-#define SYSID TARGET_SYSID ///< ID 20 for this airplane. 1 PX, 255 ground station
-#endif
-#define COMPID 158         ///< The component sending the message
-#define DEFAULT_SSID "FWM AP 1"
-#define DEFAULT_PASS "12345678"
-#define FOLL_MODE FOLL_MODE_LEADER
-#define FOLL_MODE_CH 0
-#endif
-
-#if defined(MASTER_BUILD_FLAG)
-#define FWM_PEER_SYSID 2
-#elif defined(SLAVE_BUILD_FLAG)
-#define FWM_PEER_SYSID 1
-#else
-#define FWM_PEER_SYSID 0 // 0 = sin validación de peer en builds de test
-#endif
-
-#ifdef SLAVE_BUILD_FLAG
-#ifndef TARGET_SYSID
-#define TARGET_SYSID 2     ///< Pixhawk (or any other autopilot)
-#endif
-#define TARGET_COMPID 1    ///< Component
-#ifndef SYSID
-#define SYSID TARGET_SYSID ///< ID 20 for this airplane. 1 PX, 255 ground station
-#endif
-#define COMPID 158         ///< The component sending the message
-#define DEFAULT_SSID "FWM AP 2"
-#define DEFAULT_PASS "12345678"
-#define FOLL_MODE FOLL_MODE_FOLLOWER
-#define FOLL_MODE_CH 0
-#endif
+#define TARGET_COMPID 1    ///< Component autopiloto
+#define COMPID 158         ///< Component FWM
 
 typedef struct
 {
+  int32_t role;            // FWM_ROLE_OFF/FOLLOWER/LEADER; NVS, editable solo en tierra
   int32_t foll_enable;
   int32_t foll_ofs_type;
   int32_t foll_alt_type;
@@ -342,6 +316,10 @@ enum ParamType
   PARAM_ENUM
 };
 
+#define PARAM_SCOPE_COMMON 0
+#define PARAM_SCOPE_FOLLOWER FWM_ROLE_FOLLOWER
+#define PARAM_SCOPE_LEADER FWM_ROLE_LEADER
+
 typedef struct
 {
   const char *key;     ///< clave (minusculas, corta; <=15 para futuro MAVLink)
@@ -351,6 +329,7 @@ typedef struct
   float max;
   const char *unit;    ///< unidad ("" si no aplica)
   uint8_t groundOnly;  ///< 1 = solo editable en tierra
+  uint8_t scope;       ///< PARAM_SCOPE_COMMON/FOLLOWER/LEADER; visibilidad en WebUI
 } ParamDef_t;
 
 typedef struct

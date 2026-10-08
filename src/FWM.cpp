@@ -40,6 +40,7 @@ void FWM::begin()
         Log.notice("Saving default" CR);
 
         // Default params
+        params.role = FWM_DEFAULT_ROLE;
         params.foll_enable = FOLL_ENABLE;
         params.foll_ofs_type = FOLL_OFS_TYPE;
         params.foll_alt_type = FOLL_ALT_TYPE;
@@ -63,6 +64,20 @@ void FWM::begin()
         loadParams();
     }
 
+    // Versiones anteriores no almacenaban el rol. En ese caso se adopta OFF de forma segura.
+    if (params.role < FWM_ROLE_OFF || params.role > FWM_ROLE_LEADER)
+    {
+        params.role = FWM_ROLE_OFF;
+    }
+    char oldSsid[sizeof(params.ssid)];
+    strncpy(oldSsid, params.ssid, sizeof(oldSsid));
+    oldSsid[sizeof(oldSsid) - 1] = '\0';
+    updateRoleSsid();
+    if (strcmp(oldSsid, params.ssid) != 0)
+    {
+        saveParams();
+    }
+
     // Init instances
 
     screen = new Screen(this);
@@ -73,6 +88,10 @@ void FWM::begin()
 
     mav = new Telem(this);
     mav->begin();
+
+    // El parámetro role selecciona el comportamiento persistente de esta placa.
+    if (!MAV_BRIDGE)
+        changeFollowMode((uint8_t)params.role);
 
     // Restaurar config guardada (formación, predicción, filtro)
     preferences.begin("storage", true);
@@ -106,12 +125,6 @@ void FWM::begin()
     web->begin();
     #endif
 
-    // Default Follow mode
-    if (!MAV_BRIDGE)
-    {
-        changeFollowMode(FOLL_MODE);
-    }
-
     // FASE 1: Inicializar máquina de estados
     transitionState(STATE_SEARCHING);
 
@@ -132,6 +145,15 @@ void FWM::run()
  */
 void FWM::runIo()
 {
+    processSerialProvisioning();
+
+    if (roleRestartPending && (int32_t)(millis() - roleRestartAtMs) >= 0)
+    {
+        Serial.flush();
+        delay(100);
+        ESP.restart();
+    }
+
     // AP/WiFi solo en tierra: comprobar periodicamente y levantar/apagar segun corresponda
     static uint32_t lastApGate = 0;
     if (millis() - lastApGate > WEB_AP_GATE_INTERVAL_MS)
@@ -350,7 +372,7 @@ void FWM::processSendPacket()
     packet.type = LORA_MSG_BEACON;
     packet.netid = params.netid;
     packet.mode = (uint8_t)mav->APdata.custom_mode;
-    packet.sysid = SYSID;
+    packet.sysid = fwmSystemId();
     packet.seq = (uint16_t)(comm->txSeq + 1);
     packet.flags = mav->positionValid ? LORA_FLAG_POSITION_VALID : LORA_FLAG_NONE;
 #if FOLLOWER_REPLY
@@ -421,6 +443,120 @@ void FWM::changeFollowMode(uint8_t mode)
     }
 }
 
+uint8_t FWM::fwmSystemId() const
+{
+    if (params.role == FWM_ROLE_LEADER)
+        return FWM_LEADER_SYSID;
+    if (params.role == FWM_ROLE_FOLLOWER)
+        return FWM_FOLLOWER_SYSID;
+    return FWM_SETUP_SYSID;
+}
+
+uint8_t FWM::targetSystemId() const
+{
+    if (params.role == FWM_ROLE_FOLLOWER)
+        return FWM_FOLLOWER_SYSID;
+    if (params.role == FWM_ROLE_OFF && mav != nullptr && mav->autopilotSystemId != 0)
+        return mav->autopilotSystemId;
+    // En modo OFF, antes de detectar un heartbeat, usar el SYSID histórico del líder.
+    return FWM_LEADER_SYSID;
+}
+
+uint8_t FWM::peerSystemId() const
+{
+    if (params.role == FWM_ROLE_LEADER)
+        return FWM_FOLLOWER_SYSID;
+    if (params.role == FWM_ROLE_FOLLOWER)
+        return FWM_LEADER_SYSID;
+    return 0;
+}
+
+void FWM::updateRoleSsid()
+{
+    const bool automatic = params.ssid[0] == '\0' ||
+                           strcmp(params.ssid, DEFAULT_SSID) == 0 ||
+                           strcmp(params.ssid, "FWM AP 1") == 0 ||
+                           strcmp(params.ssid, "FWM AP 2") == 0;
+    if (!automatic)
+        return;
+
+    const char *ssid = DEFAULT_SSID;
+    if (params.role == FWM_ROLE_LEADER)
+        ssid = "FWM AP 1";
+    else if (params.role == FWM_ROLE_FOLLOWER)
+        ssid = "FWM AP 2";
+    strncpy(params.ssid, ssid, sizeof(params.ssid) - 1);
+    params.ssid[sizeof(params.ssid) - 1] = '\0';
+}
+
+void FWM::requestRoleRestart()
+{
+    roleRestartAtMs = millis() + 1200;
+    roleRestartPending = true;
+}
+
+void FWM::processSerialProvisioning()
+{
+#if !FC_LINK_USB
+    static String line;
+    while (Serial.available() > 0)
+    {
+        const char ch = (char)Serial.read();
+        if (ch == '\r')
+            continue;
+        if (ch != '\n')
+        {
+            if (line.length() < 48)
+                line += ch;
+            else
+                line = "";
+            continue;
+        }
+
+        line.trim();
+        if (line.startsWith("FWM ROLE "))
+        {
+            String requested = line.substring(9);
+            requested.trim();
+            int role = -1;
+            if (requested.equalsIgnoreCase("off"))
+                role = FWM_ROLE_OFF;
+            else if (requested.equalsIgnoreCase("follower"))
+                role = FWM_ROLE_FOLLOWER;
+            else if (requested.equalsIgnoreCase("leader"))
+                role = FWM_ROLE_LEADER;
+
+            if (role < 0)
+            {
+                Serial.println("ROLECFG ERR invalid role (off|leader|follower)");
+            }
+            else if (params.role != role && !canChangeRole())
+            {
+                Serial.println("ROLECFG WAIT FC must be connected, disarmed and on ground");
+            }
+            else
+            {
+                const bool roleChanged = params.role != role;
+                String value = String(role);
+                String error;
+                if (!setParamByKey("role", value.c_str(), error))
+                {
+                    Serial.print("ROLECFG ERR ");
+                    Serial.println(error);
+                }
+                else
+                {
+                    Serial.print("ROLECFG OK role=");
+                    Serial.print(requested);
+                    Serial.println(roleChanged ? " rebooting" : " already set");
+                }
+            }
+        }
+        line = "";
+    }
+#endif
+}
+
 /**
  * @brief Reset params
  * 
@@ -470,6 +606,7 @@ bool FWM::existParams()
 void FWM::saveParams()
 {
     preferences.begin("storage", false);
+    preferences.putInt("role", params.role);
     preferences.putInt("foll_enable", params.foll_enable);
     preferences.putInt("foll_ofs_type", params.foll_ofs_type);
     preferences.putInt("foll_alt_type", params.foll_alt_type);
@@ -506,6 +643,7 @@ void FWM::saveParams()
 void FWM::loadParams()
 {
     preferences.begin("storage", true);
+    params.role = preferences.getInt("role", FWM_DEFAULT_ROLE);
     params.foll_enable = preferences.getInt("foll_enable", 0);
     params.foll_ofs_type = preferences.getInt("foll_ofs_type", 0);
     params.foll_alt_type = preferences.getInt("foll_alt_type", 0);
@@ -572,6 +710,9 @@ bool FWM::isOnGround()
 {
 #if WEB_AP_FORCE
     return true;
+#elif FC_EMULATION || SIMULATION_MODE
+    // El FC sintético no representa un estado de vuelo físico: permitir provisión/configuración.
+    return true;
 #else
     if (mav == nullptr)
     {
@@ -595,6 +736,23 @@ bool FWM::isOnGround()
         return false;
     }
     return true;
+#endif
+}
+
+bool FWM::canChangeRole() const
+{
+#if FC_EMULATION || SIMULATION_MODE
+    return true;
+#else
+    // Una placa nueva/OFF no emite órdenes de vuelo y puede provisionarse antes de conocer su FC.
+    // Con un rol activo, la pérdida del enlace nunca cuenta como prueba de estar en tierra.
+    if (params.role == FWM_ROLE_OFF &&
+        (mav == nullptr || mav->autopilotSystemId == 0) &&
+        (mav == nullptr || !mav->link || mav->linkTimeout))
+        return true;
+    return mav != nullptr && mav->link && !mav->linkTimeout && mav->positionValid && !mav->APdata.armed &&
+           mav->APdata.ground_speed <= WEB_AP_GS_MAX_CMS &&
+           mav->APdata.relative_alt <= WEB_AP_ALT_MAX_MM;
 #endif
 }
 
@@ -626,19 +784,20 @@ void FWM::updateApGate()
 // Fase 2: tabla de parametros FWM (fuente de verdad). get/set + persistencia + JSON.
 // ============================================================================================================
 static const ParamDef_t s_paramTable[] = {
-    {"formation",        "Formation",            PARAM_ENUM,  0.0f,  4.0f,   "",       1},
-    {"dist_offset",      "Trail distance",       PARAM_FLOAT, 20.0f, 500.0f, "m",      1},
-    {"lateral_offset",   "Lateral offset",       PARAM_FLOAT, 5.0f,  300.0f, "m",      1},
-    {"vertical_offset",  "Vertical offset",      PARAM_FLOAT, 0.0f,  200.0f, "m",      1},
-    {"cross_gain",       "Lateral gain",         PARAM_FLOAT, 0.05f, 2.0f,   "deg/m",  1},
-    {"hdg_corr_max",     "Max heading corr",     PARAM_FLOAT, 5.0f,  60.0f,  "deg",    1},
-    {"along_gain",       "Longitudinal gain",    PARAM_FLOAT, 0.0f,  60.0f,  "cm/s/m", 1},
-    {"prediction",       "Prediction",           PARAM_BOOL,  0.0f,  1.0f,   "",       1},
-    {"filter",           "Position filter",      PARAM_BOOL,  0.0f,  1.0f,   "",       1},
-    {"foll_enable",      "Follow enable",        PARAM_BOOL,  0.0f,  1.0f,   "",       1},
-    {"link_timeout",     "Link timeout",         PARAM_INT,   2.0f,  120.0f, "s",      1},
-    {"netid",            "Network ID",           PARAM_INT,   0.0f,  65535.0f,"",       1},
-    {"approach_dist",    "Approach distance",    PARAM_FLOAT, 50.0f, 5000.0f, "m",      0},
+    {"formation",        "Formation",            PARAM_ENUM,  0.0f,  4.0f,   "",       1, PARAM_SCOPE_FOLLOWER},
+    {"dist_offset",      "Trail distance",       PARAM_FLOAT, 20.0f, 500.0f, "m",      1, PARAM_SCOPE_FOLLOWER},
+    {"lateral_offset",   "Lateral offset",       PARAM_FLOAT, 5.0f,  300.0f, "m",      1, PARAM_SCOPE_FOLLOWER},
+    {"vertical_offset",  "Vertical offset",      PARAM_FLOAT, 0.0f,  200.0f, "m",      1, PARAM_SCOPE_FOLLOWER},
+    {"cross_gain",       "Lateral gain",         PARAM_FLOAT, 0.05f, 2.0f,   "deg/m",  1, PARAM_SCOPE_FOLLOWER},
+    {"hdg_corr_max",     "Max heading corr",     PARAM_FLOAT, 5.0f,  60.0f,  "deg",    1, PARAM_SCOPE_FOLLOWER},
+    {"along_gain",       "Longitudinal gain",    PARAM_FLOAT, 0.0f,  60.0f,  "cm/s/m", 1, PARAM_SCOPE_FOLLOWER},
+    {"prediction",       "Prediction",           PARAM_BOOL,  0.0f,  1.0f,   "",       1, PARAM_SCOPE_FOLLOWER},
+    {"filter",           "Position filter",      PARAM_BOOL,  0.0f,  1.0f,   "",       1, PARAM_SCOPE_FOLLOWER},
+    {"foll_enable",      "Follow enable",        PARAM_BOOL,  0.0f,  1.0f,   "",       1, PARAM_SCOPE_FOLLOWER},
+    {"link_timeout",     "Link timeout",         PARAM_INT,   2.0f,  120.0f, "s",      1, PARAM_SCOPE_COMMON},
+    {"netid",            "Network ID",           PARAM_INT,   0.0f,  65535.0f,"",       1, PARAM_SCOPE_COMMON},
+    {"approach_dist",    "Approach distance",    PARAM_FLOAT, 50.0f, 5000.0f, "m",      0, PARAM_SCOPE_FOLLOWER},
+    {"role",             "Device role",          PARAM_ENUM,  0.0f,  2.0f,   "",       1, PARAM_SCOPE_COMMON},
 };
 
 int FWM::paramCount()
@@ -684,6 +843,7 @@ float FWM::getParamByIndex(int idx)
     case 10: return (float)params.link_timeout;
     case 11: return (float)params.netid;
     case 12: return params.approach_dist;
+    case 13: return (float)params.role;
     default: return 0.0f;
     }
 }
@@ -697,6 +857,15 @@ bool FWM::setParamByIndex(int idx, float value, bool persist)
     const ParamDef_t &d = s_paramTable[idx];
     if (value < d.min) value = d.min;
     if (value > d.max) value = d.max;
+    if (idx == 13)
+    {
+        const int32_t requestedRole = (int32_t)(value + 0.5f);
+        if (requestedRole == params.role)
+            return true;
+        if (!canChangeRole())
+            return false;
+    }
+    bool restartForRole = false;
     switch (idx)
     {
     case 0: if (mav) mav->currentFormation = (FormationType)(int)value; break;
@@ -712,11 +881,26 @@ bool FWM::setParamByIndex(int idx, float value, bool persist)
     case 10: params.link_timeout = (int32_t)value; break;
     case 11: params.netid = (uint16_t)value; if (comm) comm->applyNetid(); break;
     case 12: params.approach_dist = value; break;
+    case 13:
+    {
+        const int32_t newRole = (int32_t)(value + 0.5f);
+        if (newRole != params.role)
+        {
+            params.role = newRole;
+            updateRoleSsid();
+            restartForRole = persist;
+        }
+        break;
+    }
     default: return false;
     }
     if (persist)
     {
         saveParams();
+    }
+    if (restartForRole)
+    {
+        requestRoleRestart();
     }
     return true;
 }
@@ -729,13 +913,30 @@ bool FWM::setParamByKey(const char *key, const char *valueStr, String &err)
         err = String("param desconocido: ") + key;
         return false;
     }
+    const float v = String(valueStr).toFloat();
+    if (idx == 13)
+    {
+        const ParamDef_t &d = s_paramTable[idx];
+        const float bounded = constrain(v, d.min, d.max);
+        if ((int32_t)(bounded + 0.5f) == params.role)
+            return true;
+        if (!canChangeRole())
+        {
+            err = "rol editable solo con FC conectado, desarmado y en tierra";
+            return false;
+        }
+    }
     if (s_paramTable[idx].groundOnly && !isOnGround())
     {
         err = "solo editable en tierra";
         return false;
     }
-    float v = String(valueStr).toFloat();
-    setParamByIndex(idx, v, true);
+    if (!setParamByIndex(idx, v, true))
+    {
+        err = idx == 13 ? "rol editable solo con FC conectado, desarmado y en tierra"
+                        : "no se pudo aplicar el parametro";
+        return false;
+    }
     return true;
 }
 
@@ -756,6 +957,7 @@ String FWM::paramsJson()
         s += "\"max\":" + String(d.max, 3) + ",";
         s += "\"unit\":\"" + String(d.unit) + "\",";
         s += "\"groundOnly\":" + String(d.groundOnly ? "true" : "false") + ",";
+        s += "\"scope\":" + String(d.scope) + ",";
         s += "\"value\":" + String(getParamByIndex(i), 3) + "}";
     }
     s += "]";

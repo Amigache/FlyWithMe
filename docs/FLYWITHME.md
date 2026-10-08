@@ -2839,8 +2839,8 @@ OK
 - 🔄 **CI/CD ready** - Integrable en pipelines
 
 **Configuración (pendiente):**
-El `platformio.ini` actual **solo** define los entornos `ttgo-lora32-v1-master` y
-`ttgo-lora32-v1-slave`; **no existe un entorno `native`**, y `test_main.cpp` duplica sus propias
+El `platformio.ini` actual define `ttgo-lora32-v1`, `ttgo-lora32-v1-flight` y
+`ttgo-lora32-v1-sitl`; **no existe un entorno `native`**, y `test_main.cpp` duplica sus propias
 funciones auxiliares (no enlaza contra `src/`). Para ejecutar `pio test` en el PC hay que añadir
 ese entorno y unificar los helpers con el código real:
 
@@ -3229,10 +3229,10 @@ El proyecto FlyWithMe ahora incluye:
 
 #### Estado Final del Sistema
 
-**Firmware Size:** ~1.13 MB (35.9% con partición `huge_app.csv`; ~86% con la de por defecto)  
-**RAM Usage:** ~48 KB (15.0% de RAM disponible)  
+**Firmware Size:** ~1.15 MB (36.7% con partición `huge_app.csv`; ~92% con la de por defecto)
+**RAM Usage:** ~49 KB (15.1% de RAM disponible)
 **SPIFFS:** según esquema de particiones (logs)  
-**Compilation:** ✅ Exitosa sin errores (master y slave, core 3.x)  
+**Compilation:** ✅ Exitosa sin errores (`ttgo-lora32-v1-flight`, core 3.x)
 **Tests:** ✅ 13/13 pasando (requiere entorno `native`, ver sección de tests)  
 
 ---
@@ -3324,7 +3324,8 @@ El proyecto FlyWithMe ahora incluye:
 
 ## Consumo de flash y opciones de reducción
 
-Medición de referencia (`pio run -e ttgo-lora32-v1-master`, Arduino core 3.x):
+Medición detallada histórica por secciones (Arduino core 3.x). La compilación común actual se resume
+arriba; consultar la salida de PlatformIO para los bytes exactos:
 
 | Sección | Tamaño |
 |---|---|
@@ -3334,8 +3335,8 @@ Medición de referencia (`pio run -e ttgo-lora32-v1-master`, Arduino core 3.x):
 | `.flash.rodata_noload` | 23 293 B |
 | **Total app** | **≈ 1.13 MB** |
 
-RAM: 49 KB (15 % de 320 KB). Con `huge_app.csv` el flash queda al **35.9 %** (app 3 MB); con la
-partición por defecto (`default.csv`, app 1.25 MB) sería el ~**86 %**.
+RAM: ~49 KB (15.1 % de 320 KB). Con `huge_app.csv` el flash queda al **36.7 %** (app 3 MB); con la
+partición por defecto (`default.csv`, app 1.25 MB) sería el ~**92 %**.
 
 Atribución aproximada del flash:
 

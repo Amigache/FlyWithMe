@@ -154,7 +154,7 @@ void Comm::run()
       {
         LoraPacket_t p;
         LoRa.readBytes((uint8_t *)&p, sizeof(p));
-        if (validatePacket(p) && (FWM_PEER_SYSID == 0 || p.sysid == FWM_PEER_SYSID) &&
+        if (validatePacket(p) && (fwm->peerSystemId() == 0 || p.sysid == fwm->peerSystemId()) &&
             (p.type == LORA_MSG_REPLY || p.type == LORA_MSG_JOIN) && acceptSequence(p.seq))
         {
           commData.rx_packet_counter++;
@@ -302,7 +302,7 @@ void Comm::run()
         // FASE 1: Validación completa del paquete (checksum + datos GPS)
         if (validatePacket(incomingPacket) && incomingPacket.type == LORA_MSG_BEACON &&
             loraPositionOk(incomingPacket) &&
-            (FWM_PEER_SYSID == 0 || incomingPacket.sysid == FWM_PEER_SYSID))
+            (fwm->peerSystemId() == 0 || incomingPacket.sysid == fwm->peerSystemId()))
         {
           if (!acceptSequence(incomingPacket.seq))
           {
@@ -545,7 +545,7 @@ void Comm::sendReplyPacket()
   p.version = PROTOCOL_VERSION;
   p.type = commData.have_beacon ? LORA_MSG_REPLY : LORA_MSG_JOIN;
   p.netid = fwm->params.netid;
-  p.sysid = SYSID;
+  p.sysid = fwm->fwmSystemId();
   p.mode = (uint8_t)fwm->mav->APdata.custom_mode;
   p.seq = (uint16_t)(txSeq + 1);
   p.flags = fwm->mav->positionValid ? LORA_FLAG_POSITION_VALID : LORA_FLAG_NONE;

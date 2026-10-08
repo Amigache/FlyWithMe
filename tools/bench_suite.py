@@ -151,12 +151,23 @@ class FwmLink:
     def __init__(self, ep, sysid):
         self.m = mavutil.mavlink_connection(ep, source_system=254)
         self.sysid = sysid
-        hb = self.m.wait_heartbeat(timeout=10)
-        self.ok = hb is not None
+        self.ok = False
+        if sysid is None:
+            deadline = time.time() + 10
+            while time.time() < deadline:
+                hb = self.m.recv_match(type="HEARTBEAT", blocking=True, timeout=0.5)
+                if hb and hb.get_srcComponent() == FWM_COMPID:
+                    self.sysid = hb.get_srcSystem()
+                    self.ok = True
+                    break
+        else:
+            hb = self.m.wait_heartbeat(timeout=10)
+            self.ok = hb is not None
 
     def read_params(self, timeout=6):
         self.m.mav.param_request_list_send(self.sysid, FWM_COMPID)
         got = {}
+        expected_count = None
         t0 = time.time()
         while time.time() - t0 < timeout:
             try:
@@ -165,6 +176,9 @@ class FwmLink:
                 break
             if r and r.get_srcComponent() == FWM_COMPID:
                 got[_pid(r)] = r.param_value
+                expected_count = r.param_count
+                if expected_count and len(got) >= expected_count:
+                    break
         return got
 
     def set_param(self, name, value, timeout=2, retries=3):
@@ -278,6 +292,55 @@ class Suite:
         fp = drain(self.fol).get('HEARTBEAT')
         m = {"leader_mode": self.lead.flightmode, "follower_mode": self.fol.flightmode}
         self.add("link", "PASS" if (lp and fp) else "FAIL", m)
+
+    def provision_roles(self):
+        """Asegura roles líder/seguidor en NVS usando el tap directo del bridge."""
+        leader = follower = None
+        try:
+            leader = FwmLink(LEADER_TAP, None)
+            follower = FwmLink(FOLLOWER_TAP, None)
+            if not leader.ok or not follower.ok:
+                self.add("role_setup", "SKIP", {}, "no hay FWM en ambos taps; se omite provisión automática")
+                return
+
+            lp = leader.read_params()
+            fp = follower.read_params()
+            role_l = lp.get("role")
+            role_f = fp.get("role")
+            if role_l is None or role_f is None:
+                self.add("role_setup", "FAIL", {}, "el firmware no expone el parámetro role")
+                return
+
+            changed = False
+            if abs(role_l - 2.0) >= 0.5:
+                changed = leader.set_param("role", 2.0, timeout=4) is not None or changed
+            if abs(role_f - 1.0) >= 0.5:
+                changed = follower.set_param("role", 1.0, timeout=4) is not None or changed
+            leader.close()
+            follower.close()
+            leader = follower = None
+
+            if changed:
+                time.sleep(4.0)  # permitir reinicio y reconexión del bridge serie
+
+            leader = FwmLink(LEADER_TAP, None)
+            follower = FwmLink(FOLLOWER_TAP, None)
+            lp = leader.read_params() if leader.ok else {}
+            fp = follower.read_params() if follower.ok else {}
+            ok = (abs(lp.get("role", -100.0) - 2.0) < 0.5 and
+                  abs(fp.get("role", -100.0) - 1.0) < 0.5 and
+                  leader.sysid == 1 and follower.sysid == 2)
+            self.add("role_setup", "PASS" if ok else "FAIL",
+                     {"leader_role": lp.get("role"), "follower_role": fp.get("role"),
+                      "leader_fwm_sysid": leader.sysid, "follower_fwm_sysid": follower.sysid,
+                      "rebooted": changed})
+        except Exception as exc:  # noqa: BLE001
+            self.add("role_setup", "SKIP", {}, f"no se pudo provisionar desde tap: {exc}")
+        finally:
+            if leader:
+                leader.close()
+            if follower:
+                follower.close()
 
     def test_takeoff(self):
         ok_l = takeoff(self.lead, 13, BENCH_ALT)
@@ -859,6 +922,7 @@ class Suite:
         self.log("conectando al banco (SITL)...")
         self.lead = connect(LEADER, 255)
         self.fol = connect(FOLLOWER, 253)
+        self.provision_roles()
         only = None
         if getattr(self.args, "only", None):
             only = {x.strip() for x in self.args.only.split(",") if x.strip()}

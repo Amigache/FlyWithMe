@@ -87,7 +87,7 @@ pio run -t clean
 ### Tests
 
 ```bash
-pio test
+pio test -e native
 python -m unittest discover -s tools/tests -p "test_*.py" -v
 python tools/proto_sim.py
 python tools/follow_sim_test.py
@@ -115,6 +115,10 @@ python tools/follow_sim_test.py
 > duplica sus propias funciones auxiliares (no enlaza contra `src/`). El runner documentado en
 > `FASE4_IMPLEMENTADA.md` puede no ejecutarse tal cual. Antes de confiar en `pio test`, verificar/
 > crear el entorno `native` y/o unificar los helpers con el código real.
+>
+> **Estado:** resuelto. `[env:native]` compila `test/test_main.cpp` contra las cabeceras puras de `src/`
+> (protocolo, STATUSTEXT, identidad WiFi y self-test). Ejecutar con `pio test -e native`; CI lo ejecuta en
+> cada push y PR. La lógica de `Comm`/`Telem` depende de Arduino y no está cubierta por este entorno.
 
 ---
 
@@ -258,11 +262,9 @@ Documentación: `README.md` (manual de usuario), `DEVELOP.md` (desarrollo, SITL 
 Los documentos de fase se revisaron y alinearon con el código (el código sigue siendo la fuente
 de verdad). Puntos a tener presentes:
 
-- **Entorno `native`:** `platformio.ini` define `ttgo-lora32-v1`, `ttgo-lora32-v1-flight` y
-  `ttgo-lora32-v1-sitl`, pero no `[env:native]`; `pio test` no corre tal cual. Los docs
-  ya lo indican como pendiente.
-- **Tests:** `test/test_main.cpp` contiene **13** pruebas (`RUN_TEST`) y duplica sus funciones
-  auxiliares en vez de enlazar con `src/`. Si se unifican, actualizar el conteo en los docs.
+- **Entorno `native`:** `platformio.ini` define `[env:native]` para `pio test -e native`. `default_envs`
+  es `ttgo-lora32-v1-flight`, así que `pio test` sin `-e` no es el comando correcto.
+- **Tests:** `test/test_main.cpp` contiene **12** pruebas que enlazan con las cabeceras reales de `src/`.
 - **Documentación:** los pasos de vuelo para el usuario van en `README.md`; los perfiles SITL, bench,
   comandos de pruebas y detalles internos van en `DEVELOP.md`.
 

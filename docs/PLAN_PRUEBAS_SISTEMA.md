@@ -43,7 +43,7 @@ Un fallo bloquea el siguiente nivel hasta tener causa y corrección documentadas
 | FW-06 | SIM no persistente | Después de SIMCFG OK, reset y consultar `FWM ID`; comprobar el arranque normal por UART1 | PASS funcional: Stop/reset y `FWM ID` responden en ambos; roles leader/follower conservados |
 | FW-07 | Perfil dinámico del banco | Confirmar SF7/BW250, intervalo 200 ms y mínimo de altitud 0 solo durante SIM; reset recupera SF12/BW125, intervalo/altitud flight | Pendiente HIL |
 | FW-08 | Compatibilidad NVS | Reflashear sin borrar NVS; role/netid/formación sobreviven; `runtimeSitlMode` nunca aparece en NVS | Parcial: roles persistieron en COMx/COMx |
-| FW-09 | Unity/native del firmware | `pio test` contra helpers del código real | Pendiente: `platformio.ini` no define `[env:native]`; las pruebas actuales duplican helpers |
+| FW-09 | Unity/native de módulos puros | `pio test -e native` (12 pruebas contra `src/protocol.h`, `status_text.h`, `wifi_identity.h`, `selftest.h`) | Cerrado en código y en CI; ver `docs/VALIDACION_PRE_RELEASE.md` §1 |
 
 ### Simuladores software (L1)
 

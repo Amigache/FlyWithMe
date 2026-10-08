@@ -246,9 +246,9 @@ que la WebUI muestra los controles correspondientes sin perder los valores ocult
 
 `tools/follow_sim.py` permite observar la ley de guiado con diferentes distancias y latencias sin
 placas; `tools/hil_test.py` comprueba el enlace por serie con FC emulado (cargar el perfil común y
-provisionar roles distintos con `flash_firmware.py`). `platformio.ini` no define
-`[env:native]`; `pio test` no corre todavía contra `src/`, y `test/test_main.cpp` duplica helpers en
-vez de enlazar la implementación del firmware. El auto-test `SELFTEST PASS` se ejecuta en cada
+provisionar roles distintos con `flash_firmware.py`). Las pruebas unitarias en host se ejecutan con
+`pio test -e native` (`test/test_main.cpp` enlaza con las cabeceras puras de `src/`; en Windows se
+necesita un compilador C/C++ en el PATH). El auto-test `SELFTEST PASS` se ejecuta en cada
 arranque y comprueba layout wire, checksum, versión, netid, secuencia y deduplicación de status text.
 Los simuladores son modelos deterministas, no sustituyen SITL ni pruebas RF.
 

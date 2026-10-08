@@ -19,6 +19,8 @@ Alcance: firmware (`src/`), herramientas (`tools/`), CI (`.github/`), configurac
 - **Build reproducible (F-11): corregido.** Plataforma, framework y librerías fijadas; PlatformIO y las
   herramientas Python de desarrollo también.
 - **Configuración de build (F-04): corregido.** `pio run` solo construye el perfil de vuelo.
+- **CI y pruebas (F-12, F-13): corregidos.** Workflows con permisos mínimos y acciones fijadas por SHA;
+  `ci.yml` compila ambos perfiles y ejecuta `pio test -e native` y las pruebas Python en cada push y PR.
 - **Historial reescrito (F-14): corregido**, con push forzado de `develop` y `main`.
 
 ## 2. Escala
@@ -48,8 +50,8 @@ Estados: **Corregido** (implementado y compilado), **Aceptado** (decisión expl�
 | F-09 | Baja | **Corregido** | Eliminado el código legacy (`#if !USE_WEB_SERVER`) con `POST /save` sin autenticación, `getPostParam`/`urlDecode` y el servidor TCP antiguo. | `src/Web.cpp`, `src/Web.h` |
 | F-10 | Baja | Abierto | Puertos COM, coordenadas del campo de pruebas y rutas de entorno hardcodeados en herramientas. | `tools/bench_restart.ps1`, `tools/sitl_start.ps1`, `platformio.ini`, `tools/lab.py` |
 | F-11 | Baja | **Corregido** | Versiones fijadas: `platform = espressif32@55.3.37` (framework Arduino 3.3.7, el mismo que compila el proyecto), `lib_deps` con versión exacta (incluida Adafruit BusIO), `requirements-dev.txt` con `==` y `platformio==6.2.0` en los workflows. Verificado: ambos perfiles compilan con las mismas versiones. | `platformio.ini`, `requirements-dev.txt`, `.github/workflows/*.yml` |
-| F-12 | Baja | Abierto | CI: `contents: write` a nivel de workflow; acciones por tag mutable; sin CI de compilación/tests en PR. | `.github/workflows/firmware-release.yml` |
-| F-13 | Baja | Abierto | `pio test` falla (`ERRORED`): no hay entorno `native` y `test/test_main.cpp` duplica funciones. | `test/test_main.cpp`, `platformio.ini` |
+| F-12 | Baja | **Corregido** | Permisos mínimos por job (`contents: read` por defecto; `contents: write` solo en la publicación de la release). Acciones fijadas por SHA de commit con su versión en comentario. `persist-credentials: false` en los checkouts. Dependabot para acciones y pip. Nuevo `ci.yml` que compila ambos perfiles, ejecuta `pio test -e native` y las pruebas Python en cada push y PR. | `.github/workflows/*.yml`, `.github/dependabot.yml` |
+| F-13 | Baja | **Corregido** | `pio test -e native` existe y pasa (12/12) enlazando con las cabeceras reales de `src/` (protocolo, STATUSTEXT, identidad WiFi, self-test). Se eliminaron los helpers duplicados. Límite documentado: la lógica de `Comm`/`Telem` depende de Arduino y no está cubierta por este entorno. | `test/test_main.cpp`, `platformio.ini` (`[env:native]`) |
 | F-14 | Info | **Corregido** | El email personal del autor aparecía en todos los commits. Historial reescrito con `git filter-repo` y mapeo al noreply de GitHub; push forzado a `origin`. | `git log --all` |
 | F-15 | Info | **Corregido** | El README indicaba un cambio de clave WiFi desde la WebUI que no existía. Corregido y ampliado con el flujo real. | `README.md` |
 | F-16 | Info | **Corregido** | No existía `SECURITY.md`. | `SECURITY.md` |
@@ -98,7 +100,7 @@ Estados: **Corregido** (implementado y compilado), **Aceptado** (decisión expl�
 
 - **F-02 / F-07:** autenticación de la WebUI y de `/api/logs`.
 - **F-10:** parametrizar puertos y coordenadas (variables de entorno o un fichero local ignorado por git).
-- **F-12:** `permissions` por job, acciones fijadas por SHA y un `ci.yml` que compile y pruebe en cada PR.
-- **F-13:** entorno `native` real o retirar `test/test_main.cpp` del flujo documentado.
+- **Cobertura de `Comm`/`Telem`:** la validación de tramas, la predicción y la distancia no tienen pruebas
+  en host (dependen de Arduino). Extraer su lógica pura a cabeceras permitiría probarla en `native`.
 
 Ver `docs/VALIDACION_PRE_RELEASE.md` para los resultados de compilación, pruebas y del flasheador web.

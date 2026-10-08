@@ -2792,14 +2792,14 @@ void test_compression_ratio()
 ##### Ejecutar Tests
 
 ```bash
-# Ejecutar todos los tests
-pio test
+# Ejecutar todos los tests (entorno native; vigente)
+pio test -e native
 
 # Ejecutar tests específicos
-pio test -f test_distance_*
+pio test -e native -f test_checksum_*
 
 # Modo verbose
-pio test -v
+pio test -e native -v
 ```
 
 ##### Salida de Tests
@@ -2829,7 +2829,8 @@ test/test_main.cpp:341:test_compression_ratio            [PASSED]
 OK
 ```
 
-> Salida de ejemplo (referencia). Para ejecutarla de verdad hace falta el entorno `native`
+> Salida de la versión anterior (13 pruebas que duplicaban helpers). La actual tiene 12 pruebas sobre
+> cabeceras reales de `src/`. Para ejecutarla hace falta el entorno `native`
 > descrito más abajo.
 
 **Beneficios:**
@@ -2838,16 +2839,16 @@ OK
 - 📊 **Cobertura completa** - Funciones críticas validadas
 - 🔄 **CI/CD ready** - Integrable en pipelines
 
-**Configuración (pendiente):**
-El `platformio.ini` actual define `ttgo-lora32-v1`, `ttgo-lora32-v1-flight` y
-`ttgo-lora32-v1-sitl`; **no existe un entorno `native`**, y `test_main.cpp` duplica sus propias
-funciones auxiliares (no enlaza contra `src/`). Para ejecutar `pio test` en el PC hay que añadir
-ese entorno y unificar los helpers con el código real:
+**Configuración (vigente):** `platformio.ini` define `[env:native]` (`platform = native@1.2.1`). Las
+pruebas enlazan con las cabeceras puras de `src/` (protocolo, STATUSTEXT, identidad WiFi y self-test).
+Los helpers duplicados de la versión anterior se han eliminado. La lógica de distancia, predicción y
+validación de `Comm`/`Telem` depende de Arduino y no está cubierta por este entorno.
 
 ```ini
 [env:native]
-platform = native
-test_framework = unity
+platform = native@1.2.1
+build_flags = -std=c++17
+test_build_src = no
 ```
 
 ---

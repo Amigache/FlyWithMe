@@ -1,0 +1,16 @@
+version: 2
+updates:
+  # Acciones de GitHub fijadas por SHA: Dependabot propone el SHA nuevo con el comentario de versión.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # Herramientas Python de desarrollo (requirements-dev.txt). Las versiones están fijadas con ==.
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"

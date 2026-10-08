@@ -43,6 +43,10 @@ $py = "$env:USERPROFILE\.platformio\penv\Scripts\python.exe"
 & $py tools\flash_firmware.py --port COMy --role follower
 ```
 
+Sin PlatformIO también puedes instalar el perfil de vuelo desde el
+[flasheador web](https://amigache.github.io/FlyWithMe/) con Chrome o Edge en escritorio; después asigna
+el rol desde el mismo panel.
+
 Sustituye los COM por los puertos identificados. El comando compila/carga el perfil común y después
 provisiona el rol por USB serie; requiere `pyserial` en el Python usado. Si actualizas desde un
 firmware anterior, la placa arrancará en `OFF` hasta que le asignes el rol. Para cambiar solo el rol
@@ -60,10 +64,15 @@ autopiloto esté conectado.
 1. Enciende cada avión por separado y conéctate al Wi-Fi de su TTGO. Cada placa anuncia
    `FWM XXXXXX`, donde `XXXXXX` son los tres últimos bytes de la MAC SoftAP en hexadecimal; por
    ejemplo, `30:AE:A4:07:0D:64` produce `FWM 070D64`. La clave inicial es `12345678`.
-2. Abre `http://192.168.4.1`, cambia la clave inicial desde la página del punto de acceso y guarda.
-   La placa se reinicia: vuelve a conectarte usando la clave nueva. Repite en la otra placa y revisa
-   los parámetros de **ambas**. El punto de acceso se desactiva en vuelo; no dependas de la WebUI
-   durante el seguimiento.
+2. Abre `http://192.168.4.1` y revisa los parámetros de **ambas** placas. El punto de acceso se
+   desactiva en vuelo; no dependas de la WebUI durante el seguimiento.
+   **La clave inicial `12345678` es de fábrica, es pública y es la misma en todas las placas.** Puede
+   usarse tal cual, pero se recomienda cambiarla en la sección «Clave WiFi» de la WebUI. También puedes
+   cambiarla por MAVLink con el mensaje `WIFI_CONFIG_AP` (campo `password`, SSID vacío); la confirmación
+   llega como `STATUSTEXT` y esa vía no está validada con Mission Planner todavía. La clave nueva tiene
+   de 8 a 63 caracteres ASCII imprimibles. Mientras la clave sea la de fábrica, cualquiera que se conecte
+   al punto de acceso de la placa en tierra puede cambiar su configuración: no dejes el AP activo donde
+   otras personas puedan conectarse (ver [`docs/AUDITORIA_SEGURIDAD.md`](docs/AUDITORIA_SEGURIDAD.md)).
 3. Confirma `role=LEADER` en la placa del líder y `role=FOLLOWER` en la del seguidor; deja
    `foll_enable` activado en el seguidor. El SSID es único por MAC y no depende del rol. La línea
    `FWM_ID ap_mac=... ap_ssid="..." role=... sysid=...` aparece por serie al arrancar; también se
@@ -105,6 +114,10 @@ automáticamente el del otro.
   el autopiloto puede conservar el último objetivo. Esto **no** equivale a mantener posición.
 - No hagas aproximaciones frente a frente, inversiones bruscas cerca ni vuelos con separaciones de
   5–20 m. La guarda frontal es experimental y no debe considerarse un sistema anticolisión.
+- El enlace LoRa **no está autenticado ni cifrado**. Un tercero con un módem compatible y el mismo
+  `netid` puede emitir datos de posición falsos, y el seguidor los usaría para guiar el avión. Es un
+  riesgo conocido de esta versión: no vueles en zonas donde otros puedan transmitir en tu red y
+  vigila siempre la formación.
 - El comportamiento depende del enlace de radio, GPS, viento, configuración y autopiloto; no hay
   certificación de seguridad para vuelo real.
 

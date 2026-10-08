@@ -14,7 +14,7 @@ Criterios de niveles: `docs/PLAN_PRUEBAS_SISTEMA.md` §2.
 
 | ID | Nivel | Prueba | Comando | Resultado |
 |---|---|---|---|---|
-| FW-01 | L0 | Build producción | `pio run -e ttgo-lora32-v1-flight` | **PASS** · `firmware.bin` 1 164 544 B · `espressif32@55.3.37` · framework 3.3.7 |
+| FW-01 | L0 | Build producción | `pio run -e ttgo-lora32-v1-flight` | **PASS** · `firmware.bin` 1 164 544 B · plataforma pioarduino 55.03.37 por URL · framework 3.3.7 · compilación desde core limpio: PASS |
 | FW-02 | L0 | Build dev/HIL | `pio run -e ttgo-lora32-v1-sitl` | **PASS** · mismas versiones |
 | FW-10 | L0 | `default_envs` | `pio project config` | **PASS** · `default_envs = ttgo-lora32-v1-flight` |
 | F11-01 | L0 | Versiones fijadas | log de build | **PASS** · GFX 1.12.6, SSD1306 2.5.17, BusIO 1.17.4, ArduinoLog 1.1.1, LoRa 0.8.0, ESPAsyncWebServer 3.12.1, AsyncTCP 3.5.0 |

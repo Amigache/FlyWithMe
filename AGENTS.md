@@ -187,7 +187,7 @@ desarrollo consolidada: roadmap + Fases 1–4). Ver sección 7.
 | `MAX_FOLLOW_DISTANCE` | `5000` | m — límite de seguridad. |
 | `HEAD_ON_GUARD` | `0` | 1 = **guarda de colisión frente a frente**: si el líder viene de cara y < `HEAD_ON_RANGE` (500 m), rompe perpendicular a la visual y frena. Validado con `tools/follow_sim.py`. |
 | `TIGHT_FORMATION` | `0` | 1 = **tasa LoRa rápida cuando cerca** (200/500/1000 ms) para vuelo a 10–20 m. Emparejar con SF bajo (`-D LORA_SPREADING_FACTOR=7`). |
-| `netid` | `4660` (0x1234) | Red del protocolo v2: filtra tráfico de otros sistemas **a nivel de paquete**. Debe coincidir en ambos; configurable por parámetro y WebUI. |
+| `netid` | `4660` (0x1234) | Red del protocolo v2: filtra tráfico de otros sistemas **a nivel de paquete**. Debe coincidir en ambos; configurable por parámetro y WebUI. La distancia/OSD solo se publica si el paquete indica posición válida. |
 | `approach_dist` | `300` | m — bajo esta distancia el seguidor **exige modo estable del líder** (FBWA/FBWB/CRUISE/AUTO/RTL/LOITER/TAKEOFF/GUIDED); por encima **acude igualmente** a buscarlo. |
 | `FWM_DUAL_CORE` | `1` | **Core 1** es propietario del loop de vuelo; **core 0** ejecuta UI/log. El callback Ticker solo marca TX pendiente; no toca SPI/LoRa. Validado en SITL. |
 | `FOLLOWER_REPLY` | `1` | REPLY/JOIN solo en slots solicitados por BEACON; líder abre ventana RX con timeout, follower responde desde el loop único. Validado con pérdida/timeout/rejoin en SITL. |
@@ -198,6 +198,7 @@ desarrollo consolidada: roadmap + Fases 1–4). Ver sección 7.
 | `USE_WEB_SERVER` / `USE_WEBSOCKET` | `1` / `1` | Servidor async (80) + WS (81). |
 | `WEB_TELEMETRY_WS` | `0` | Telemetría en vivo por WebSocket (retirada del flujo normal; solo diagnóstico en tierra). |
 | `MAVLINK_PARAM_SERVER` | `1` | El ESP32 responde a `PARAM_REQUEST_LIST/READ/SET` como componente propio (`SYSID`,`COMPID=158`) → parámetros FWM visibles/editables en Mission Planner. `PARAM_SET` solo en tierra. |
+| `STATUSTEXT` | dedupe exacto | Prefijo `FWM:` único; texto+severidad idénticos no se reenvían. Distancias usan INFO(6); la captura de Mission Planner confirmó overlay HUD + Messages. |
 | `WEB_AP_GROUND_ONLY` | `1` | El AP/WiFi solo se levanta **en tierra** (o sin FC); se apaga al armar/moverse. |
 | `WEB_AP_FORCE` | `0` | 1 = forzar el AP siempre (banco; ignora la detección de tierra). |
 | `WEB_AP_GS_MAX_CMS` / `WEB_AP_ALT_MAX_MM` | `200` / `3000` | Umbrales de "en vuelo": velocidad (cm/s) y altitud (mm) por encima de los cuales no es tierra. |

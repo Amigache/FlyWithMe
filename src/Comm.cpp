@@ -301,6 +301,7 @@ void Comm::run()
 
         // FASE 1: Validación completa del paquete (checksum + datos GPS)
         if (validatePacket(incomingPacket) && incomingPacket.type == LORA_MSG_BEACON &&
+            loraPositionOk(incomingPacket) &&
             (FWM_PEER_SYSID == 0 || incomingPacket.sysid == FWM_PEER_SYSID))
         {
           if (!acceptSequence(incomingPacket.seq))
@@ -547,6 +548,7 @@ void Comm::sendReplyPacket()
   p.sysid = SYSID;
   p.mode = (uint8_t)fwm->mav->APdata.custom_mode;
   p.seq = (uint16_t)(txSeq + 1);
+  p.flags = fwm->mav->positionValid ? LORA_FLAG_POSITION_VALID : LORA_FLAG_NONE;
   p.lat = fwm->mav->APdata.lat;
   p.lon = fwm->mav->APdata.lon;
   p.alt = fwm->mav->APdata.alt;

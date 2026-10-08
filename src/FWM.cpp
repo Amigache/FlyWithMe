@@ -191,7 +191,7 @@ void FWM::runRt()
         {
             char s[48];
             snprintf(s, sizeof(s), "Follow %dm%s", dist, trend);
-            mav->status_text(s, MAV_SEVERITY_WARNING); // WARNING/4 aparece en HUD de Mission Planner
+            mav->status_text(s); // INFO: distancia de seguimiento, no es una alerta de fallo
             lastFollowAnnouncedDist = dist;
         }
         lastFollowStatus = millis();
@@ -215,7 +215,7 @@ void FWM::runRt()
             char s[40];
             // Telem::status_text ya añade el prefijo "FWM: ".
             snprintf(s, sizeof(s), "Follower %dm", dist);
-            mav->status_text(s, MAV_SEVERITY_WARNING); // WARNING/4 se muestra en el HUD de MP
+            mav->status_text(s); // INFO: distancia del seguidor
             lastLeadAnnouncedDist = dist;
         }
         followerWasPresent = true;
@@ -296,9 +296,13 @@ void FWM::onFollowerReply(const LoraPacket_t &p)
 {
     lastFollowerMs = millis();
     replyWindowUntilMs = lastFollowerMs; // respuesta recibida: cerrar la ventana y poder transmitir
-    if (mav)
+    if (mav && mav->positionValid && loraPositionOk(p))
     {
         lastFollowerDistM = (int)mav->calculateDistance(mav->APdata.lat, mav->APdata.lon, p.lat, p.lon);
+    }
+    else
+    {
+        lastFollowerDistM = -1; // sesión válida, pero aún no hay dos posiciones válidas para medir
     }
 }
 
@@ -335,7 +339,7 @@ void FWM::processSendPacket()
 #endif
 
     beaconDue = false;
-    if (!mav || !comm || mav->linkTimeout)
+    if (!mav || !comm || mav->linkTimeout || !mav->positionValid)
     {
         Log.trace("Packet send skipped: No FC connection (AP config mode)" CR);
         return;
@@ -348,9 +352,11 @@ void FWM::processSendPacket()
     packet.mode = (uint8_t)mav->APdata.custom_mode;
     packet.sysid = SYSID;
     packet.seq = (uint16_t)(comm->txSeq + 1);
+    packet.flags = mav->positionValid ? LORA_FLAG_POSITION_VALID : LORA_FLAG_NONE;
 #if FOLLOWER_REPLY
     bool requestReply = !sessionActive || (now - lastReplyRequestMs >= FOLLOWER_REPLY_MS);
-    packet.flags = requestReply ? LORA_FLAG_REPLY_SLOT : LORA_FLAG_NONE;
+    if (requestReply)
+        packet.flags |= LORA_FLAG_REPLY_SLOT;
 #endif
     packet.lat = mav->APdata.lat;
     packet.lon = mav->APdata.lon;

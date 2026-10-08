@@ -248,7 +248,7 @@ y trazas periódicas (distancia/distancia mínima) durante recta/giro/head-on/sa
 dejaba a la placa sin FC → el líder dejaba de emitir beacons).
 
 **Protocolo v2 + `netid`:** `src/protocol.h` define una trama wire **packed de 40 bytes**, con
-`version/type/netid/mode/seq` y checksum final. `netid` filtra en paquete; por defecto el radio usa
+`version/type/netid/mode/seq/flags` (slot de reply y posición válida) y checksum final. `netid` filtra en paquete; por defecto el radio usa
 el sync word fijo conocido-bueno y CRC de radio apagado (`NETID_USE_SYNCWORD=0`, `LORA_CRC=0`). El
 `netid` es parámetro NVS + WebUI. El autottest comprueba el layout y corrupción de cada byte.
 
@@ -264,13 +264,15 @@ Si faltan REPLYs, `SESSION_TIMEOUT_MS` expira y vuelve discovery; al regresar el
 la tasa normal. Hardware SITL: reply bidireccional, timeout, discovery y rejoin **PASS**; el FC/GCS
 recibe `STATUSTEXT` del líder. El envío ya usa **deduplicación exacta** (texto prefijado + severidad):
 si no cambió, no vuelve a transmitirlo; si cambia distancia se actualiza. Los mensajes de distancia
-usan `MAV_SEVERITY_WARNING` (4), el umbral que Mission Planner muestra en el overlay HUD; mensajes
-informativos genéricos siguen en INFO. `src/selftest.h` prueba la deduplicación.
+usan `MAV_SEVERITY_INFO` (6): la captura del usuario confirma que Mission Planner muestra `FWM:
+Follower 48m` tanto en el overlay HUD como en Messages. `src/selftest.h` prueba la deduplicación. El líder
+ignora la posición del seguidor hasta que el REPLY lleve `POSITION_VALID`, evitando el mensaje inicial
+de distancia absurda cuando aún no llegó GPS.
 
-> **Pendiente de verificación visual:** el GCS recibió el STATUSTEXT del FWM (SYSID 1, COMPID 158),
-> pero el líder COMx dejó de responder al bootloader/serie durante el último intento de reflasheo.
-> Por ello aún no pude confirmar visualmente el overlay HUD con la versión de severidad 4. El mensaje
-> sí aparece en Messages. Mission Planner puede filtrar el overlay por vehículo/componente activo.
+> **Pendiente de aplicar la última versión al líder:** el usuario ya conectó el HUD y confirmó el overlay;
+> sin embargo, el líder COMx volvió a dejar de responder al bootloader/serie durante el último reflasheo.
+> El dedupe y el filtro de posición están compilados, pero el líder conserva un firmware anterior hasta
+> recuperar COMx.
 
 **Dual-core (`FWM_DUAL_CORE=1`, activo):** core 1 ejecuta el loop de vuelo y es propietario de LoRa;
 core 0 ejecuta web/pantalla/logger. `FWM::send_packet_ticker_callback` ya no toca SPI: solo pone una

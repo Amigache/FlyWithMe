@@ -719,14 +719,15 @@ class Suite:
         osd_events = [e for e in leader_osd_events if "Follower " in e[0]]
         duplicate_pairs = sum(1 for a, b in zip(osd_events, osd_events[1:])
                               if a[0] == b[0] and a[1] == b[1])
-        osd_warning = any(e[1] == mavutil.mavlink.MAV_SEVERITY_WARNING for e in osd_events)
-        osd_status = "PASS" if (osd_events and osd_warning and duplicate_pairs == 0) else (
+        osd_severity_ok = all(e[1] in (mavutil.mavlink.MAV_SEVERITY_INFO,
+                                       mavutil.mavlink.MAV_SEVERITY_WARNING) for e in osd_events)
+        osd_status = "PASS" if (osd_events and osd_severity_ok and duplicate_pairs == 0) else (
             "FAIL" if osd_events else "SKIP")
         self.add("leader_osd", osd_status,
                  {"statustext_count": len(leader_osd_events), "follower_distance_messages": len(osd_events),
-                  "warning_severity_for_mp_hud": osd_warning, "duplicate_pairs": duplicate_pairs,
+                  "severities": sorted(set(e[1] for e in osd_events)), "duplicate_pairs": duplicate_pairs,
                   "sources": sorted(set((e[2], e[3]) for e in osd_events))},
-                 "STATUSTEXT puede aparecer en Messages aunque MP filtre subcomponentes en el HUD" if osd_events else
+                 "ver captura de MP: el bench verifica MAVLink, no píxeles del HUD" if osd_events else
                  "el FC/GCS no reenviò STATUSTEXT del componente FWM")
 
     def test_netid(self):

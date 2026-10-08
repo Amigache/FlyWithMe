@@ -79,6 +79,7 @@ public:
   #endif
 
   APdata_t APdata;
+  bool positionValid = false; // solo true tras GLOBAL_POSITION_INT/GPS emulado válido
   boolean link = false;
   boolean led_status = false;
   int linkTryTime = 0; 

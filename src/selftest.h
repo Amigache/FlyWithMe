@@ -44,8 +44,10 @@ inline int protocolSelfTest(char *out, size_t n)
   p.vx = 2000;
   p.vy = -100;
   p.vz = 50;
+  p.flags = LORA_FLAG_POSITION_VALID;
   p.checksum = loraPacketChecksum(p);
   FWM_CHECK(loraChecksumOk(p));
+  FWM_CHECK(loraPositionOk(p));
 
   // 4. Round-trip exacto de la trama y rechazo de corrupción en cualquier byte cubierto.
   uint8_t wire[sizeof(LoraPacket_t)];

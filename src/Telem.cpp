@@ -146,6 +146,7 @@ void Telem::run()
                         APdata.vy = global_position_int.vy;
                         APdata.vz = global_position_int.vz;
                         APdata.hdg = global_position_int.hdg;
+                        positionValid = true;
 
                         break;
                     }
@@ -490,6 +491,7 @@ void Telem::status_text(const char *text, uint8_t severity)
 
     mavlink_message_t msg;
     mavlink_msg_statustext_pack(SYSID, COMPID, &msg, severity, wireText, 0, 0);
+    Log.notice("STATUSTEXT sent sev=%d text=%s" CR, severity, wireText);
     send_to_fc(msg);
 }
 
@@ -886,6 +888,7 @@ void Telem::check_link()
         Log.error("NOT FC CONNECTION" CR);
         link = false;
         linkTimeout = true;
+        positionValid = false; // no anunciar distancias con la última posición de un FC desconectado
         is_connecting = false;
 
         heartbeat_ticker.detach();
@@ -1300,5 +1303,6 @@ void Telem::updateFcEmulation()
     APdata.base_mode = MAV_MODE_AUTO_ARMED;
     APdata.system_status = MAV_STATE_ACTIVE;
     APdata.armed = true;
+    positionValid = true;
 }
 #endif // FC_EMULATION

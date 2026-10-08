@@ -24,7 +24,8 @@ enum LoraMsgType : uint8_t
 enum LoraPacketFlags : uint8_t
 {
   LORA_FLAG_NONE = 0,
-  LORA_FLAG_REPLY_SLOT = 1 << 0 ///< líder reserva la ventana de retorno para un JOIN/REPLY
+  LORA_FLAG_REPLY_SLOT = 1 << 0, ///< líder reserva la ventana de retorno para un JOIN/REPLY
+  LORA_FLAG_POSITION_VALID = 1 << 1 ///< el emisor tiene posición FC/GPS válida
 };
 
 typedef struct __attribute__((packed))
@@ -75,6 +76,7 @@ inline uint8_t loraPacketChecksum(const LoraPacket_t &p)
 inline bool loraChecksumOk(const LoraPacket_t &p) { return loraPacketChecksum(p) == p.checksum; }
 inline bool loraVersionOk(const LoraPacket_t &p) { return p.version == PROTOCOL_VERSION; }
 inline bool loraNetidOk(const LoraPacket_t &p, uint16_t netid) { return p.netid == netid; }
+inline bool loraPositionOk(const LoraPacket_t &p) { return (p.flags & LORA_FLAG_POSITION_VALID) != 0; }
 
 // Comparación modular de seq: soporta wrap 65535 -> 0 y rechaza repetidos/paquetes atrasados.
 inline bool loraSeqIsNewer(uint16_t candidate, uint16_t previous)

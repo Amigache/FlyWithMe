@@ -10,6 +10,10 @@ mav.parm
 tools/reports/
 sitl/
 
+# Salidas generadas de release y flasheador web
+site/
+release-assets/
+
 
 __pycache__/
 *.pyc

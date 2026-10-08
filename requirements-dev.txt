@@ -1,4 +1,4 @@
-MAVProxy
-prompt_toolkit
-pymavlink
-pyserial
+MAVProxy==1.8.75
+prompt_toolkit==3.0.53
+pymavlink==2.4.50
+pyserial==3.5

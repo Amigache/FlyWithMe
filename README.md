@@ -17,6 +17,19 @@ follower aircraft computes and executes a relative position through MAVLink. The
 > or a certified collision-avoidance system. Perform early flights with a pilot in command, an
 > observer, ample airspace, and an independent plan to recover control.
 
+### Which version to use
+
+**Use the latest release, `v1.1.1` or newer.** Earlier releases contain known defects:
+
+| Release | Known issue |
+|---|---|
+| `v1.0.0` | The WebUI "Change password" button does not work (the factory WiFi password `12345678` cannot be changed). |
+| `v1.0.1` | Same password bug. |
+| `v1.1.0` | Firmware is correct, but the web flasher cannot detect newer releases, so it may keep offering `v1.1.0` to you. |
+
+If you installed with the web flasher on `v1.0.0` or `v1.0.1`, **upgrade manually** — the flasher will
+not prompt you. Reopen the page and press *Install FlyWithMe* again.
+
 ---
 
 ## Contents

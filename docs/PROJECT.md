@@ -27,7 +27,7 @@ certified collision-avoidance system.
 
 | Item | State |
 |---|---|
-| Release | `v1.0.0` published with firmware bundle and web flasher |
+| Release | `v1.1.1` published (firmware bundle + web flasher). Earlier releases carry known defects; see README |
 | Build | Both profiles compile with pinned versions (PlatformIO `espressif32@55.03.37`, Arduino core 3.3.7) |
 | CI | `ci.yml` (build, native tests, Python tools) and `codeql.yml` (C/C++ and Python) green on `main` and `develop` |
 | Bench | Full HIL bench passed in SITL: 18 PASS / 0 FAIL, plus `netid` and `head_on` in dedicated runs |
@@ -311,7 +311,21 @@ exposes data or weakens a stated guarantee. **Low** is hygiene or reproducibilit
 | F-20 | Medium | Fixed | The web flasher and the release were built by two separate workflows, each running its own `pio run`. ESP-IDF builds are **not byte-reproducible** (verified: two builds of the same source give different SHA-256), so the site always served a `firmware.bin` whose hash differed from the one published in the release, and its `SHA256SUMS` never matched `release-manifest.json`. The flasher now reuses the binaries already packaged by the release job, so the hashes agree by construction, and a CI step fails the deploy if they diverge. `web-flasher.yml` removed. |
 | F-21 | Medium | Fixed | The flasher `manifest.json` had no `buildId`, the field ESP Web Tools uses to detect a newer release. Users on an older version were never offered the update — including `v1.0.1`, which carries the WiFi password fix. Now `buildId` is `<version>-<commit12>`, covered by tests. |
 
-### 7.1 GitHub settings to verify manually
+### 7.1 Release history and superseded defects
+
+The project has not been publicly announced, so no user is affected by the defects below. They are
+recorded because the releases remain published and immutable, and a visitor may install them.
+
+| Release | Defect | Fixed in |
+|---|---|---|
+| `v1.0.0` | WebUI password change did not work (F-21 route order) | `v1.0.1` |
+| `v1.0.1` | NVS key `heading_corr_max` too long (F-18); flasher hashes diverged from the release (F-20) | `v1.1.0` |
+| `v1.1.0` | `buildId` written at the manifest root instead of inside `builds[]`, so ESP Web Tools ignored it and could not offer a newer version (F-21) | `v1.1.1` |
+
+Releases are immutable and tags `v*` are protected, so these cannot be deleted or edited without
+disabling those protections first. Deliberately left in place: the README states which release to use.
+
+### 7.2 GitHub settings to verify manually
 
 - Pages source: **GitHub Actions**.
 - Secret scanning with push protection; Dependabot alerts and security updates.

@@ -86,14 +86,15 @@ def build_site(version: str, commit: str, build_root: Path, boot_app0: Path, out
 
     # buildId es lo que ESP Web Tools usa para detectar que hay version nueva. Sin el, un
     # usuario con una version anterior instalada no recibe aviso de que puede actualizar.
+    # IMPORTANTE: va DENTRO de cada build, no en la raiz. ESP Web Tools lee builds[].buildId;
+    # un buildId en la raiz se ignora y la deteccion de actualizaciones sigue sin funcionar.
     build_id = f"{version}-{commit[:12]}" if commit and commit != "unknown" else version
     manifest = {
         "name": "FlyWithMe",
         "version": version,
-        "buildId": build_id,
         "new_install_prompt_erase": False,
         "new_install_improv_wait_time": 0,
-        "builds": [{"chipFamily": "ESP32", "parts": parts}],
+        "builds": [{"chipFamily": "ESP32", "buildId": build_id, "parts": parts}],
     }
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
@@ -135,7 +136,7 @@ def main() -> int:
     manifest = build_site(args.version, args.commit, args.build_root, boot_app0, args.output,
                           args.binaries_dir)
     print(f"Flasheador web listo en {args.output} ({len(manifest['builds'][0]['parts'])} particiones, "
-          f"buildId={manifest['buildId']})")
+          f"buildId={manifest['builds'][0]['buildId']})")
     return 0
 
 

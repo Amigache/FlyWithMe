@@ -120,7 +120,12 @@ class WebFlasherHashTests(unittest.TestCase):
                 )
 
     def test_manifest_has_build_id_so_updates_are_detected(self):
-        """Sin buildId, ESP Web Tools no avisa de que hay version nueva."""
+        """Sin buildId, ESP Web Tools no avisa de que hay version nueva.
+
+        El buildId debe ir DENTRO de cada build: ESP Web Tools lee builds[].buildId y
+        descarta silenciosamente uno situado en la raiz del manifiesto. Se fijo aqui porque
+        un test anterior solo comprobaba la raiz y por tanto validaba el defecto.
+        """
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             published = tmp / "published"
@@ -129,9 +134,17 @@ class WebFlasherHashTests(unittest.TestCase):
             output = tmp / "site"
             manifest = build_site("v9.9.9", "0123456789abcdef0123", tmp / "build", None, output,
                                   published)
-            self.assertIn("buildId", manifest)
-            self.assertIn("v9.9.9", manifest["buildId"])
-            self.assertIn("0123456789ab", manifest["buildId"])
+
+            for build in manifest["builds"]:
+                self.assertIn("buildId", build, "buildId debe estar dentro de cada build")
+                self.assertIn("v9.9.9", build["buildId"])
+                self.assertIn("0123456789ab", build["buildId"])
+            self.assertNotIn("buildId", manifest,
+                             "un buildId en la raiz lo ignora ESP Web Tools")
+
+            # El fichero publicado es el que leeria la herramienta.
+            on_disk = json.loads((output / "manifest.json").read_text())
+            self.assertIn("buildId", on_disk["builds"][0])
 
     def test_build_id_changes_with_the_commit(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -141,7 +154,7 @@ class WebFlasherHashTests(unittest.TestCase):
             write_fake_binaries(published)
             first = build_site("v1.0.0", "a" * 40, tmp / "build", None, tmp / "s1", published)
             second = build_site("v1.0.0", "b" * 40, tmp / "build", None, tmp / "s2", published)
-            self.assertNotEqual(first["buildId"], second["buildId"])
+            self.assertNotEqual(first["builds"][0]["buildId"], second["builds"][0]["buildId"])
 
     def test_release_zip_and_site_agree_end_to_end(self):
         """El flujo real del CI: empaquetar y luego generar el sitio desde ese paquete."""
@@ -184,7 +197,7 @@ class WebFlasherHashTests(unittest.TestCase):
             )
             self.assertEqual(0, result.returncode, result.stderr)
             manifest = json.loads((output / "manifest.json").read_text())
-            self.assertIn("buildId", manifest)
+            self.assertIn("buildId", manifest["builds"][0])
 
 
 if __name__ == "__main__":

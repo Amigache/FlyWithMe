@@ -562,9 +562,12 @@ void FWM::logDeviceIdentity()
     const char *roleName = params.role == FWM_ROLE_LEADER ? "leader" :
                            params.role == FWM_ROLE_FOLLOWER ? "follower" : "off";
     // Línea estable, independiente del nivel DEBUG_MODE, para que GUI/herramientas puedan
-    // identificar la placa incluso en la imagen normal de vuelo.
-    Serial.printf("FWM_ID ap_mac=%s ap_ssid=\"%s\" role=%s sysid=%u\r\n",
-                  macText, params.ssid, roleName, (unsigned)fwmSystemId());
+    // identificar la placa incluso en la imagen normal de vuelo. `band` se añade al final: si
+    // dos placas no coinciden no hay enlace ni error visible, y comparar esta línea en ambas es
+    // la forma rápida de detectarlo.
+    Serial.printf("FWM_ID ap_mac=%s ap_ssid=\"%s\" role=%s sysid=%u band=%s\r\n",
+                  macText, params.ssid, roleName, (unsigned)fwmSystemId(),
+                  loraBandLabel(params.band));
 }
 
 void FWM::requestRestart()
@@ -684,6 +687,54 @@ void FWM::processSerialProvisioning()
                 }
             }
         }
+        else if (line.startsWith("FWM BAND "))
+        {
+            String requested = line.substring(9);
+            requested.trim();
+            int band = -1;
+            // Acepta tanto el indice (0|1|2) como la frecuencia habitual en MHz, que es lo
+            // que se escribe de memoria en el banco.
+            if (requested.equalsIgnoreCase("433"))
+                band = FWM_BAND_433;
+            else if (requested.equalsIgnoreCase("868"))
+                band = FWM_BAND_868;
+            else if (requested.equalsIgnoreCase("915") || requested.equalsIgnoreCase("900"))
+                band = FWM_BAND_900;
+            else
+            {
+                int asIndex = requested.toInt();
+                if (requested.length() > 0 && loraBandValid(asIndex))
+                    band = asIndex;
+            }
+
+            if (band < 0)
+            {
+                Serial.println("BANDCFG ERR invalid band (433|868|915 or 0|1|2)");
+            }
+            else if (params.band != band && !canWriteConfig())
+            {
+                Serial.println("BANDCFG WAIT FC must be connected, disarmed and on ground");
+            }
+            else
+            {
+                const bool changed = params.band != band;
+                String value = String(band);
+                String error;
+                if (!setParamByKey("band", value.c_str(), error))
+                {
+                    Serial.print("BANDCFG ERR ");
+                    Serial.println(error);
+                }
+                else
+                {
+                    Serial.print("BANDCFG OK band=");
+                    Serial.print(loraBandLabel(band));
+                    Serial.print("MHz (");
+                    Serial.print(band);
+                    Serial.println(changed ? ") saved" : ") already set");
+                }
+            }
+        }
         line = "";
         if (runtimeSitlMode)
             return;
@@ -757,6 +808,7 @@ void FWM::saveParams()
     preferences.putFloat("along_gain", params.along_gain);
     preferences.putInt("netid", (int)params.netid);
     preferences.putFloat("approach_dist", params.approach_dist);
+    preferences.putInt("band", params.band);
     if (mav != nullptr)
     {
         preferences.putInt("formation", (int)mav->currentFormation);
@@ -797,6 +849,10 @@ void FWM::loadParams()
     params.along_gain = preferences.getFloat("along_gain", ALONG_GAIN_CMS_PER_M);
     params.netid = (uint16_t)preferences.getInt("netid", NETID_DEFAULT);
     params.approach_dist = preferences.getFloat("approach_dist", APPROACH_DIST_DEFAULT);
+    // Banda: default de compilacion (LORA_BAND) si la placa nunca la guardo. Un valor fuera de
+    // rango (NVS corrupto o de una version futura) se cae al default en vez de arrancar mal.
+    const int savedBand = preferences.getInt("band", FWM_DEFAULT_BAND);
+    params.band = loraBandValid(savedBand) ? (int32_t)savedBand : FWM_DEFAULT_BAND;
 
     String ssid = preferences.getString("ssid", "");
     String pass = preferences.getString("pass", "");
@@ -1013,6 +1069,8 @@ static const ParamDef_t s_paramTable[] = {
     {"approach_dist",    "Approach distance",    PARAM_FLOAT, 50.0f, 5000.0f, "m",      0, PARAM_SCOPE_FOLLOWER},
     {"role",             "Device role",          PARAM_ENUM,  0.0f,  2.0f,   "",       1, PARAM_SCOPE_COMMON},
     {"ap_mode",          "AP mode",              PARAM_ENUM,  0.0f,  2.0f,   "",       1, PARAM_SCOPE_COMMON},
+    // Al final a proposito: los indices previos son el ABI del parametro MAVLink y no deben shifting.
+    {"band",             "LoRa band",            PARAM_ENUM,  0.0f,  2.0f,   "",       1, PARAM_SCOPE_COMMON},
 };
 
 int FWM::paramCount()
@@ -1060,6 +1118,7 @@ float FWM::getParamByIndex(int idx)
     case 12: return params.approach_dist;
     case 13: return (float)params.role;
     case 14: return (float)params.ap_mode;
+    case 15: return loraBandValid(params.band) ? (float)params.band : (float)FWM_DEFAULT_BAND;
     default: return 0.0f;
     }
 }
@@ -1116,6 +1175,22 @@ bool FWM::setParamByIndex(int idx, float value, bool persist)
         break;
     }
     case 14: params.ap_mode = (int32_t)(value + 0.5f); break;
+    case 15:
+    {
+        const int32_t newBand = (int32_t)(value + 0.5f);
+        if (!loraBandValid(newBand))
+            return false;
+        if (newBand == params.band)
+            break;
+        // Cambiar de banda reinicia el SX1276: prohibido en vuelo. canWriteConfig() es
+        // fail-closed (F-05), asi que sin enlace FC tampoco se acepta.
+        if (!canWriteConfig())
+            return false;
+        params.band = newBand;
+        if (comm)
+            comm->applyBand(newBand); // el core 1 lo aplica; el core 0 no toca el SPI
+        break;
+    }
     default: return false;
     }
     if (persist)
@@ -1294,6 +1369,14 @@ void FWM::onStateEntry(SystemState state)
         
     case STATE_SEARCHING:
         Log.notice("Searching for leader beacon..." CR);
+        // Al buscar es cuando un desajuste de banda se manifiesta (el otro extremo es
+        // inaudible y no genera error). Publicamos la banda propia para poder compararla.
+        if (mav != nullptr)
+        {
+            char bandLine[32];
+            snprintf(bandLine, sizeof(bandLine), "Searching on %s MHz", loraBandLabel(params.band));
+            mav->status_text(bandLine, MAV_SEVERITY_INFO);
+        }
         stage_follow = STAGE_IDLE;
         break;
         

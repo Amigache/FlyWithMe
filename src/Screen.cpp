@@ -421,7 +421,11 @@ void Screen::run()
 
       if (fwm->follow_mode == FOLL_MODE_FOLLOWER)
       {
-        display.println("MODE FOLLOWER");
+        // La banda va en la cabecera y no como linea mas: el follower ya llena la pantalla hasta
+        // la ultima linea, y la banda es justo lo que hay que comparar entre dos placas cuando
+        // no hay enlace por desajuste.
+        display.print("MODE FOLLOWER ");
+        display.println(loraBandLabel(fwm->params.band));
         display.drawLine(0, cursorY + lineSpacing, 128, cursorY + lineSpacing, SSD1306_WHITE);
         display.setCursor(0, cursorY + lineSpacing + 5); // Mover el cursor debajo de la línea
         display.print("Rx: ");
@@ -440,7 +444,8 @@ void Screen::run()
 
       if (fwm->follow_mode == FOLL_MODE_LEADER)
       {
-        display.println("MODE LEADER");
+        display.print("MODE LEADER ");
+        display.println(loraBandLabel(fwm->params.band));
         display.drawLine(0, cursorY + lineSpacing, 128, cursorY + lineSpacing, SSD1306_WHITE);
         display.setCursor(0, cursorY + lineSpacing + 5); // Mover el cursor debajo de la línea
         display.print("Tx: ");

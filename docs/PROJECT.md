@@ -136,7 +136,7 @@ occurrences across all objects. Local backup bundles were deleted.
 | Build `ttgo-lora32-v1-flight` | PASS |
 | Build `ttgo-lora32-v1-sitl` | PASS |
 | Clean-core build (fresh PlatformIO, pinned platform URL) | PASS |
-| `pio test -e native` (12 tests against `src/`) | PASS |
+| `pio test -e native` (15 tests against `src/`) | PASS |
 | Python tools compile (16 files) | PASS |
 | `tools/tests` unit tests | PASS |
 | `tools/proto_sim.py` protocol matrix | PASS 17/17 |
@@ -246,6 +246,8 @@ Safety rules for the bench:
 | Item | State |
 |---|---|
 | Role as runtime parameter, single flight image | Done |
+| Runtime LoRa band selection (433/868/915) | Done in code, pending board validation |
+| Multi-board flash targets (V2.1, T-Beam) | Not started. Blocked on V2.1 pin ambiguity (core variant says `LORA_RST 12`, its own comment says GPIO14). |
 | `canWriteConfig()` fail-closed writes | Done |
 | WiFi password change (WebUI + MAVLink) | Done (WebUI verified on board; MAVLink pending V6) |
 | `pio test -e native` with real `src/` headers | Done |
@@ -278,7 +280,7 @@ exposes data or weakens a stated guarantee. **Low** is hygiene or reproducibilit
 | F-10 | Low | Fixed | Field coordinates, COM ports and SITL paths in tools and `platformio.ini`. Moved to `tools/bench.local.json`; `monitor_port`/`upload_port` removed. |
 | F-11 | Low | Fixed | Unpinned dependencies. Platform (by URL), libraries, `requirements-dev.txt` and `platformio` are now pinned. |
 | F-12 | Low | Fixed | CI: per-job permissions, SHA-pinned actions, `persist-credentials: false`, `ci.yml`, `dependabot.yml`. |
-| F-13 | Low | Fixed (partial) | `pio test` failed and duplicated helpers. Replaced with 12 tests against real headers. `Comm`/`Telem` remain uncovered (Arduino dependency). |
+| F-13 | Low | Fixed (partial) | `pio test` failed and duplicated helpers. Replaced with 15 tests against real headers. `Comm`/`Telem` remain uncovered (Arduino dependency). |
 | F-14 | Info | Fixed | Author email in every commit. History rewritten to noreply; repository recreated. |
 | F-15 | Info | Fixed | README described a WiFi password change that did not exist. Corrected. |
 | F-16 | Info | Fixed | No `SECURITY.md`. Added, with private vulnerability reporting. |

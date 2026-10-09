@@ -135,15 +135,19 @@ On boot, check each board for errors and confirm the autopilot is connected.
    disabled in flight; do not depend on the WebUI while formation flying.
 3. Confirm `role=LEADER` on the leader and `role=FOLLOWER` on the follower, and leave `foll_enable`
    on for the follower. The SSID is unique per MAC and does not depend on the role. The line
-   `FWM_ID ap_mac=... ap_ssid="..." role=... sysid=...` appears on the serial console at boot; you
-   can also request it by sending `FWM ID` at 57600 baud.
+   `FWM_ID ap_mac=... ap_ssid="..." role=... sysid=... band=...` appears on the serial console at
+   boot; you can also request it by sending `FWM ID` at 57600 baud.
 4. Set the same `netid` on both (initial value `4660`). `netid` separates networks; it does not
    encrypt or authenticate anything.
-5. On the follower choose a formation: **TRAIL**, **LEFT**, **RIGHT**, **ABOVE** or **BELOW**.
-6. For first flights use **TRAIL**, keep the configured initial separation (96 m) and leave
+5. Set the same LoRa **band** on both. The radio supports 433 MHz, 868 MHz (Europe, default) and
+   915 MHz (North America). **Both boards must match**: if they differ there is simply no link and
+   no error message, so compare the band shown on each board (OSD header, or `FWM_ID ... band=868`
+   over serial) before concluding that something is broken. 2.4 GHz is not possible on this radio.
+6. On the follower choose a formation: **TRAIL**, **LEFT**, **RIGHT**, **ABOVE** or **BELOW**.
+7. For first flights use **TRAIL**, keep the configured initial separation (96 m) and leave
    `approach_dist` at 300 m. Do not reduce the separation until you have verified the link and the
    aircraft response under real, controlled conditions.
-7. Check antennas, power, GPS, control directions, modes, limits and failsafes on each autopilot.
+8. Check antennas, power, GPS, control directions, modes, limits and failsafes on each autopilot.
    Verify the pilot can leave `GUIDED` and take over at any moment.
 
 ### Changing the Wi-Fi password

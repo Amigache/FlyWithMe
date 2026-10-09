@@ -7,7 +7,7 @@
 ![Language](https://img.shields.io/badge/docs-English-lightgrey.svg)
 
 ![Web flasher](https://img.shields.io/badge/flasher-ESP%20Web%20Tools-ff7043?logo=espressif&logoColor=white)
-[![Web flasher](https://img.shields.io/badge/web-flasher-open-blue)](https://amigache.github.io/FlyWithMe/)
+[![Web flasher](https://img.shields.io/badge/web%20flasher-open-blue)](https://amigache.github.io/FlyWithMe/)
 
 **Formation flight with ArduPlane over LoRa.** A leader aircraft broadcasts its position and a
 follower aircraft computes and executes a relative position through MAVLink. The follower must be in
@@ -122,7 +122,8 @@ and then provisions the role over USB serial; it requires `pyserial` in the Pyth
 
 Without PlatformIO you can install the flight profile from the
 [web flasher](https://amigache.github.io/FlyWithMe/) using desktop Chrome or Edge, then assign the
-role from the same panel. **Choose your board in the selector before installing:** the boards differ
+role from the same panel. The panel also sets the LoRa **band** in the same pass; both aircraft must
+use the same one. **Choose your board in the selector before installing:** the boards differ
 in pin map, and installing the wrong one leaves the radio mute with no error. The TTGO LoRa32
 V1.6 / V2.0 / V2.1.6 target is marked **beta**: its pin map is verified against the vendor schematic
 but has not been tested on physical hardware yet.

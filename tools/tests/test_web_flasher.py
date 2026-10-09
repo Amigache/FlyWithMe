@@ -52,6 +52,33 @@ def write_fake_bundles(release_assets: Path, version: str, boards) -> dict:
     return expected
 
 
+class FlasherPanelTests(unittest.TestCase):
+    """Invariantes de la pagina del flasheador que no se pueden probar en un navegador aqui."""
+
+    def setUp(self):
+        self.html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
+
+    def test_panel_sends_the_band_before_the_role(self):
+        """Cambiar el rol reinicia la placa: un FWM BAND enviado despues se perderia sin aplicarse."""
+        band_at = self.html.index("FWM BAND")
+        role_at = self.html.index("FWM ROLE")
+        self.assertLess(band_at, role_at,
+                        "FWM BAND debe ir antes que FWM ROLE o la banda no se guardaria")
+
+    def test_panel_offers_the_three_bands(self):
+        for value in ('value="433"', 'value="868"', 'value="915"'):
+            self.assertIn(value, self.html)
+
+    def test_panel_matches_the_firmware_reply_tokens(self):
+        """Si el firmware renombra un token, el panel se quedaria esperando 30 s."""
+        for token in ("BANDCFG OK", "BANDCFG ERR", "BANDCFG WAIT",
+                      "ROLECFG OK", "ROLECFG ERR", "ROLECFG WAIT"):
+            self.assertIn(token, self.html, token)
+
+    def test_panel_uses_the_firmware_baud_rate(self):
+        self.assertIn("baudRate: 57600", self.html)
+
+
 class BoardRegistryTests(unittest.TestCase):
 
     def test_the_supported_boards_are_the_expected_ones(self):

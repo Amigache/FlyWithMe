@@ -72,7 +72,7 @@ need a different crystal flag, a different UART1 and, for the SX1262 boards, a d
 | Board | Verdict | Reason |
 |---|---|---|
 | **TTGO LoRa32 V1** | **Supported, validated** | The reference target. Two boards tested. |
-| TTGO LoRa32 V1.6 / V2.0 / V2.1.6 (T3) | **Target added, not yet validated on hardware** | Same PCB under three names: the PDF LILYGO publishes as `TTGO_V2_0_schematic.pdf` is titled internally `TTGO LORA V1.6` / `T3_V1.6` (2019-01-16). Pins from that schematic: LoRa RST **23** (`IO23=RESET`), OLED 21/22, SD 13/15/14/2. Differs from the V1 in the crystal (no external XTAL — `XTAL_N_NC`/`XTAL_P_NC`, PICO-D4 internal 40 MHz, so `-DF_XTAL_MHZ=26` must be dropped), OLED 21/22, LoRa RST 23, and UART1 (GPIO12/13 are the microSD and GPIO12 is a strapping pin, so UART1 moves to **32/33**, sacrificing the unused DIO1/DIO2). Builds as `ttgo-lora32-v21-flight`. |
+| TTGO LoRa32 V1.6 / V2.0 / V2.1.6 (T3) | **Published as beta, not yet validated on hardware** | Same PCB under three names: the PDF LILYGO publishes as `TTGO_V2_0_schematic.pdf` is titled internally `TTGO LORA V1.6` / `T3_V1.6` (2019-01-16). Pins from that schematic: LoRa RST **23** (`IO23=RESET`), OLED 21/22, SD 13/15/14/2. Differs from the V1 in the crystal (no external XTAL — `XTAL_N_NC`/`XTAL_P_NC`, PICO-D4 internal 40 MHz, so `-DF_XTAL_MHZ=26` must be dropped), OLED 21/22, LoRa RST 23, and UART1 (GPIO12/13 are the microSD and GPIO12 is a strapping pin, so UART1 moves to **32/33**, sacrificing the unused DIO1/DIO2). Builds as `ttgo-lora32-v21-flight` and the web flasher offers it flagged **beta**. |
 | TTGO T-Beam | Not offered | 40 MHz crystal, and **GPIO12 is the TX of the onboard NEO-6M GPS**; using it for UART1 RX would silently steal the GNSS. |
 | Heltec WiFi LoRa 32 V2 | Not offered | Same SX1276, but different pin naming (`RST_LoRa`, `SDA_OLED`), and the Arduino variant's generic `SDA/SCL` point at 21/22 while the OLED is on 4/15. |
 | Heltec WiFi LoRa 32 V3 / V4, TTGO T3-S3 (SX1262) | **Impossible with the current driver** | `sandeepmistry/LoRa@0.8.0` supports only SX1276/77/78/79. The SX1262 is a command-based part with a BUSY line, not a memory-mapped SX127x. Supporting it means porting `Comm.cpp` to another library (RadioLib). Not a pin change. |
@@ -302,6 +302,8 @@ Safety rules for the bench:
 | Web flasher on GitHub Pages | Done |
 | Flasher reuses the release binaries (matching hashes) | Done |
 | `buildId` in the flasher manifest for update detection | Done |
+| Flasher board selector with a per-board manifest | Done |
+| TTGO LoRa32 V1.6 / V2.0 / V2.1.6 target published as **beta** | Pin map from the vendor schematic; **awaiting validation on physical hardware**. Feedback via the issue tracker. |
 | Bench parameterization (no coordinates in repo) | Done |
 | **Authenticate the LoRa protocol (v3, MAC)** | Not started. Largest remaining risk. |
 | **WebUI/API authentication** | Not started. |

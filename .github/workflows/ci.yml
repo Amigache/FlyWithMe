@@ -38,12 +38,28 @@ jobs:
       - name: Build flight and dev/HIL profiles
         run: pio run -e ttgo-lora32-v1-flight -e ttgo-lora32-v21-flight -e ttgo-lora32-v1-sitl
 
+      # El flasheador publica varias placas; este paso comprueba que el generador las produce
+      # todas con su manifiesto y su buildId, sin desplegar nada.
       - name: Check web flasher generation
         run: |
           python tools/build_web_flasher.py \
             --version ci-check \
             --commit "$GITHUB_SHA" \
             --output "$RUNNER_TEMP/site-ci"
+          python - <<'PY'
+          import json, os, pathlib
+          site = pathlib.Path(os.environ["RUNNER_TEMP"]) / "site-ci"
+          info = json.loads((site / "build-info.json").read_text())
+          assert info["boards"], "el sitio no publica ninguna placa"
+          for board in info["boards"]:
+              manifest = json.loads((site / board["manifest"]).read_text())
+              build = manifest["builds"][0]
+              assert build.get("buildId"), f"{board['board']}: falta builds[].buildId"
+              assert not manifest.get("buildId"), f"{board['board']}: buildId en la raiz"
+              assert len(build["parts"]) == 4, f"{board['board']}: se esperaban 4 particiones"
+              assert (site / "firmware" / board["board"] / "SHA256SUMS").is_file()
+              print(f"  OK {board['board']} buildId={build['buildId']} beta={board['beta']}")
+          PY
 
   native-tests:
     name: Unit tests (pio test -e native)

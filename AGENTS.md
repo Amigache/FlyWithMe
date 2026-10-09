@@ -81,6 +81,9 @@ pio run -t clean
   - **OLED menu disabled** (`USE_INTERACTIVE_MENU 0`): its pins (12/13/14/15) collide with the
     MAVLink UART (12/13), LoRa RST (14) and OLED SCL (15). Do not re-enable without reassigning to
     free GPIOs.
+  - **NVS keys are limited to 15 characters.** `heading_corr_max` was 16 and silently failed on
+    every save/load (`KEY_TOO_LONG` / `NOT_FOUND`); it is now `hdg_corr_max`. Check the length
+    before adding a key.
   - **LoRa compression:** `Comm::compressPacket` must use `floor()` for lat/lon. With truncation
     toward zero, **negative longitudes** (western hemisphere, e.g. Spain) were corrupted by ~100 km.
   - **LoRa:** the setters (`setSignalBandwidth`, etc.) go **after** `LoRa.begin()`; before that,
@@ -153,11 +156,12 @@ src/
   Web.h/.cpp   Async web server + REST API + telemetry WebSocket.
   config.h     ALL configuration, constants, structs, enums and the Logger class.
   protocol.h   Pure, host-testable v2 wire format.
+  lora_band.h  Pure, host-testable LoRa band table (index -> frequency, labels).
   selftest.h   Pure, host-testable boot self-test.
   status_text.h Pure, host-testable STATUSTEXT deduplication.
   wifi_identity.h Pure, host-testable SSID derivation and WPA2 passphrase validation.
 lib/mavlink/   Generated MAVLink headers (v2). DO NOT edit by hand.
-test/          test_main.cpp (Unity) — 12 tests against the pure headers.
+test/          test_main.cpp (Unity) — 15 tests against the pure headers.
 include/ lib/  Standard PlatformIO folders (README).
 docs/          PROJECT.md (consolidated reference).
 ```
@@ -212,7 +216,7 @@ testing strategy, roadmap).
 
 | Define | Default | Description |
 |---|---|---|
-| `LORA_BAND` | `866E6` | Frequency (Europe). 433E6 Asia / 915E6 North America. |
+| `LORA_BAND` | `FWM_LORA_FREQ_868` | Compile-time default frequency, used on boards with no NVS value. Must be an integer literal in Hz (not `866E6`) so `#if` comparisons work. |
 | `LORA_SPREADING_FACTOR` | `12` | LoRa SF. |
 | `LORA_TX_POWER` | `20` | dBm. |
 | `F_XTAL_MHZ` (build flag) | `26` | TTGO LoRa32 V1.0 crystal. **Essential** (`-DF_XTAL_MHZ=26`): without it the core assumes 40 MHz → UART ×0.65 and **dead WiFi/BT**. |
@@ -232,6 +236,7 @@ testing strategy, roadmap).
 | `HEAD_ON_GUARD` | `0` in `config.h`/flight; `1` in the dev/HIL profile | 1 = **head-on collision guard**: if the leader comes head-on and < `HEAD_ON_RANGE` (500 m), break perpendicular to the line of sight and brake. The flight profile keeps `0`; the SITL dev profile enables it to validate the scenario. |
 | `TIGHT_FORMATION` | `0` | 1 = **fast LoRa rate when close** (200/500/1000 ms) for 10–20 m flight. Pair with a low SF (`-D LORA_SPREADING_FACTOR=7`). |
 | `netid` | `4660` (0x1234) | v2 protocol network: filters traffic from other systems **at packet level**. Must match on both; configurable by parameter and WebUI. Distance/OSD are only published if the packet indicates a valid position. |
+| `band` NVS/WebUI/MAVLink/USB | `FWM_DEFAULT_BAND` (868) | `0=433`, `1=868`, `2=915`. **Must match on both boards**; a mismatch means no link and no error. Ground-only (restarting the SX1276). Mapping and labels live in the pure header `src/lora_band.h`. USB console `FWM BAND 433\|868\|915`. |
 | `role` NVS/WebUI/MAVLink | `OFF` on a new board | `0=OFF`, `1=FOLLOWER`, `2=LEADER`; editable on the ground only, change with reboot. FWM/FC SYSID: leader 1, follower 2. Provision with `tools/flash_firmware.py`; older boards without this key must be reassigned. |
 | `ap_mode` NVS/WebUI/REST/USB | `AUTO` | `0=AUTO`, `1=ON (ground only)`, `2=OFF`; the ground-only policy always prevails in flight. REST `/api/ap`; USB console `FWM AP auto|on|off`. |
 | WiFi SSID | Derived from MAC | `FWM XXXXXX`, where `XXXXXX` are the last 3 bytes of the SoftAP MAC in hexadecimal; read over serial with `FWM_ID` at boot or the `FWM ID` command. Not manually configurable. |
@@ -263,9 +268,11 @@ testing strategy, roadmap).
 |---|---|---|
 | `README.md` | User manual | Feature overview, hardware, flashing, ground configuration, formation flight procedure, limits, badges. No development/testing content. |
 | `DEVELOP.md` | Development and bench | Architecture, PlatformIO profiles, SITL, MAVProxy, simulators, bench and tests. |
-| `docs/PROJECT.md` | Consolidated reference | Project overview, repository layout, security audit, validation results, testing strategy, roadmap and detailed findings F-01…F-17. |
+| `docs/PROJECT.md` | Consolidated reference | Project overview, repository layout, security audit, validation results, testing strategy, roadmap and detailed findings F-01…F-21. |
 | `AGENTS.md` | Agent guide | This document. |
 | `SECURITY.md` | Security policy | Vulnerability reporting, scope, known risks. |
+| `tools/build_web_flasher.py` | Web flasher site generator | `--binaries-dir` reuses the release binaries so the site and release hashes match. |
+| `tools/package_firmware_release.py` | Release packager | Packages the production profile and writes per-segment SHA-256 into `release-manifest.json`. |
 | `tools/hil_test.py` | HIL test harness | Validates the leader/follower link over serial (see §2). |
 | `tools/flash_firmware.py` | Flash and provision | Uploads the common flight image and stores `role` over USB serial; does not build a different binary per role. |
 | `tools/lab.py` | Lab (CLI) | Menu: 2 SITL + headless MAVProxy → UDP for Mission Planner; actions and reports. |
@@ -286,7 +293,7 @@ testing strategy, roadmap).
 
 - **Environment `native`:** `platformio.ini` defines `[env:native]` for `pio test -e native`.
   `default_envs` is `ttgo-lora32-v1-flight`, so `pio test` without `-e` is not the right command.
-- **Tests:** `test/test_main.cpp` contains **12** tests that link against the real `src/` headers.
+- **Tests:** `test/test_main.cpp` contains **15** tests that link against the real `src/` headers.
 - **Documentation:** user-facing flight steps go in `README.md`; SITL profiles, bench, test commands
   and internals go in `DEVELOP.md`.
 

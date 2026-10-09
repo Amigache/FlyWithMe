@@ -8,6 +8,7 @@
 
 #include <string.h>
 
+#include "../src/lora_band.h"
 #include "../src/protocol.h"
 #include "../src/selftest.h"
 #include "../src/status_text.h"
@@ -167,6 +168,53 @@ void test_protocol_selftest_passes(void)
   TEST_ASSERT_NOT_NULL(strstr(summary, "0 fails"));
 }
 
+// ---------------------------------------------------------------------------------------------
+// lora_band.h: bandas LoRa del SX1276
+// ---------------------------------------------------------------------------------------------
+
+// Las tres bandas soportadas resuelven a su frecuencia y a la etiqueta que ve el usuario.
+static void test_lora_band_indices_and_frequencies(void)
+{
+  TEST_ASSERT_EQUAL_INT32(FWM_BAND_433, loraBandFromFrequency(FWM_LORA_FREQ_433));
+  TEST_ASSERT_EQUAL_INT32(FWM_BAND_868, loraBandFromFrequency(FWM_LORA_FREQ_868));
+  TEST_ASSERT_EQUAL_INT32(FWM_BAND_900, loraBandFromFrequency(FWM_LORA_FREQ_900));
+
+  TEST_ASSERT_EQUAL_UINT32(FWM_LORA_FREQ_433, loraBandFrequency(FWM_BAND_433));
+  TEST_ASSERT_EQUAL_UINT32(FWM_LORA_FREQ_868, loraBandFrequency(FWM_BAND_868));
+  TEST_ASSERT_EQUAL_UINT32(FWM_LORA_FREQ_900, loraBandFrequency(FWM_BAND_900));
+
+  TEST_ASSERT_EQUAL_STRING("433", loraBandLabel(FWM_BAND_433));
+  TEST_ASSERT_EQUAL_STRING("868", loraBandLabel(FWM_BAND_868));
+  TEST_ASSERT_EQUAL_STRING("915", loraBandLabel(FWM_BAND_900));
+
+  // Limite de hardware del SX1276 (137-1020 MHz): 2.4 GHz no existe como opcion configurable.
+  TEST_ASSERT_TRUE(loraBandFrequency(FWM_BAND_900) < 1020000000UL);
+  TEST_ASSERT_TRUE(loraBandFrequency(FWM_BAND_433) > 137000000UL);
+}
+
+// Un NVS corrupto no debe arrancar el radio en una frecuencia arbitraria.
+static void test_lora_band_rejects_out_of_range(void)
+{
+  TEST_ASSERT_FALSE(loraBandValid(-1));
+  TEST_ASSERT_FALSE(loraBandValid(FWM_BAND_COUNT));
+  TEST_ASSERT_FALSE(loraBandValid(99));
+  TEST_ASSERT_TRUE(loraBandValid(FWM_BAND_433));
+  TEST_ASSERT_TRUE(loraBandValid(FWM_BAND_900));
+
+  // Un indice invalido cae a 868 MHz: un valor seguro, no un abort del arranque.
+  TEST_ASSERT_EQUAL_UINT32(FWM_LORA_FREQ_868, loraBandFrequency(FWM_BAND_COUNT));
+  TEST_ASSERT_EQUAL_UINT32(FWM_LORA_FREQ_868, loraBandFrequency(-7));
+}
+
+static void test_lora_band_frequency_roundtrip(void)
+{
+  for (int32_t band = 0; band < FWM_BAND_COUNT; ++band)
+  {
+    TEST_ASSERT_TRUE(loraBandValid(band));
+    TEST_ASSERT_EQUAL_INT32(band, loraBandFromFrequency(loraBandFrequency(band)));
+  }
+}
+
 int main(int argc, char **argv)
 {
   (void)argc;
@@ -184,5 +232,8 @@ int main(int argc, char **argv)
   RUN_TEST(test_passphrase_length_limits);
   RUN_TEST(test_passphrase_rejects_non_printable_ascii);
   RUN_TEST(test_protocol_selftest_passes);
+  RUN_TEST(test_lora_band_indices_and_frequencies);
+  RUN_TEST(test_lora_band_rejects_out_of_range);
+  RUN_TEST(test_lora_band_frequency_roundtrip);
   return UNITY_END();
 }

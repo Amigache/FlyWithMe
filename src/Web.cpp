@@ -415,7 +415,7 @@ String Web::generateHTML()
       form:['Trail','Left','Right','Above','Below'],
        roles:['Off','Follower','Leader'],
        apModes:['Auto (ground only)','On (ground only)','Off'],
-       lb:{formation:'Formation',dist_offset:'Trail distance',lateral_offset:'Lateral offset',vertical_offset:'Vertical offset',cross_gain:'Lateral gain',hdg_corr_max:'Max heading correction',along_gain:'Longitudinal gain',prediction:'Prediction',filter:'Position filter',foll_enable:'Follow enable',link_timeout:'Link timeout',netid:'Network ID',approach_dist:'Approach distance',role:'Board role',ap_mode:'WiFi access point'},
+       lb:{formation:'Formation',dist_offset:'Trail distance',lateral_offset:'Lateral offset',vertical_offset:'Vertical offset',cross_gain:'Lateral gain',hdg_corr_max:'Max heading correction',along_gain:'Longitudinal gain',prediction:'Prediction',filter:'Position filter',foll_enable:'Follow enable',link_timeout:'Link timeout',netid:'Network ID',approach_dist:'Approach distance',role:'Board role',ap_mode:'WiFi access point',band:'LoRa band'},
      d:{formation:'Geometry relative to the leader: <b>Trail</b> behind, <b>Left/Right</b> lateral, <b>Above/Below</b> vertical.',
         dist_offset:'Longitudinal separation behind the leader for TRAIL (m). Typical ~90-110 m.',
         lateral_offset:'Sideways separation for LEFT/RIGHT (m).',
@@ -430,7 +430,8 @@ String Web::generateHTML()
         netid:'Shared network ID ("phrase"): packets from other IDs are ignored. Must match on both aircraft. 0 = accept any.',
          approach_dist:'Below this distance (m) the follower only keeps following if the leader is in a stable mode (FBWA/FBWB/CRUISE/AUTO/RTL/LOITER/TAKEOFF/GUIDED).',
           role:'Select OFF, FOLLOWER or LEADER. Role changes are accepted only on the ground and restart the board; match the aircraft SYSID (leader=1, follower=2).',
-          ap_mode:'WiFi access point mode. It is always disabled when the aircraft is airborne.'}},
+          ap_mode:'WiFi access point mode. It is always disabled when the aircraft is airborne.',
+          band:'LoRa frequency band. <b>Both aircraft must match</b>: if they differ there is no link and no error. 2.4 GHz is not possible on the SX1276 (137-1020 MHz). Changeable only on the ground, because it restarts the radio.'}},
     es:{stats:'Estado',cfg:'Configuración FWM',act:'Acciones',save:'Guardar',logs:'Descargar logs',reload:'Recargar',ground:'EN TIERRA',flight:'EN VUELO',
      st:{state:'Estado',up:'Tiempo',rx:'RX / TX',rssi:'RSSI',snr:'SNR',loss:'Pérdidas',dist:'Distancia'},
        help:'Ayuda de configuración',hdef:'Selecciona primero el rol; solo se muestran los parámetros disponibles para ese rol. Configura <b>en tierra</b> y pulsa Guardar. Cambiar el rol reinicia la placa.',
@@ -438,8 +439,9 @@ String Web::generateHTML()
       pw:{title:'Clave WiFi',req:'Todavía usas la clave WiFi de fábrica. Define una nueva antes de cambiar cualquier otro ajuste. La placa se reinicia para aplicarla.',new:'Nueva clave (8-63 caracteres)',rep:'Repetir clave',btn:'Cambiar clave',mis:'Las claves no coinciden',ok:'Guardado. La placa se reinicia con la nueva clave.',err:'No se pudo cambiar la clave',lock:'Guardar desactivado hasta cambiar la clave WiFi.'},
       form:['Cola','Izquierda','Derecha','Arriba','Abajo'],
        roles:['Desactivado','Seguidor','Líder'],
+        bands:['433 MHz (Asia)','868 MHz (Europa)','915 MHz (América)'],
        apModes:['Auto (solo tierra)','Activado (solo tierra)','Desactivado'],
-       lb:{formation:'Formación',dist_offset:'Distancia TRAIL',lateral_offset:'Offset lateral',vertical_offset:'Offset vertical',cross_gain:'Ganancia lateral',hdg_corr_max:'Corrección de rumbo máx',along_gain:'Ganancia longitudinal',prediction:'Predicción',filter:'Filtro de posición',foll_enable:'Activar seguimiento',link_timeout:'Timeout de enlace',netid:'ID de red',approach_dist:'Distancia de aproximación',role:'Rol de placa',ap_mode:'Punto de acceso WiFi'},
+       lb:{formation:'Formación',dist_offset:'Distancia TRAIL',lateral_offset:'Offset lateral',vertical_offset:'Offset vertical',cross_gain:'Ganancia lateral',hdg_corr_max:'Corrección de rumbo máx',along_gain:'Ganancia longitudinal',prediction:'Predicción',filter:'Filtro de posición',foll_enable:'Activar seguimiento',link_timeout:'Timeout de enlace',netid:'ID de red',approach_dist:'Distancia de aproximación',role:'Rol de placa',ap_mode:'Punto de acceso WiFi',band:'Banda LoRa'},
      d:{formation:'Geometría relativa al líder: <b>Cola</b> detrás, <b>Izquierda/Derecha</b> lateral, <b>Arriba/Abajo</b> vertical.',
         dist_offset:'Separación longitudinal detrás del líder para TRAIL (m). Típico ~90-110 m.',
         lateral_offset:'Separación lateral para Izquierda/Derecha (m).',
@@ -454,7 +456,8 @@ String Web::generateHTML()
         netid:'ID de red compartido ("frase"): se ignoran paquetes de otros IDs. Debe coincidir en ambos aviones. 0 = aceptar cualquiera.',
          approach_dist:'Por debajo de esta distancia (m) el seguidor solo sigue si el líder está en un modo estable (FBWA/FBWB/CRUISE/AUTO/RTL/LOITER/TAKEOFF/GUIDED).',
           role:'Selecciona DESACTIVADO, SEGUIDOR o LÍDER. Solo se cambia en tierra y la placa se reinicia; SYSID del avión: líder=1, seguidor=2.',
-          ap_mode:'Modo del punto de acceso WiFi. Se apaga siempre cuando la aeronave está en vuelo.'}}
+          ap_mode:'Modo del punto de acceso WiFi. Se apaga siempre cuando la aeronave está en vuelo.',
+          band:'Banda de frecuencia LoRa. <b>Ambas aeronaves deben coincidir</b>: si no, no hay enlace ni error visible. 2,4 GHz no es posible en el SX1276 (137-1020 MHz). Solo se cambia en tierra, porque reinicia el radio.'}}
     };
     let P=[],ALL_P=[],DRAFT={},LANG=localStorage.getItem('lang')||(((navigator.language||'en').slice(0,2)==='es')?'es':'en');
     const L=()=>I18N[LANG];
@@ -484,7 +487,7 @@ String Web::generateHTML()
       P=visible;let h='';
       visible.forEach(p=>{const id='p_'+p.key,t=p.type,lb=L().lb[p.key]||p.label,u=p.unit?' ('+p.unit+')':'';
         let fld;
-        if(t===3){const opts=p.key==='role'?L().roles:(p.key==='ap_mode'?L().apModes:L().form);fld='<label>'+lb+'<select id="'+id+'">'+opts.map((n,i)=>'<option value="'+i+'">'+n+'</option>').join('')+'</select></label>';}
+        if(t===3){const opts=p.key==='role'?L().roles:(p.key==='ap_mode'?L().apModes:(p.key==='band'?L().bands:L().form));fld='<label>'+lb+'<select id="'+id+'">'+opts.map((n,i)=>'<option value="'+i+'">'+n+'</option>').join('')+'</select></label>';}
         else if(t===2)fld='<label class="chk"><input type="checkbox" id="'+id+'">'+lb+'</label>';
         else fld='<label>'+lb+u+'<input type="number" step="any" min="'+p.min+'" max="'+p.max+'" id="'+id+'"></label>';
         h+='<div class="prow">'+fld+'<div class="desc">'+(L().d[p.key]||'')+'</div></div>';});

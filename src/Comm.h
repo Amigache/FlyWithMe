@@ -37,6 +37,9 @@ public:
     bool validatePacket(const LoraPacket_t &packet); // FASE 1: Validación completa de paquete
     bool acceptSequence(uint16_t seq);
     void applyNetid();                        // v2: re-fija el sync word de radio desde params.netid
+    void applyBand(int32_t band);              // core0 solicita el cambio; el owner del SX1276 lo aplica en run()
+    void reconfigureBand(int32_t band);        // core1 unicamente: LoRa.end() + begin() + re-aplicar setters
+    int32_t band() const { return loraBand; }  // banda efectiva del radio
     void requestRuntimeSitlProfile();          // core0 solicita; el owner del SX1276 lo aplica en run()
     void sendReplyPacket();                   // v2: REPLY/JOIN del seguidor (enlace de vuelta)
     uint16_t txSeq = 0;                        // v2: secuencia de TX (perdidas/duplicados)
@@ -46,6 +49,9 @@ public:
     uint32_t replyDueMs = 0;
     volatile bool syncWordPending = false;
     volatile bool runtimeSitlProfilePending = false;
+    volatile bool bandPending = false;
+    volatile int32_t requestedBand = FWM_DEFAULT_BAND;
+    int32_t loraBand = FWM_DEFAULT_BAND;       // banda realmente aplicada al SX1276
     
     // FASE 2: Compresión y optimización
     CompressedLoraPacket_t compressPacket(LoraPacket_t packet);

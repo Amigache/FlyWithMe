@@ -6,6 +6,8 @@
 #include <HardwareSerial.h>
 #include <string>  // FlightModeInfo usa std::string
 
+#include "lora_band.h"  // bandas LoRa (puro, testeable en host)
+
 // Auto-test del protocolo al arrancar (barato; util en desarrollo). Ver src/selftest.h
 #ifndef FWM_SELFTEST
 #define FWM_SELFTEST 1
@@ -106,10 +108,20 @@
 #define LORA_TX_POWER 20             ///< 20dBm
 #define LORA_SYNC_WORD 0x34          ///< 0x34
 
-// 433E6 for Asia
-// 866E6 for Europe
-// 915E6 for North America
-#define LORA_BAND 866E6
+// Banda de LoRa. El SX1276 cubre 137-1020 MHz: 433/868/915 son validas, 2.4 GHz NO.
+// LORA_BAND es el valor por defecto de COMPILACION (arranque / placas nuevas); el valor
+// efectivo vive en params.band (NVS) y se cambia solo en tierra.
+#ifndef LORA_BAND
+#define LORA_BAND FWM_LORA_FREQ_868
+#endif
+
+#if LORA_BAND == FWM_LORA_FREQ_433
+#define FWM_DEFAULT_BAND FWM_BAND_433
+#elif LORA_BAND == FWM_LORA_FREQ_900
+#define FWM_DEFAULT_BAND FWM_BAND_900
+#else
+#define FWM_DEFAULT_BAND FWM_BAND_868
+#endif
 
 // Stages ------------------------------------------------------------------------------------------------
 #define STAGE_IDLE 0
@@ -319,6 +331,7 @@ typedef struct
   float along_gain;        // cm/s por m - ganancia longitudinal
   uint16_t netid;          // red ("frase"): filtra trafico de otros sistemas (0 = deshabilitado)
   float approach_dist;     // m - distancia bajo la cual se exige modo estable del lider
+  int32_t band;            // FWM_BAND_433/868/900; ambas placas deben coincidir o no hay enlace
 } Params_t;
 
 // --- Tabla de parametros configurables (Fase 2) ---

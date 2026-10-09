@@ -77,7 +77,16 @@ Both current profiles boot with the FC on UART1 (`FC_LINK_USB=0`); the dev profi
 
 ## Effective configuration
 
-- Radio: `LORA_BAND=866E6`, SF12/BW125k in flight, fixed sync word `0x34`.
+- Radio: `LORA_BAND` (compile-time default) resolves to the runtime `params.band`; SF12/BW125k in
+  flight, fixed sync word `0x34`.
+- **Band**: runtime parameter `band` (0=433, 1=868, 2=915), NVS + WebUI + MAVLink + USB
+  (`FWM BAND 433|868|915`). Default derives from `LORA_BAND` via `FWM_DEFAULT_BAND`. Changing it
+  is ground-only (`canWriteConfig()`) and does `LoRa.end()` + `LoRa.begin(freq)` + re-applies every
+  setter, because changing frequency needs the PLL reprogrammed and the setters must come *after*
+  `begin()`. `Comm::applyBand()` only raises a flag: the core 1 loop applies it, because only that
+  loop touches the SX1276. **Both boards must match**; there is no detection of a mismatch, so each
+  board publishes its band in the OSD header, in `FWM_ID ... band=868` and as a STATUSTEXT when it
+  enters SEARCHING. 2.4 GHz is impossible on the SX1276 (137-1020 MHz).
 - HIL in the dev profile: `FWM SIM ON` applies SF7/BW250k and 5 Hz for that session; those timings
   **do not represent** real SF12.
 - `LORA_CRC=0`, `NETID_USE_SYNCWORD=0` by default. The frame has a one-byte additive checksum,
@@ -94,7 +103,7 @@ Both current profiles boot with the FC on UART1 (`FC_LINK_USB=0`); the dev profi
   flight. `ttgo-lora32-v1-flight` pins `FWM_ALLOW_RUNTIME_SITL=0`.
 - `role` and `ap_mode` are also persisted in NVS: `ap_mode=0 AUTO`, `1 ON (ground only)`, `2 OFF`.
   The firmware never leaves the AP active in flight; it can be queried/controlled via `/api/ap` or
-  the USB console (`FWM AP auto|on|off`).
+  the USB console (`FWM AP auto|on|off`). `band` is persisted the same way (`FWM BAND`).
 - The AP SSID is computed as `FWM XXXXXX` using the last 3 bytes of the SoftAP MAC. The board prints
   `FWM_ID ap_mac=... ap_ssid="..." role=... sysid=...` on UART0 at boot and returns the same line on
   receiving `FWM ID` (57600 baud).

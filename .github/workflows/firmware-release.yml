@@ -7,13 +7,22 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Versión (ej. v1.2.3)
+        description: Version to publish (e.g. v1.2.3)
         required: true
         type: string
+      deploy_site:
+        description: Also deploy the web flasher to GitHub Pages
+        required: false
+        default: true
+        type: boolean
 
-# Por defecto, solo lectura. El permiso de escritura se concede únicamente al job de publicación.
+# Por defecto, solo lectura. El permiso de escritura se concede únicamente a los jobs que publican.
 permissions:
   contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
 
 jobs:
   build-firmware:
@@ -73,3 +82,77 @@ jobs:
           files: |
             release-assets/*.zip
             release-assets/release-manifest.json
+
+  # El flasheador web se despliega desde el MISMO build que la release. Antes era un workflow
+  # aparte que recompilaba: las builds de ESP-IDF no son reproducibles byte a byte, asi que el
+  # sitio acababa sirviendo un firmware.bin con un hash distinto del publicado en la release y
+  # sus SHA256SUMS no cuadraban con el release-manifest.json. Reutilizar los binarios ya
+  # empaquetados hace que coincidan por construccion.
+  deploy-flasher:
+    needs: build-firmware
+    if: ${{ github.event_name == 'push' || inputs.deploy_site }}
+    runs-on: ubuntu-22.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node (only to download esp-web-tools at a pinned version)
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+
+      - name: Download release assets
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-assets
+          path: release-assets
+
+      - name: Unpack the published firmware binaries
+        run: |
+          mkdir -p published
+          unzip -q release-assets/*.zip -d published
+
+      - name: Generate web flasher site from the published binaries
+        env:
+          RELEASE_VERSION: ${{ inputs.version || github.ref_name }}
+          RELEASE_COMMIT: ${{ github.sha }}
+        run: |
+          python tools/build_web_flasher.py \
+            --version "$RELEASE_VERSION" \
+            --commit "$RELEASE_COMMIT" \
+            --binaries-dir published \
+            --output site
+
+      # Las hashes del sitio deben ser identicas a las del manifest.json publicado dentro del zip.
+      # Si divergen, el despliegue falla: es la garantia de que ambos canales sirve lo mismo.
+      - name: Verify the site matches the published hashes
+        run: |
+          unzip -p release-assets/*.zip manifest.json > published-manifest.json
+          python tools/verify_site_hashes.py \
+            --manifest published-manifest.json \
+            --sha256sums site/firmware/SHA256SUMS
+
+      - name: Configure Pages
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

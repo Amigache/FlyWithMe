@@ -1382,7 +1382,18 @@ LoraPacket_t Telem::getSimulatedPacket()
 #if FC_EMULATION
 void Telem::updateFcEmulation()
 {
-    simulatedData.update();
+    // SimulatedData::update() inyecta ruido por llamada sin escalar por dt, asi que llamarla en
+    // cada iteracion del bucle de vuelo (~1 kHz) lo integraba unas 100 veces mas rapido que
+    // SIMULATION_UPDATE_RATE: la altitud simulada sufria un paseo aleatorio y salia de rango en
+    // minutos, el seguidor rechazaba los paquetes por altura invalida y el banco se quedaba sin
+    // enlace. Limitar el ritmo igual que la telemetria real.
+    static uint32_t lastSimulatedUpdateMs = 0;
+    const uint32_t now = millis();
+    if (now - lastSimulatedUpdateMs >= SIMULATION_UPDATE_RATE)
+    {
+        lastSimulatedUpdateMs = now;
+        simulatedData.update();
+    }
 
     APdata.lat = (int32_t)(simulatedData.lat * 1e7);
     APdata.lon = (int32_t)(simulatedData.lon * 1e7);

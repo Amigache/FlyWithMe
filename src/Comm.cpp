@@ -22,7 +22,10 @@ void Comm::begin()
   Log.notice("Init LoRa" CR);
   LoRa.setPins(SS, RST, DIO0);
 
-  if (!LoRa.begin(LORA_BAND))
+  // La banda es un parametro de runtime (params.band). LORA_BAND solo define el valor por
+  // defecto de compilacion para placas sin valor en NVS.
+  loraBand = loraBandValid(fwm->params.band) ? fwm->params.band : FWM_DEFAULT_BAND;
+  if (!LoRa.begin(loraBandFrequency(loraBand)))
   {
     Log.error("Starting LoRa failed!" CR);
     for (;;)
@@ -75,6 +78,15 @@ void Comm::markBeaconReceived()
 void Comm::run()
 {
   // Solo este loop del core propietario toca SPI/SX1276: el comando serie deja la petición.
+  if (bandPending)
+  {
+    bandPending = false;
+    if (loraBandValid(requestedBand) && requestedBand != loraBand)
+    {
+      reconfigureBand(requestedBand);
+    }
+  }
+
   if (runtimeSitlProfilePending)
   {
     runtimeSitlProfilePending = false;
@@ -548,6 +560,52 @@ void Comm::applyNetid()
 #if NETID_USE_SYNCWORD
   syncWordPending = true;
 #endif
+}
+
+// Cambio de banda en runtime. NO se toca el SX1276 aqui: esta funcion puede llamarse desde
+// Web/core0 y solo el loop de vuelo del core 1 puede acceder al SPI (mismo motivo que applyNetid).
+void Comm::applyBand(int32_t band)
+{
+  if (!loraBandValid(band))
+    return;
+  requestedBand = band;
+  bandPending = true;
+}
+
+// Reconfigura el radio a la banda pedida. LoRa.end() + LoRa.begin() es obligatorio: cambiar la
+// frecuencia exige reprogramar el sintetizador/PLL, no basta con setFrequency(). Los setters
+// vuelven a ir DESPUES de begin() por el mismo motivo que en begin() (setLdoFlag divide por cero).
+void Comm::reconfigureBand(int32_t band)
+{
+  Log.notice("LoRa: switching band..." CR);
+  LoRa.end();
+  loraBand = band;
+  if (!LoRa.begin(loraBandFrequency(loraBand)))
+  {
+    Log.error("LoRa re-init failed at new band!" CR);
+    return; // se mantiene loraBand sin aplicar; el radio queda sin enlace hasta el reintento
+  }
+  LoRa.setSignalBandwidth(LORA_SIGNAL_BANDWIDTH);
+  LoRa.setSpreadingFactor(LORA_SPREADING_FACTOR);
+  LoRa.setCodingRate4(LORA_CODING_RATE);
+  LoRa.setTxPower(LORA_TX_POWER);
+  LoRa.setSyncWord(LORA_SYNC_WORD);
+#if NETID_USE_SYNCWORD
+  if (fwm->params.netid)
+  {
+    LoRa.setSyncWord(loraSyncWordFor(fwm->params.netid));
+  }
+#endif
+#if LORA_CRC
+  LoRa.enableCrc();
+#endif
+  Log.notice("LoRa band applied" CR);
+  if (fwm->mav)
+  {
+    char bandLine[32];
+    snprintf(bandLine, sizeof(bandLine), "LoRa band %s MHz", loraBandLabel(loraBand));
+    fwm->mav->status_text(bandLine, MAV_SEVERITY_INFO);
+  }
 }
 
 // v2: REPLY (ya hay enlace) o JOIN (aun no) con la posicion del seguidor -> sesion + OSD del lider.

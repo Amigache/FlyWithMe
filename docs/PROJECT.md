@@ -136,7 +136,7 @@ occurrences across all objects. Local backup bundles were deleted.
 | Build `ttgo-lora32-v1-flight` | PASS |
 | Build `ttgo-lora32-v1-sitl` | PASS |
 | Clean-core build (fresh PlatformIO, pinned platform URL) | PASS |
-| `pio test -e native` (12 tests against `src/`) | PASS |
+| `pio test -e native` (15 tests against `src/`) | PASS |
 | Python tools compile (16 files) | PASS |
 | `tools/tests` unit tests | PASS |
 | `tools/proto_sim.py` protocol matrix | PASS 17/17 |
@@ -216,6 +216,25 @@ keeps it disabled because it is experimental and is not a certified collision-av
 > The first `head_on` attempt was skipped because the `--only` invocation skipped `takeoff`, so the
 > SITL aircraft were on the ground. Rerunning with `takeoff` first produced the PASS above.
 
+### 4.5 Band switching (2026-10-10)
+
+Two boards (`ttgo-lora32-v1`, emulated FC + real LoRa), roles leader/follower, both on `band=868`.
+
+| Step | Expected | Observed |
+|---|---|---|
+| Baseline | follower receives beacons | `rx` rising, RSSI ≈ −40 dBm |
+| `FWM BAND 433` on the follower | radio re-inits, link dies | `switching band...` → `LoRa band applied`, `STATUSTEXT: LoRa band 433 MHz`, `rx` frozen, `LOST_LINK` |
+| `FWM BAND 868` on the follower | link recovers | `rx` resumes from 58 → 65 |
+| `FWM ID` after that | reports the current band | `band=433` while on 433 |
+| Reset | band persisted in NVS | `FWM_ID ... band=868` after reboot |
+
+The board publishes its own band in the OSD header, in `FWM_ID` and as a STATUSTEXT when entering
+SEARCHING, because a mismatch across bands produces no error at all.
+
+Not verified: rejecting a band change in flight. `canWriteConfig()` returns true unconditionally in
+the `FC_EMULATION` bench profile, so that guard can only be exercised with a real armed autopilot
+(same family as V6/V7).
+
 ---
 
 ## 5. Testing strategy
@@ -246,11 +265,15 @@ Safety rules for the bench:
 | Item | State |
 |---|---|
 | Role as runtime parameter, single flight image | Done |
+| Runtime LoRa band selection (433/868/915) | Done, validated on hardware 2026-10-10 |
+| Multi-board flash targets (V2.1, T-Beam) | Not started. Blocked on V2.1 pin ambiguity (core variant says `LORA_RST 12`, its own comment says GPIO14). |
 | `canWriteConfig()` fail-closed writes | Done |
 | WiFi password change (WebUI + MAVLink) | Done (WebUI verified on board; MAVLink pending V6) |
 | `pio test -e native` with real `src/` headers | Done |
 | CI + CodeQL + Dependabot + pinned actions | Done |
 | Web flasher on GitHub Pages | Done |
+| Flasher reuses the release binaries (matching hashes) | Done |
+| `buildId` in the flasher manifest for update detection | Done |
 | Bench parameterization (no coordinates in repo) | Done |
 | **Authenticate the LoRa protocol (v3, MAC)** | Not started. Largest remaining risk. |
 | **WebUI/API authentication** | Not started. |
@@ -278,11 +301,15 @@ exposes data or weakens a stated guarantee. **Low** is hygiene or reproducibilit
 | F-10 | Low | Fixed | Field coordinates, COM ports and SITL paths in tools and `platformio.ini`. Moved to `tools/bench.local.json`; `monitor_port`/`upload_port` removed. |
 | F-11 | Low | Fixed | Unpinned dependencies. Platform (by URL), libraries, `requirements-dev.txt` and `platformio` are now pinned. |
 | F-12 | Low | Fixed | CI: per-job permissions, SHA-pinned actions, `persist-credentials: false`, `ci.yml`, `dependabot.yml`. |
-| F-13 | Low | Fixed (partial) | `pio test` failed and duplicated helpers. Replaced with 12 tests against real headers. `Comm`/`Telem` remain uncovered (Arduino dependency). |
+| F-13 | Low | Fixed (partial) | `pio test` failed and duplicated helpers. Replaced with 15 tests against real headers. `Comm`/`Telem` remain uncovered (Arduino dependency). |
 | F-14 | Info | Fixed | Author email in every commit. History rewritten to noreply; repository recreated. |
 | F-15 | Info | Fixed | README described a WiFi password change that did not exist. Corrected. |
 | F-16 | Info | Fixed | No `SECURITY.md`. Added, with private vulnerability reporting. |
 | F-17 | Info | Fixed | Release and flasher outputs could be committed. `site/`, `release-assets/` git-ignored. |
+| F-18 | Medium | Fixed | NVS key `heading_corr_max` is 16 characters; the ESP32 NVS limit is 15. Every `saveParams()` failed with `KEY_TOO_LONG` and every boot failed with `NOT_FOUND`, so the parameter was silently lost on each restart while the WebUI reported "saved". Renamed to `hdg_corr_max`, matching the MAVLink name. Verified: zero NVS errors at boot and on save on both boards. |
+| F-19 | Low | Fixed | `updateFcEmulation()` called `SimulatedData::update()` on every flight-loop iteration (~1 kHz) while the per-call noise is not scaled by `dt`. The emulated altitude random-walked ~7x too fast, left the valid range within minutes, and the follower then rejected every packet as invalid altitude — the `ttgo-lora32-v1` bench profile lost its link on its own. Rate-limited to `SIMULATION_UPDATE_RATE`: drift measured −0.34 m/s before, −0.05 m/s after. |
+| F-20 | Medium | Fixed | The web flasher and the release were built by two separate workflows, each running its own `pio run`. ESP-IDF builds are **not byte-reproducible** (verified: two builds of the same source give different SHA-256), so the site always served a `firmware.bin` whose hash differed from the one published in the release, and its `SHA256SUMS` never matched `release-manifest.json`. The flasher now reuses the binaries already packaged by the release job, so the hashes agree by construction, and a CI step fails the deploy if they diverge. `web-flasher.yml` removed. |
+| F-21 | Medium | Fixed | The flasher `manifest.json` had no `buildId`, the field ESP Web Tools uses to detect a newer release. Users on an older version were never offered the update — including `v1.0.1`, which carries the WiFi password fix. Now `buildId` is `<version>-<commit12>`, covered by tests. |
 
 ### 7.1 GitHub settings to verify manually
 

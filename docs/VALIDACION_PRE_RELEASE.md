@@ -66,22 +66,42 @@ Criterios de niveles: `docs/PLAN_PRUEBAS_SISTEMA.md` §2.
 
 ## 4. Historial y repositorio
 
-- Historial reescrito con `git filter-repo` (autor y committer noreply). Sin apariciones de `[dominio antiguo]` en el
-  historial, el árbol ni las referencias.
-- Push forzado de `develop` y `main` ya realizado (`da945b8` → `f0f93b8` en `develop`; `85b924a` → `71b98bb`
-  en `main`). Los commits de esta ronda se añaden a `develop` con un push normal.
-- Bundle de respaldo previo a la reescritura en `%LOCALAPPDATA%\Temp\opencode\backup\`; contiene el email
-  antiguo y debe borrarse.
+- Historial reescrito dos veces con `git filter-repo`: primero para sustituir el email personal por el
+  noreply de GitHub, después para eliminar las coordenadas del campo y los puertos COM de los commits
+  antiguos. Verificado sobre todos los objetos (0 coincidencias).
+- El repositorio se borró y se recreó público para que los SHA antiguos dejaran de ser accesibles. `main`,
+  `develop` y el tag `v1.0.0` se subieron con el historial limpio.
+- Bundle de respaldo y clon temporal eliminados.
+- Configuración local: `tools/bench.local.json` está ignorado por git y no debe subirse.
 
-## 5. Criterio para la release
+## 5. Validación en placa (pendiente, 2026-10-09)
+
+Requiere las placas, antenas conectadas y el PC. Configuración del banco ya creada en
+`tools/bench.local.json` (COM13 líder, COM21 seguidor; confirmar en el Administrador de dispositivos que
+no han reenumerado). El tag `v1.0.0` es el firmware validado; `develop` lleva commits sin validar en placa.
+
+| # | Prueba | Método | PASS |
+|---|---|---|---|
+| V1 | Self-test | Alimentar una placa y abrir el monitor a 57600 baudios | `SELFTEST PASS` con **66 checks** |
+| V2 | Identidad de placa | Monitor a 57600 baudios | `FWM_ID ap_mac=… ap_ssid="FWM …" role=… sysid=…` |
+| V3 | SIM bloqueado | En placa `ttgo-lora32-v1-flight`, enviar `FWM SIM ON` | `SIMCFG ERR` y la placa sigue por UART1 |
+| V4 | Rol por USB | `FWM ROLE leader` / `FWM ROLE follower` en cada placa | `ROLECFG OK role=…` y la placa reinicia |
+| V5 | Cambio de clave (WebUI) | AP en `http://192.168.4.1`, sección «Clave WiFi» | Guarda y reinicia; al reconectar pide la clave nueva |
+| V6 | Cambio de clave (MAVLink) | `WIFI_CONFIG_AP` con SSID vacío y `password` nueva | `STATUSTEXT` de confirmación; clave persistida |
+| V7 | Escritura bloqueada en vuelo | Con FC enlazado y luego desconectado en vuelo, `POST /api/params` | 403 o rechazo; los parámetros `groundOnly` no cambian |
+| V8 | Reflasheo de placas | `python tools/flash_firmware.py --port COM13 --role leader` y `--port COM21 --role follower` | Carga correcta y `ROLECFG OK` en ambas |
+| V9 | Flasheador web | Chrome o Edge en escritorio, contra una placa real | Instala `v1.0.0` y asigna el rol desde el panel |
+| V10 | HIL completo | `python tools/lab.py` → opción 9 (bench) | PASS=20, FAIL=0, SKIP=0 en `tools/reports/` |
+
+Notas de seguridad: V3 a V7 y V10 con las aeronaves en tierra y desarmadas. `netid` y `head_on` son
+opt-in y solo en SITL. Antes de cualquier vuelo: V8 con `ttgo-lora32-v1-flight` y V3 con `SIMCFG ERR`.
+
+## 6. Criterio para la release
 
 Antes de crear el primer tag `v*`:
 
 - [x] CI verde en GitHub (`ci.yml`) y CodeQL en verde en `main` (`5ff16ca`). Tag `v1.0.0` creado; release publicada.
 - [x] Pages activo (`https://amigache.github.io/FlyWithMe/`); flasheador `v1.0.0` desplegado.
 - [x] Reglas de `main` y tags `v*`, releases inmutables, Dependabot, secret scanning y Actions restringidas (configurado con `gh`).
-- [ ] Verificar en placa FW-11 (66 checks), PW-01 y F05-01.
-- [ ] Cerrar F-08: reflashear COMx/COMx con `ttgo-lora32-v1-flight` y comprobar `SIMCFG ERR`.
-- [ ] Repetir L4 (`tools/bench_suite.py`) con el firmware nuevo.
-- [ ] Probar el flasheador web en Chrome/Edge contra una placa (instalar y asignar rol).
-- [ ] Activar en GitHub los ajustes de la auditoría §6 (incluida la fuente de Pages).
+- [ ] Ejecutar V1–V10 de la sección 5 y registrar el resultado aquí.
+- [ ] Repetir L4 (`tools/bench_suite.py`) con el firmware nuevo (V10).

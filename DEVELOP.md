@@ -31,9 +31,28 @@ frame, computes its formation position and sends guidance via MAVLink in `GUIDED
 | `ttgo-lora32-v1-flight` | Locked production firmware; UART1 | `FC_EMULATION=0`, `FWM_ALLOW_RUNTIME_SITL=0` |
 | `ttgo-lora32-v1-sitl` | Universal **dev/HIL only** image; boots in flight mode, `FWM SIM ON` switches temporarily to SITL over USB. A reset returns to UART1 | `FC_EMULATION=0`, `FC_LINK_USB=0`, `FWM_ALLOW_RUNTIME_SITL=1` |
 | `ttgo-lora32-v1` | Bench with a locally emulated FC | `FC_EMULATION=1`; do not use for real flight |
+| `ttgo-lora32-v21-flight` | Same firmware for the TTGO LoRa32 **V1.6 / V2.0 / V2.1.6** (LILYGO "T3"). **Not yet validated on hardware.** | `FWM_BOARD=2`, `FC_EMULATION=0`; **no** `-DF_XTAL_MHZ=26` |
 | `native` | Host unit tests of the pure modules | no firmware build |
 
-Profiles use Arduino ESP32 core 3.x, `-DF_XTAL_MHZ=26`, C++17 and `huge_app.csv`. The
+### Board pin maps
+
+`config.h` selects the pin map with `-D FWM_BOARD=...` (`FWM_BOARD_V1` is the default, so the V1
+targets are unchanged). A wrong map does **not** fail to compile: it leaves the radio mute. The
+V1.6/V2.0 differs from the V1 in four ways that matter:
+
+| | V1 (`FWM_BOARD_V1`) | V1.6/V2.0 (`FWM_BOARD_V21`) |
+|---|---|---|
+| Crystal | external 26 MHz (`-DF_XTAL_MHZ=26`) | none exposed; PICO-D4 internal 40 MHz → drop the flag |
+| OLED SDA / SCL | 4 / 15 | 21 / 22 |
+| OLED reset | 16 | none (`OLED_RST = -1`) |
+| LoRa RST | 14 | **23** |
+| UART1 RX / TX | 12 / 13 | **32 / 33** |
+
+Sources and the full reasoning are in [`docs/PROJECT.md` §2.3](docs/PROJECT.md#23-board-compatibility-only-the-ttgo-lora32-v1-is-supported).
+Note that the Arduino variant `ttgo-lora32-v2` defines `LORA_RST 12` with the comment `// GPIO14`:
+**both are wrong**, which is why this target builds `board = ttgo-lora32-v21` instead.
+
+Profiles use Arduino ESP32 core 3.x, C++17 and `huge_app.csv`. The
 `ttgo-lora32-v1-flight` profile does **not** define the role in build flags: every board receives the
 same binary. `ttgo-lora32-v1-sitl` shares behaviour and protocol, but includes the temporary SIM
 command for bench use only; it is never packaged or published in production releases.

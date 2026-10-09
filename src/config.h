@@ -76,32 +76,59 @@
 #define MAV_BRIDGE 0
 
 // BOARD config ------------------------------------------------------------------------------------------
+//
+// Seleccion de placa. Cada variante tiene su propio mapa de pines; elegir mal NO da error de
+// compilacion, deja el radio mudo, por eso el target de PlatformIO pasa -D FWM_BOARD=... de forma
+// explicita. Ver docs/PROJECT.md seccion 2.3 para la tabla de compatibilidad y las fuentes.
+#define FWM_BOARD_V1 1  ///< TTGO LoRa32 V1.0: cristal 26 MHz, OLED 4/15, LoRa RST 14
+#define FWM_BOARD_V21 2 ///< TTGO LoRa32 V1.6/V2.0/V2.1.6 (T3): PICO-D4 40 MHz interno, OLED 21/22, LoRa RST 23
 
-// TTGO LORA32 V1.0
+#ifndef FWM_BOARD
+#define FWM_BOARD FWM_BOARD_V1
+#endif
 
-// Oled
-#define OLED_SDA 4
-#define OLED_SCL 15
-#define OLED_RST 16
 #define SCREEN_WIDTH 128 ///< OLED display width, in pixels
 #define SCREEN_HEIGHT 64 ///< OLED display height, in pixels
 
-// Serial
+// Los macros pelados SCK/MISO/MOSI/SS chocan por nombre con las variables "static const uint8_t"
+// que declara pins_arduino.h. Hoy compila por el orden de los includes, pero cualquier refactor que
+// mueva este fichero antes de Arduino.h produce "static const uint8_t 18 = 18;" y un fallo confuso.
+// Los variantes de Arduino ya usan LORA_SCK/LORA_CS, asi que FWM_ evita tambien una redefinicion.
+#if FWM_BOARD == FWM_BOARD_V21
+// Fuente: TTGO_V2_0_schematic.pdf, cuyo titulo interno es "TTGO LORA V1.6" / T3_V1.6, con la
+// leyenda explicita "IO23=RESET". El variante ttgo-lora32-v2 del core define LORA_RST 12 con el
+// comentario "// GPIO14": ambos son incorrectos (typo de 2020, corregido aguas arriba solo en
+// ttgo-lora32-v21new, issue #5966 de arduino-esp32). Por eso este target usa board=ttgo-lora32-v21.
+#define OLED_SDA 21
+#define OLED_SCL 22
+#define OLED_RST -1 ///< RES# no va a ningun GPIO (straps con R8 opcional): sin reset por software
+// UART1: GPIO12 (SD2) y GPIO13 (SD3-CS) van a la microSD, y GPIO12 es ademas pin de strapping
+// (MTDI, debe estar bajo al arrancar). Se usan GPIO32/33, que van a DIO1/DIO2 del SX1276; el
+// firmware solo usa DIO0 (IRQ), asi que se sacrifican. PENDIENTE DE VALIDAR EN PLACA.
+#define SERIAL1_RX 32
+#define SERIAL1_TX 33
+#define FWM_LORA_SCK 5
+#define FWM_LORA_MISO 19
+#define FWM_LORA_MOSI 27
+#define FWM_LORA_CS 18
+#define FWM_LORA_RST 23
+#define FWM_LORA_DIO0 26
+#elif FWM_BOARD == FWM_BOARD_V1
+// TTGO LORA32 V1.0
+#define OLED_SDA 4
+#define OLED_SCL 15
+#define OLED_RST 16
 #define SERIAL1_RX 12
 #define SERIAL1_TX 13
-
-// Lora
-// Prefijo FWM__: los macros pelados SCK/MISO/MOSI/SS chocan por nombre con las variables
-// "static const uint8_t SCK = 5;" que declara pins_arduino.h. Hoy compila por el orden de los
-// includes, pero cualquier refactor que mueva este fichero antes de Arduino.h produce
-// "static const uint8_t 18 = 18;" y un fallo de compilacion confuso. Los variantes de Arduino
-// ya usan LORA_SCK/LORA_CS, asi que FWM_ evita tambien ahi una redefinicion.
 #define FWM_LORA_SCK 5
 #define FWM_LORA_MISO 19
 #define FWM_LORA_MOSI 27
 #define FWM_LORA_CS 18
 #define FWM_LORA_RST 14
 #define FWM_LORA_DIO0 26
+#else
+#error "FWM_BOARD desconocido: usa FWM_BOARD_V1 o FWM_BOARD_V21"
+#endif
 
 #ifndef LORA_SIGNAL_BANDWIDTH
 #define LORA_SIGNAL_BANDWIDTH 125000 ///< 125kHz

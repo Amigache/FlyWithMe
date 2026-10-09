@@ -91,6 +91,10 @@ pio run -t clean
   - **LoRa pins are `FWM_LORA_*`.** Do not reintroduce bare `SCK`/`MISO`/`MOSI`/`SS` macros: they
     collide by name with the `static const uint8_t` of the same name in `pins_arduino.h` and only
     compile because of include order (F-23).
+  - **Board pin maps are selected with `-D FWM_BOARD=...`** (`FWM_BOARD_V1` default, `FWM_BOARD_V21`
+    for the V1.6/V2.0/V2.1.6). A wrong map compiles fine and leaves the radio mute, so never rely on
+    the Arduino variant macros: `ttgo-lora32-v2` ships `LORA_RST 12` with the comment `// GPIO14` and
+    both are wrong (it is **23**). See `docs/PROJECT.md` §2.3 and `DEVELOP.md` for the table.
   - **A leader must have a working radio.** `Comm::begin()` sets `radioHealthy`; `canBecomeLeader()`
     refuses the role when it is false and `FWM_ID` reports `radio=ok|fail`. Never spin forever on a
     failed `LoRa.begin()`: the watchdog turns it into a reboot loop (F-22).

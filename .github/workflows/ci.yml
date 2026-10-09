@@ -36,7 +36,7 @@ jobs:
         run: python -m pip install platformio==6.2.0
 
       - name: Build flight and dev/HIL profiles
-        run: pio run -e ttgo-lora32-v1-flight -e ttgo-lora32-v1-sitl
+        run: pio run -e ttgo-lora32-v1-flight -e ttgo-lora32-v21-flight -e ttgo-lora32-v1-sitl
 
       - name: Check web flasher generation
         run: |

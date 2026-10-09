@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   firmware:
-    name: Firmware (flight y dev/HIL) y flasheador web
+    name: Firmware (flight and dev/HIL) and web flasher
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
@@ -46,7 +46,7 @@ jobs:
             --output "$RUNNER_TEMP/site-ci"
 
   native-tests:
-    name: Pruebas unitarias (pio test -e native)
+    name: Unit tests (pio test -e native)
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
@@ -66,7 +66,7 @@ jobs:
         run: pio test -e native
 
   python-tools:
-    name: Herramientas Python
+    name: Python tools
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout

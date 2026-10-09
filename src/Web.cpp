@@ -188,6 +188,25 @@ void Web::setupWebServer()
     body += "}";
     request->send(200, "application/json", body);
   });
+  // Cambio de la clave WiFi. OJO: esta ruta DEBE registrarse antes que "/api/ap".
+  // ESPAsyncWebServer registra las rutas sin comodín como tipo BackwardCompatible, que
+  // compara (url == ruta || url.startsWith(ruta + "/")). Por eso "/api/ap" también captura
+  // "/api/ap/pass", y como el servidor atiende la PRIMERA coincidencia (AsyncWebServer::_attachHandler),
+  // si "/api/ap" se registra primero se apropia de "/api/ap/pass" y responde "falta parametro mode".
+  // Ver WebServer.cpp:336 de la libreria y la nota en AGENTS.md (seccion 2) y docs/PROJECT.md (4.3).
+  server->on("/api/ap/pass", HTTP_POST, [this](AsyncWebServerRequest *request){
+    if (!request->hasParam("pass", true)) {
+      request->send(400, "application/json", generateAPIResponse(false, "falta parámetro pass"));
+      return;
+    }
+    String error;
+    if (!fwm->setApPassphrase(request->getParam("pass", true)->value().c_str(), error)) {
+      request->send(403, "application/json", generateAPIResponse(false, error.c_str()));
+      return;
+    }
+    request->send(200, "application/json", generateAPIResponse(true, "clave guardada; la placa se reinicia"));
+  });
+
   server->on("/api/ap", HTTP_POST, [this](AsyncWebServerRequest *request){
     if (fwm->apPassChangeRequired()) {
       request->send(403, "application/json", generateAPIResponse(false, "Cambia primero la clave WiFi de fábrica"));
@@ -214,20 +233,6 @@ void Web::setupWebServer()
       return;
     }
     request->send(200, "application/json", generateAPIResponse(true, "modo AP guardado; se aplica en el siguiente ciclo"));
-  });
-  
-  // Cambio de la clave WiFi (obligatorio antes de configurar si sigue la de fábrica)
-  server->on("/api/ap/pass", HTTP_POST, [this](AsyncWebServerRequest *request){
-    if (!request->hasParam("pass", true)) {
-      request->send(400, "application/json", generateAPIResponse(false, "falta parámetro pass"));
-      return;
-    }
-    String error;
-    if (!fwm->setApPassphrase(request->getParam("pass", true)->value().c_str(), error)) {
-      request->send(403, "application/json", generateAPIResponse(false, error.c_str()));
-      return;
-    }
-    request->send(200, "application/json", generateAPIResponse(true, "clave guardada; la placa se reinicia"));
   });
 
   // API REST - Obtener estadísticas

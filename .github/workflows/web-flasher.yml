@@ -33,7 +33,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Set up Node (solo para descargar esp-web-tools con versión fijada)
+      - name: Set up Node (only to download esp-web-tools at a pinned version)
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"

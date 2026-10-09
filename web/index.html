@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="referrer" content="no-referrer">
-  <title>FlyWithMe · Flasheador web</title>
+  <title>FlyWithMe · Web flasher</title>
   <style>
     :root { --bg:#0f1115; --card:#171a21; --fg:#e7eaf0; --mut:#8b93a7; --acc:#3da9fc; --warn:#ffb020; --bd:#262b36; }
     * { box-sizing: border-box; }
@@ -32,52 +32,52 @@
 </head>
 <body>
   <main>
-    <h1>🛸 FlyWithMe · Flasheador web</h1>
-    <p class="sub">Carga el firmware de vuelo en una TTGO LoRa32 V1 directamente desde el navegador.</p>
+    <h1>🛸 FlyWithMe · Web flasher</h1>
+    <p class="sub">Flash the flight firmware onto a TTGO LoRa32 V1 directly from your browser.</p>
 
     <section class="warn">
-      <h2>Antes de empezar</h2>
+      <h2>Before you start</h2>
       <ul>
-        <li>Este flasheador instala <b>solo el perfil de vuelo</b> (<code>ttgo-lora32-v1-flight</code>). La imagen de banco/SITL no se publica aquí.</li>
-        <li>Lee el <a href="https://github.com/Amigache/FlyWithMe#readme">manual</a>. FlyWithMe no sustituye al piloto ni a los failsafes del autopiloto.</li>
-        <li>Conecta las antenas LoRa antes de alimentar la placa. Cierra cualquier monitor serie que use el puerto.</li>
-        <li>Requiere <b>Chrome o Edge</b> en escritorio, conexión HTTPS y un cable USB con datos.</li>
+        <li>This flasher installs the <b>flight profile only</b> (<code>ttgo-lora32-v1-flight</code>). The bench/SITL image is not published here.</li>
+        <li>Read the <a href="https://github.com/Amigache/FlyWithMe#readme">manual</a>. FlyWithMe does not replace the pilot or the autopilot failsafes.</li>
+        <li>Connect the LoRa antennas before powering the board. Close any serial monitor using the port.</li>
+        <li>Requires desktop <b>Chrome or Edge</b>, an HTTPS connection and a USB data cable.</li>
       </ul>
     </section>
 
     <section>
-      <h2>1 · Instalar el firmware</h2>
-      <p class="muted">Pulsa el botón, elige el puerto de la placa y espera a que termine. La NVS (rol, parámetros y netid) se conserva al actualizar.</p>
+      <h2>1 · Install the firmware</h2>
+      <p class="muted">Press the button, select the board's port and wait for it to finish. The NVS (role, parameters and netid) is preserved when updating.</p>
       <div class="row">
         <esp-web-install-button manifest="manifest.json">
-          <button slot="activate">Instalar FlyWithMe</button>
-          <span slot="unsupported">Tu navegador no soporta Web Serial. Usa Chrome o Edge en escritorio.</span>
-          <span slot="not-allowed">Esta página debe abrirse por HTTPS.</span>
+          <button slot="activate">Install FlyWithMe</button>
+          <span slot="unsupported">Your browser does not support Web Serial. Use desktop Chrome or Edge.</span>
+          <span slot="not-allowed">This page must be opened over HTTPS.</span>
         </esp-web-install-button>
       </div>
-      <p class="muted" id="version">Cargando versión…</p>
+      <p class="muted" id="version">Loading version…</p>
     </section>
 
     <section>
-      <h2>2 · Asignar el rol</h2>
-      <p class="muted">Una placa nueva queda en <b>Desactivado</b> hasta que le asignes el rol: asigna <b>Líder</b> a la placa del avión líder y <b>Seguidor</b> a la del seguidor. El cambio solo se acepta en tierra; si la placa ya tiene un rol activo, necesita el FC conectado, desarmado y en tierra.</p>
+      <h2>2 · Assign the role</h2>
+      <p class="muted">A new board stays <b>Disabled</b> until you assign its role: assign <b>Leader</b> to the leader aircraft's board and <b>Follower</b> to the follower's. The change is only accepted on the ground; if the board already has an active role, it needs the FC connected, disarmed and on the ground.</p>
       <div class="row">
-        <label for="role" class="muted">Rol</label>
+        <label for="role" class="muted">Role</label>
         <select id="role">
-          <option value="leader">Líder (SYSID 1)</option>
-          <option value="follower">Seguidor (SYSID 2)</option>
-          <option value="off">Desactivado</option>
+          <option value="leader">Leader (SYSID 1)</option>
+          <option value="follower">Follower (SYSID 2)</option>
+          <option value="off">Disabled</option>
         </select>
-        <button id="provBtn">Asignar rol por USB</button>
+        <button id="provBtn">Assign role over USB</button>
       </div>
-      <pre id="log">Pulsa «Asignar rol» y elige el puerto de la placa.
+      <pre id="log">Press “Assign role” and select the board's port.
 </pre>
     </section>
 
     <section>
-      <h2>Verificación y ficheros</h2>
-      <p class="muted">Los binarios y sus SHA-256 están en <a href="firmware/SHA256SUMS">firmware/SHA256SUMS</a>. Tras instalar, la placa anuncia <code>FWM_ID ap_mac=… ap_ssid="FWM XXXXXX" role=… sysid=…</code> por serie a 57600 baudios; también responde a <code>FWM ID</code>.</p>
-      <p class="muted"><b>Seguridad:</b> la clave WiFi de fábrica (<code>12345678</code>) es pública y es la misma en todas las placas. Puede usarse, pero te recomendamos cambiarla desde la sección «Clave WiFi» de la WebUI de la placa. Ver <a href="https://github.com/Amigache/FlyWithMe/blob/main/docs/AUDITORIA_SEGURIDAD.md">la auditoría de seguridad</a>.</p>
+      <h2>Verification and files</h2>
+      <p class="muted">Binaries and their SHA-256 sums are in <a href="firmware/SHA256SUMS">firmware/SHA256SUMS</a>. After installing, the board prints <code>FWM_ID ap_mac=… ap_ssid="FWM XXXXXX" role=… sysid=…</code> on serial at 57600 baud; it also answers to <code>FWM ID</code>.</p>
+      <p class="muted"><b>Security:</b> the factory WiFi password (<code>12345678</code>) is public and identical on every board. It can be used as-is, but we recommend changing it from the “WiFi password” section of the board's WebUI. See <a href="https://github.com/Amigache/FlyWithMe/blob/main/docs/PROJECT.md">the security audit</a>.</p>
     </section>
   </main>
 
@@ -88,10 +88,10 @@
         .then(function (r) { return r.json(); })
         .then(function (info) {
           document.getElementById('version').textContent =
-            'Versión ' + info.version + ' · commit ' + String(info.git_commit).slice(0, 12) + ' · ESP Web Tools ' + info.esp_web_tools;
+            'Version ' + info.version + ' · commit ' + String(info.git_commit).slice(0, 12) + ' · ESP Web Tools ' + info.esp_web_tools;
         })
         .catch(function () {
-          document.getElementById('version').textContent = 'No se pudo leer la versión publicada.';
+          document.getElementById('version').textContent = 'Could not read the published version.';
         });
     })();
 
@@ -105,7 +105,7 @@
 
     async function provision() {
       if (!('serial' in navigator)) {
-        write('Este navegador no soporta Web Serial. Usa Chrome o Edge en escritorio.');
+        write('This browser does not support Web Serial. Use desktop Chrome or Edge.');
         return;
       }
       var role = document.getElementById('role').value;
@@ -140,11 +140,11 @@
               }
             }
           } catch (e) {
-            write('Lectura interrumpida: ' + e.message);
+            write('Read interrupted: ' + e.message);
           }
         })();
 
-        write('Asignando rol ' + role + '. Si la placa no responde, pulsa su botón RST.');
+        write('Assigning role ' + role + '. If the board does not respond, press its RST button.');
         var deadline = Date.now() + 30000;
         var nextSend = 0;
         while (result === null && Date.now() < deadline) {
@@ -158,9 +158,9 @@
         await reader.cancel().catch(function () {});
         await readLoop;
 
-        if (result === 'ok') write('✓ Rol ' + role + ' guardado. La placa se reinicia para aplicarlo.');
-        else if (result === 'err') write('✗ El firmware rechazó el rol. Revisa las líneas anteriores.');
-        else write('✗ Sin confirmación en 30 s (ROLECFG WAIT: el FC debe estar conectado, desarmado y en tierra).');
+        if (result === 'ok') write('✓ Role ' + role + ' saved. The board reboots to apply it.');
+        else if (result === 'err') write('✗ The firmware rejected the role. Check the lines above.');
+        else write('✗ No confirmation within 30 s (ROLECFG WAIT: the FC must be connected, disarmed and on the ground).');
       } catch (e) {
         write('Error: ' + e.message);
       } finally {

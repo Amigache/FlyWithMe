@@ -1,35 +1,38 @@
-# Política de seguridad
+# Security Policy
 
-FlyWithMe controla el seguimiento de aeronaves reales. Trata cualquier fallo de seguridad como de alta
-prioridad, incluidos los que afecten al enlace LoRa, a la WebUI o a la configuración de las placas.
+FlyWithMe controls the following of real aircraft. Treat any security issue as high priority,
+including those affecting the LoRa link, the WebUI, or board configuration.
 
-## Versiones soportadas
+## Supported versions
 
-Solo se mantiene la última release publicada (`v*`) y la rama `main`. Las ramas de desarrollo pueden
-cambiar sin aviso.
+Only the latest published release (`v*`) and the `main` branch are maintained. Development branches
+may change without notice.
 
-## Cómo reportar una vulnerabilidad
+## Reporting a vulnerability
 
-**No abras un issue público** con detalles de explotación.
+**Do not open a public issue** with exploitation details.
 
-1. Usa **Security → Report a vulnerability** en GitHub (reporte privado de vulnerabilidades).
-2. Incluye: versión o commit, perfil de firmware (`ttgo-lora32-v1-flight` o `-sitl`), pasos para
-   reproducir, impacto esperado (vuelo, configuración, datos) y si requiere acceso al AP WiFi o a la radio.
+1. Use **Security → Report a vulnerability** on GitHub (private vulnerability reporting).
+2. Include: version or commit, firmware profile (`ttgo-lora32-v1-flight` or `-sitl`), steps to
+   reproduce, expected impact (flight, configuration, data), and whether access to the WiFi AP or the
+   radio is required.
 
-Responderemos para confirmar la recepción y acordaremos un plazo de corrección y divulgación.
+We will reply to confirm receipt and agree on a fix and disclosure timeline.
 
-## Alcance
+## Scope
 
-- Firmware de `src/`, herramientas de `tools/` y workflows de `.github/`.
-- Flasheador web publicado en GitHub Pages.
+- Firmware in `src/`, tools in `tools/` and workflows in `.github/`.
+- The web flasher published on GitHub Pages.
 
-Fuera de alcance: fallos de ArduPilot/PX4, del hardware de terceros o de configuraciones inseguras
-documentadas (por ejemplo, usar la clave WiFi por defecto en un entorno compartido).
+Out of scope: ArduPilot/PX4 bugs, third-party hardware faults, and documented insecure
+configurations (for example, using the default WiFi password in a shared environment).
 
-## Riesgos conocidos
+## Known risks
 
-Consulta [`docs/AUDITORIA_SEGURIDAD.md`](docs/AUDITORIA_SEGURIDAD.md). En particular:
+See [`docs/PROJECT.md` §3](docs/PROJECT.md#3-security-audit) for the full audit. In particular:
 
-- El enlace LoRa **no está autenticado ni cifrado**; el `netid` solo separa redes.
-- La clave WiFi de fábrica es pública y común a todas las placas. Puede usarse, pero no se obliga a cambiarla.
-- FlyWithMe no sustituye al piloto ni a los failsafes del autopiloto.
+- The LoRa link is **neither authenticated nor encrypted**; `netid` only separates networks.
+- The factory WiFi password is public and identical on every board. It can be used as-is, but
+  changing it is not forced.
+- The WebUI and REST API have no authentication; they are ground-only.
+- FlyWithMe does not replace the pilot or the autopilot failsafes.

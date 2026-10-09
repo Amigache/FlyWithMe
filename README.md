@@ -1,128 +1,223 @@
 # FlyWithMe
 
-**Vuelo en formación con ArduPlane y LoRa.** Un avión líder transmite su posición y un avión
-seguidor calcula y ejecuta una posición relativa mediante MAVLink. El seguidor debe estar en modo
-`GUIDED`. PX4 no está validado.
+![Release](https://img.shields.io/github/release/Amigache/FlyWithMe?display_name=tag&sort=semver)
+![CI](https://github.com/Amigache/FlyWithMe/actions/workflows/ci.yml/badge.svg)
+![CodeQL](https://github.com/Amigache/FlyWithMe/actions/workflows/codeql.yml/badge.svg)
+![License](https://img.shields.io/badge/license-GPLv3-blue.svg)
+![Language](https://img.shields.io/badge/docs-English-lightgrey.svg)
 
-> FlyWithMe sigue en desarrollo. No sustituye al piloto, a los failsafes del autopiloto ni a un
-> sistema anticolisión certificado. Realiza los primeros vuelos con un piloto al mando, observador,
-> espacio amplio y un plan independiente para recuperar el control.
+![Web flasher](https://img.shields.io/badge/flasher-ESP%20Web%20Tools-ff7043?logo=espressif&logoColor=white)
+[![Web flasher](https://img.shields.io/badge/web-flasher-open-blue)](https://amigache.github.io/FlyWithMe/)
 
-## Equipo necesario
+**Formation flight with ArduPlane over LoRa.** A leader aircraft broadcasts its position and a
+follower aircraft computes and executes a relative position through MAVLink. The follower must be in
+`GUIDED` mode. PX4 is not validated.
 
-- Dos aviones con ArduPlane y TTGO LoRa32 V1 (ESP32 + SX1276).
-- Antenas LoRa compatibles con la frecuencia/regulación de tu región; conecta las antenas antes de
-  encender las placas.
-- Cableado MAVLink UART entre cada TTGO y un puerto TELEM libre del autopiloto.
-- Ordenador con PlatformIO para cargar el firmware.
+> **FlyWithMe is under active development.** It does not replace the pilot, the autopilot failsafes,
+> or a certified collision-avoidance system. Perform early flights with a pilot in command, an
+> observer, ample airspace, and an independent plan to recover control.
 
-| Conexión UART | TTGO LoRa32 V1 |
+---
+
+## Contents
+
+- [What it does](#what-it-does)
+- [Hardware](#hardware)
+- [Flashing the firmware](#flashing-the-firmware)
+- [Ground configuration](#ground-configuration)
+- [Formation flight](#formation-flight)
+- [Important limits](#important-limits)
+- [Security](#security)
+- [Documentation](#documentation)
+- [License](#license)
+
+---
+
+## What it does
+
+Two aircraft fly in formation using a LoRa radio link:
+
+1. The **leader** reads its position from the autopilot over MAVLink and broadcasts it over LoRa.
+2. The **follower** receives those packets, applies prediction, a position filter and the
+   formation offset, then feeds the resulting waypoint to its own autopilot in `GUIDED` mode.
+
+Features:
+
+- **Formations**: `TRAIL`, `LEFT`, `RIGHT`, `ABOVE`, `BELOW`, with configurable offsets.
+- **Guidance by heading** (cross-track error correction) rather than naive carrot chasing, which
+  keeps the follower from oscillating.
+- **Predictive tracking** so the follower aims where the leader will be, not where it was.
+- **Leader mode gating**: the follower only follows while the leader is in a stable flight mode
+  (FBWA, FBWB, CRUISE, AUTO, RTL, LOITER, TAKEOFF, GUIDED). Near the leader it requires a stable
+  mode and otherwise stops issuing new waypoints.
+- **Session protocol** with discovery, request/reply windows, timeouts and rejoin, so a follower
+  can join a running leader without restarting.
+- **Adaptive LoRa rate**: transmission interval scales with distance (2 s / 1 s / 0.5 s).
+- **OLED display** showing link state, formation, distance and warnings.
+- **Configuration on the ground** over Wi-Fi (access point) or over MAVLink parameters, visible in
+  Mission Planner as component 158.
+- **Flight log** written to SPIFFS as CSV.
+
+A single firmware image serves both roles. The leader/follower role is a runtime parameter stored in
+the board's NVS, **not** a compile-time flag, so there is only ever one flight binary.
+
+---
+
+## Hardware
+
+- Two aircraft with ArduPlane and a **TTGO LoRa32 V1** (ESP32 + SX1276).
+- LoRa antennas matched to your region's frequency and regulations. **Connect the antennas before
+  powering the boards.**
+- A MAVLink UART cable between each TTGO and a free TELEM port on the autopilot.
+- A computer with PlatformIO to flash the firmware.
+
+| UART connection | TTGO LoRa32 V1 |
 |---|---|
 | FC TX → ESP32 RX | GPIO12 |
 | ESP32 TX → FC RX | GPIO13 |
-| Tierra | GND común |
+| Ground | common GND |
 
-Configura el puerto TELEM seleccionado en ArduPlane para MAVLink2 (`SERIALx_PROTOCOL=2`) y 57600
-baudios (`SERIALx_BAUD=57`). `x` depende del puerto físico que uses. Mantén el cableado cruzado y no
-conectes botones al menú OLED: sus pines entran en conflicto con las señales de la placa.
+Configure the chosen TELEM port in ArduPlane for MAVLink2 (`SERIALx_PROTOCOL=2`) and 57600 baud
+(`SERIALx_BAUD=57`), where `x` depends on the physical port you use. Keep the wiring crossed, and do
+not connect buttons to the OLED menu: its pins conflict with signals already used on this board.
 
-## Cargar el firmware
+> The TTGO LoRa32 V1 carries a **26 MHz crystal**. The firmware must be built with
+> `-DF_XTAL_MHZ=26`, which is already set in `platformio.ini`. Without it the Arduino core assumes
+> 40 MHz, the UART runs at roughly ×0.65 and WiFi falls out of band entirely.
 
-Instala PlatformIO y abre una terminal en la carpeta del proyecto. Todas las placas de vuelo usan
-el mismo perfil y el mismo archivo de firmware: `ttgo-lora32-v1-flight`. El rol no se compila dentro
-del firmware; se guarda por separado en la NVS de cada placa.
+---
 
-En Windows, identifica primero el puerto COM actual de cada placa. Los CP210x pueden cambiar de COM
-al reconectarlos. No des por hecho que un número concreto pertenece siempre al líder o al seguidor.
+## Flashing the firmware
+
+Install PlatformIO and open a terminal in the project folder. Every flight board uses the same
+profile and the same firmware file: `ttgo-lora32-v1-flight`.
+
+On Windows, identify the current COM port of each board first. CP210x adapters can change COM
+numbers when reconnected, so never assume a given number always belongs to the leader or the
+follower.
 
 ```powershell
 $py = "$env:USERPROFILE\.platformio\penv\Scripts\python.exe"
 
-# Cada comando carga LA MISMA imagen y guarda el rol indicado en esa placa
+# Each command flashes THE SAME image and stores the given role on that board
 & $py tools\flash_firmware.py --port COMx --role leader
 & $py tools\flash_firmware.py --port COMy --role follower
 ```
 
-Sin PlatformIO también puedes instalar el perfil de vuelo desde el
-[flasheador web](https://amigache.github.io/FlyWithMe/) con Chrome o Edge en escritorio; después asigna
-el rol desde el mismo panel.
+Replace the COM numbers with the ones you identified. The command builds/uploads the shared profile
+and then provisions the role over USB serial; it requires `pyserial` in the Python being used.
 
-Sustituye los COM por los puertos identificados. El comando compila/carga el perfil común y después
-provisiona el rol por USB serie; requiere `pyserial` en el Python usado. Si actualizas desde un
-firmware anterior, la placa arrancará en `OFF` hasta que le asignes el rol. Para cambiar solo el rol
-de una placa ya cargada, añade `--provision-only`. También se puede modificar `role` desde la WebUI o
-Mission Planner en tierra; al cambiarlo, la placa se reinicia para aplicar la identidad.
+Without PlatformIO you can install the flight profile from the
+[web flasher](https://amigache.github.io/FlyWithMe/) using desktop Chrome or Edge, then assign the
+role from the same panel.
 
-No flashees mientras un monitor serie u otro programa esté usando ese puerto. Configura
-`SYSID_THISMAV=1` en el autopiloto líder y `SYSID_THISMAV=2` en el seguidor; los perfiles asignan
-esos mismos SYSID según el parámetro `role`. Una placa nueva queda en `OFF` hasta provisionarla:
-`OFF=0`, `FOLLOWER=1`, `LEADER=2`. Al arrancar, comprueba en cada placa que no haya errores y que el
-autopiloto esté conectado.
+Notes:
 
-## Configurar en tierra
+- Do not flash while a serial monitor or another program holds that port.
+- Set `SYSID_THISMAV=1` on the leader autopilot and `SYSID_THISMAV=2` on the follower. The profiles
+  assign those same SYSIDs from the `role` parameter.
+- A newly flashed board stays in `OFF` until you provision it: `OFF=0`, `FOLLOWER=1`, `LEADER=2`.
+- To change only the role of an already flashed board, add `--provision-only`.
+- The role can also be changed from the WebUI or from Mission Planner while on the ground. Changing
+  it reboots the board so the new identity takes effect.
+- If you are upgrading from an older firmware, the board boots in `OFF` until you assign the role.
 
-1. Enciende cada avión por separado y conéctate al Wi-Fi de su TTGO. Cada placa anuncia
-   `FWM XXXXXX`, donde `XXXXXX` son los tres últimos bytes de la MAC SoftAP en hexadecimal; por
-   ejemplo, `30:AE:A4:07:0D:64` produce `FWM 070D64`. La clave inicial es `12345678`.
-2. Abre `http://192.168.4.1` y revisa los parámetros de **ambas** placas. El punto de acceso se
-   desactiva en vuelo; no dependas de la WebUI durante el seguimiento.
-   **La clave inicial `12345678` es de fábrica, es pública y es la misma en todas las placas.** Puede
-   usarse tal cual, pero se recomienda cambiarla en la sección «Clave WiFi» de la WebUI. También puedes
-   cambiarla por MAVLink con el mensaje `WIFI_CONFIG_AP` (campo `password`, SSID vacío); la confirmación
-   llega como `STATUSTEXT` y esa vía no está validada con Mission Planner todavía. La clave nueva tiene
-   de 8 a 63 caracteres ASCII imprimibles. Mientras la clave sea la de fábrica, cualquiera que se conecte
-   al punto de acceso de la placa en tierra puede cambiar su configuración: no dejes el AP activo donde
-   otras personas puedan conectarse (ver [`docs/AUDITORIA_SEGURIDAD.md`](docs/AUDITORIA_SEGURIDAD.md)).
-3. Confirma `role=LEADER` en la placa del líder y `role=FOLLOWER` en la del seguidor; deja
-   `foll_enable` activado en el seguidor. El SSID es único por MAC y no depende del rol. La línea
-   `FWM_ID ap_mac=... ap_ssid="..." role=... sysid=...` aparece por serie al arrancar; también se
-   puede solicitar enviando `FWM ID` a 57600 baudios.
-4. Configura el mismo `netid` en ambos (valor inicial `4660`). El `netid` separa redes, pero no cifra
-   ni autentica las comunicaciones.
-5. En el seguidor selecciona una formación: **TRAIL**, **LEFT**, **RIGHT**, **ABOVE** o **BELOW**.
-   Para los primeros vuelos usa **TRAIL**, conserva la separación inicial configurada (96 m) y deja
-   `approach_dist` en 300 m. No reduzcas la separación hasta haber comprobado el enlace y la respuesta
-   de los aviones en condiciones reales y controladas.
-6. Comprueba antenas, alimentación, GPS, sentidos de control, modos, límites y failsafes de cada
-   autopiloto. Verifica que el piloto pueda salir de `GUIDED` y tomar el control en cualquier momento.
+On boot, check each board for errors and confirm the autopilot is connected.
 
-Los parámetros se guardan en cada placa, así que revisa sus valores efectivos; cambiar uno no cambia
-automáticamente el del otro.
+---
 
-## Preparación y vuelo en formación
+## Ground configuration
 
-1. Despega ambos aviones de forma independiente y mantén el control manual/autopiloto supervisado.
-   Espera a que ambos tengan posición GPS válida, estén por encima del umbral de altitud del firmware
-   (50 m) y exista enlace entre líder y seguidor.
-2. Establece una separación amplia y una trayectoria predecible. Mantén el líder en un modo estable
-   admitido por el firmware (FBWA, FBWB, CRUISE, AUTO, RTL, LOITER, TAKEOFF o GUIDED), especialmente
-   al acercarte a menos de `approach_dist`.
-3. Cuando el seguidor esté estabilizado y a distancia segura, selecciona `GUIDED` en el seguidor para
-   habilitar el seguimiento. Verifica que mantiene la formación TRAIL antes de continuar.
-4. Empieza con tramos rectos y giros amplios. Vigila continuamente la separación, la altitud, el
-   enlace y los avisos del autopiloto. El piloto debe estar listo para abandonar `GUIDED` si algo no
-   se comporta como se espera.
-5. Para terminar el seguimiento, el piloto debe cambiar el seguidor a un modo aprobado y pilotarlo
-   de forma independiente antes de aproximarse o aterrizar. FlyWithMe no realiza una transición
-   automática a `LOITER`, recuperación ni aterrizaje.
+1. Power each aircraft separately and join its TTGO Wi-Fi network. Each board announces
+   `FWM XXXXXX`, where `XXXXXX` are the last three bytes of the SoftAP MAC in hexadecimal; for
+   example `30:AE:A4:07:0D:64` produces `FWM 070D64`. The initial password is `12345678`.
+2. Open `http://192.168.4.1` and review the parameters of **both** boards. The access point is
+   disabled in flight; do not depend on the WebUI while formation flying.
+3. Confirm `role=LEADER` on the leader and `role=FOLLOWER` on the follower, and leave `foll_enable`
+   on for the follower. The SSID is unique per MAC and does not depend on the role. The line
+   `FWM_ID ap_mac=... ap_ssid="..." role=... sysid=...` appears on the serial console at boot; you
+   can also request it by sending `FWM ID` at 57600 baud.
+4. Set the same `netid` on both (initial value `4660`). `netid` separates networks; it does not
+   encrypt or authenticate anything.
+5. On the follower choose a formation: **TRAIL**, **LEFT**, **RIGHT**, **ABOVE** or **BELOW**.
+6. For first flights use **TRAIL**, keep the configured initial separation (96 m) and leave
+   `approach_dist` at 300 m. Do not reduce the separation until you have verified the link and the
+   aircraft response under real, controlled conditions.
+7. Check antennas, power, GPS, control directions, modes, limits and failsafes on each autopilot.
+   Verify the pilot can leave `GUIDED` and take over at any moment.
 
-### Límites importantes
+### Changing the Wi-Fi password
 
-- El umbral de 50 m es una comprobación de altitud del firmware, no un sistema de evitación del
-  terreno. Respeta siempre las alturas y límites legales y de tu autopiloto.
-- Si el modo del líder deja de ser estable cerca del umbral, FlyWithMe deja de enviar nuevas órdenes;
-  el autopiloto puede conservar el último objetivo. Esto **no** equivale a mantener posición.
-- No hagas aproximaciones frente a frente, inversiones bruscas cerca ni vuelos con separaciones de
-  5–20 m. La guarda frontal es experimental y no debe considerarse un sistema anticolisión.
-- El enlace LoRa **no está autenticado ni cifrado**. Un tercero con un módem compatible y el mismo
-  `netid` puede emitir datos de posición falsos, y el seguidor los usaría para guiar el avión. Es un
-  riesgo conocido de esta versión: no vueles en zonas donde otros puedan transmitir en tu red y
-  vigila siempre la formación.
-- El comportamiento depende del enlace de radio, GPS, viento, configuración y autopiloto; no hay
-  certificación de seguridad para vuelo real.
+The factory password `12345678` is public and identical on every board. It can be used as-is, but
+changing it is recommended from the **Wi-Fi password** section of the WebUI. You can also change it
+over MAVLink with the `WIFI_CONFIG_AP` message (`password` field, empty SSID); the confirmation
+arrives as `STATUSTEXT`. The new password must be 8 to 63 printable ASCII characters.
 
-## Más información
+While the factory password is in place, anyone who joins a board's access point on the ground can
+change its configuration. Do not leave the access point enabled where other people can connect.
 
-- [`DEVELOP.md`](DEVELOP.md): documentación técnica para desarrolladores.
-- [`docs/ROADMAP.md`](docs/ROADMAP.md): estado de validación y trabajo pendiente.
-- [`LICENSE`](LICENSE): GNU GPL v3.0.
+Parameters are stored on each board, so review their effective values: changing one does not
+automatically change the other.
+
+---
+
+## Formation flight
+
+1. Take off both aircraft independently and keep manual/autopilot supervision under your control.
+   Wait until both have a valid GPS position, are above the firmware's altitude threshold (50 m),
+   and a link exists between leader and follower.
+2. Establish a wide separation and a predictable trajectory. Keep the leader in a stable mode
+   supported by the firmware (FBWA, FBWB, CRUISE, AUTO, RTL, LOITER, TAKEOFF or GUIDED), especially
+   when getting closer than `approach_dist`.
+3. Once the follower is settled and at a safe distance, select `GUIDED` on the follower to enable
+   following. Verify it holds the TRAIL formation before continuing.
+4. Start with straight legs and wide turns. Continuously watch separation, altitude, link state and
+   autopilot messages. The pilot must be ready to leave `GUIDED` if anything behaves unexpectedly.
+5. To end formation following, the pilot must switch the follower to an approved mode and fly it
+   independently before approaching or landing. FlyWithMe performs no automatic transition to
+   `LOITER`, no recovery and no landing.
+
+---
+
+## Important limits
+
+- The 50 m threshold is a firmware altitude check, **not** a terrain-avoidance system. Always
+  respect your autopilot's and local legal altitudes and limits.
+- If the leader's mode stops being stable near the threshold, FlyWithMe stops issuing new commands
+  and the autopilot may hold the last target. This **does not** amount to position hold.
+- Do not fly head-on approaches, sharp reversals up close, or at 5–20 m separations. The head-on
+  guard is experimental, is **disabled in the production firmware**, and must not be treated as a
+  collision-avoidance system.
+- The LoRa link is **neither authenticated nor encrypted**. A third party with a compatible modem and
+  the same `netid` can transmit false position data, which the follower would use to fly the
+  aircraft. This is a known limitation of this version: do not fly where others may transmit on your
+  network, and always watch the formation.
+- The WebUI and REST API have **no authentication**. They are only available on the ground.
+- Behaviour depends on the radio link, GPS, wind, configuration and autopilot. There is no airworthiness
+  certification for real flight.
+
+---
+
+## Security
+
+See [`SECURITY.md`](SECURITY.md) for how to report a vulnerability, and
+[`docs/PROJECT.md`](docs/PROJECT.md#3-security-audit) for the full audit, including the accepted
+risks above.
+
+---
+
+## Documentation
+
+| Document | Contents |
+|---|---|
+| [`README.md`](README.md) | This file: user manual. |
+| [`DEVELOP.md`](DEVELOP.md) | Development, SITL bench, flashing and test commands. |
+| [`docs/PROJECT.md`](docs/PROJECT.md) | Consolidated project reference: security audit, validation results, testing strategy, roadmap, detailed findings. |
+| [`AGENTS.md`](AGENTS.md) | Conventions and working rules for coding agents. |
+| [`SECURITY.md`](SECURITY.md) | Vulnerability reporting policy. |
+
+---
+
+## License
+
+GNU GPL v3.0. See [`LICENSE`](LICENSE).

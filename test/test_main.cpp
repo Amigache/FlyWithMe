@@ -2,7 +2,7 @@
 // Ejecutar con: pio test -e native
 //
 // Se prueba el código real de src/ (cabeceras puras). La lógica de Comm/Telem depende de
-// Arduino/SPI/UART y se valida en placa y en SITL (ver docs/VALIDACION_PRE_RELEASE.md).
+// Arduino/SPI/UART y se valida en placa y en SITL (ver docs/PROJECT.md).
 
 #include <unity.h>
 

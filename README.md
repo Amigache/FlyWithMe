@@ -1,6 +1,6 @@
 # FlyWithMe
 
-![Release](https://img.shields.io/github/release/Amigache/FlyWithMe?display_name=tag&sort=semver)
+![Release](https://img.shields.io/github/v/release/Amigache/FlyWithMe?display_name=tag&sort=semver)
 ![CI](https://github.com/Amigache/FlyWithMe/actions/workflows/ci.yml/badge.svg)
 ![CodeQL](https://github.com/Amigache/FlyWithMe/actions/workflows/codeql.yml/badge.svg)
 ![License](https://img.shields.io/badge/license-GPLv3-blue.svg)

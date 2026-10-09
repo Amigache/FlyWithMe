@@ -804,7 +804,8 @@ void FWM::saveParams()
     preferences.putFloat("lateral_offset", params.lateral_offset);
     preferences.putFloat("vertical_offset", params.vertical_offset);
     preferences.putFloat("cross_gain", params.cross_gain);
-    preferences.putFloat("heading_corr_max", params.heading_corr_max);
+    // Clave corta por el limite de 15 caracteres de ESP32 NVS (ver nota en loadParams).
+    preferences.putFloat("hdg_corr_max", params.heading_corr_max);
     preferences.putFloat("along_gain", params.along_gain);
     preferences.putInt("netid", (int)params.netid);
     preferences.putFloat("approach_dist", params.approach_dist);
@@ -845,7 +846,11 @@ void FWM::loadParams()
     params.lateral_offset = preferences.getFloat("lateral_offset", FORMATION_LATERAL_OFFSET);
     params.vertical_offset = preferences.getFloat("vertical_offset", FORMATION_VERTICAL_OFFSET);
     params.cross_gain = preferences.getFloat("cross_gain", CROSS_TRACK_GAIN_DEG_PER_M);
-    params.heading_corr_max = preferences.getFloat("heading_corr_max", MAX_HEADING_CORR_DEG);
+    // OJO: clave NVS de 16 caracteres. El limite de ESP32 NVS es 15, asi que esta clave NUNCA
+    // se guardo ni se leyo: nvs_set_blob/nvs_get_blob fallan con KEY_TOO_LONG/NOT_FOUND y el
+    // parametro se perdia en cada reinicio aunque la WebUI dijera "guardado". Se usa el mismo
+    // nombre corto que el parametro MAVLink (hdg_corr_max).
+    params.heading_corr_max = preferences.getFloat("hdg_corr_max", MAX_HEADING_CORR_DEG);
     params.along_gain = preferences.getFloat("along_gain", ALONG_GAIN_CMS_PER_M);
     params.netid = (uint16_t)preferences.getInt("netid", NETID_DEFAULT);
     params.approach_dist = preferences.getFloat("approach_dist", APPROACH_DIST_DEFAULT);

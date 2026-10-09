@@ -81,6 +81,9 @@ pio run -t clean
   - **OLED menu disabled** (`USE_INTERACTIVE_MENU 0`): its pins (12/13/14/15) collide with the
     MAVLink UART (12/13), LoRa RST (14) and OLED SCL (15). Do not re-enable without reassigning to
     free GPIOs.
+  - **NVS keys are limited to 15 characters.** `heading_corr_max` was 16 and silently failed on
+    every save/load (`KEY_TOO_LONG` / `NOT_FOUND`); it is now `hdg_corr_max`. Check the length
+    before adding a key.
   - **LoRa compression:** `Comm::compressPacket` must use `floor()` for lat/lon. With truncation
     toward zero, **negative longitudes** (western hemisphere, e.g. Spain) were corrupted by ~100 km.
   - **LoRa:** the setters (`setSignalBandwidth`, etc.) go **after** `LoRa.begin()`; before that,

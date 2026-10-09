@@ -216,6 +216,25 @@ keeps it disabled because it is experimental and is not a certified collision-av
 > The first `head_on` attempt was skipped because the `--only` invocation skipped `takeoff`, so the
 > SITL aircraft were on the ground. Rerunning with `takeoff` first produced the PASS above.
 
+### 4.5 Band switching (2026-10-10)
+
+Two boards (`ttgo-lora32-v1`, emulated FC + real LoRa), roles leader/follower, both on `band=868`.
+
+| Step | Expected | Observed |
+|---|---|---|
+| Baseline | follower receives beacons | `rx` rising, RSSI ≈ −40 dBm |
+| `FWM BAND 433` on the follower | radio re-inits, link dies | `switching band...` → `LoRa band applied`, `STATUSTEXT: LoRa band 433 MHz`, `rx` frozen, `LOST_LINK` |
+| `FWM BAND 868` on the follower | link recovers | `rx` resumes from 58 → 65 |
+| `FWM ID` after that | reports the current band | `band=433` while on 433 |
+| Reset | band persisted in NVS | `FWM_ID ... band=868` after reboot |
+
+The board publishes its own band in the OSD header, in `FWM_ID` and as a STATUSTEXT when entering
+SEARCHING, because a mismatch across bands produces no error at all.
+
+Not verified: rejecting a band change in flight. `canWriteConfig()` returns true unconditionally in
+the `FC_EMULATION` bench profile, so that guard can only be exercised with a real armed autopilot
+(same family as V6/V7).
+
 ---
 
 ## 5. Testing strategy
@@ -246,7 +265,7 @@ Safety rules for the bench:
 | Item | State |
 |---|---|
 | Role as runtime parameter, single flight image | Done |
-| Runtime LoRa band selection (433/868/915) | Done in code, pending board validation |
+| Runtime LoRa band selection (433/868/915) | Done, validated on hardware 2026-10-10 |
 | Multi-board flash targets (V2.1, T-Beam) | Not started. Blocked on V2.1 pin ambiguity (core variant says `LORA_RST 12`, its own comment says GPIO14). |
 | `canWriteConfig()` fail-closed writes | Done |
 | WiFi password change (WebUI + MAVLink) | Done (WebUI verified on board; MAVLink pending V6) |
@@ -285,6 +304,8 @@ exposes data or weakens a stated guarantee. **Low** is hygiene or reproducibilit
 | F-15 | Info | Fixed | README described a WiFi password change that did not exist. Corrected. |
 | F-16 | Info | Fixed | No `SECURITY.md`. Added, with private vulnerability reporting. |
 | F-17 | Info | Fixed | Release and flasher outputs could be committed. `site/`, `release-assets/` git-ignored. |
+| F-18 | Medium | Fixed | NVS key `heading_corr_max` is 16 characters; the ESP32 NVS limit is 15. Every `saveParams()` failed with `KEY_TOO_LONG` and every boot failed with `NOT_FOUND`, so the parameter was silently lost on each restart while the WebUI reported "saved". Renamed to `hdg_corr_max`, matching the MAVLink name. Verified: zero NVS errors at boot and on save on both boards. |
+| F-19 | Low | Fixed | `updateFcEmulation()` called `SimulatedData::update()` on every flight-loop iteration (~1 kHz) while the per-call noise is not scaled by `dt`. The emulated altitude random-walked ~7x too fast, left the valid range within minutes, and the follower then rejected every packet as invalid altitude — the `ttgo-lora32-v1` bench profile lost its link on its own. Rate-limited to `SIMULATION_UPDATE_RATE`: drift measured −0.34 m/s before, −0.05 m/s after. |
 
 ### 7.1 GitHub settings to verify manually
 

@@ -52,7 +52,8 @@ def fetch_esp_web_tools(destination: Path) -> None:
                 target.write_bytes(source.read())
 
 
-def build_site(version: str, commit: str, build_root: Path, boot_app0: Path, output: Path) -> dict:
+def build_site(version: str, commit: str, build_root: Path, boot_app0: Path, output: Path,
+               binaries_dir: Path | None = None) -> dict:
     env = PROFILES[PROFILE]
     build_dir = build_root / env
     if output.exists():
@@ -63,9 +64,19 @@ def build_site(version: str, commit: str, build_root: Path, boot_app0: Path, out
     parts = []
     checksums = []
     for filename, address in SEGMENTS:
-        source = boot_app0 if filename == "boot_app0.bin" else build_dir / filename
+        # binaries_dir = binarios ya publicados por la release. Es el camino correcto en CI:
+        # reconstruir aqui produciria un binario distinto (las builds de ESP-IDF no son
+        # reproducibles byte a byte) y las hashes del sitio no coincidirian con las de la release.
+        if binaries_dir is not None:
+            source = binaries_dir / filename
+        elif filename == "boot_app0.bin":
+            source = boot_app0
+        else:
+            source = build_dir / filename
         if not source.is_file():
-            raise FileNotFoundError(f"Falta {source}; primero compila -e {env}.")
+            hint = (f"faltan binarios en {binaries_dir}" if binaries_dir is not None
+                    else f"falta {source}; compila primero -e {env}")
+            raise FileNotFoundError(hint)
         shutil.copyfile(source, firmware_dir / filename)
         digest = sha256(firmware_dir / filename)
         checksums.append(f"{digest}  {filename}")
@@ -73,9 +84,13 @@ def build_site(version: str, commit: str, build_root: Path, boot_app0: Path, out
 
     (firmware_dir / "SHA256SUMS").write_text("\n".join(checksums) + "\n", encoding="utf-8")
 
+    # buildId es lo que ESP Web Tools usa para detectar que hay version nueva. Sin el, un
+    # usuario con una version anterior instalada no recibe aviso de que puede actualizar.
+    build_id = f"{version}-{commit[:12]}" if commit and commit != "unknown" else version
     manifest = {
         "name": "FlyWithMe",
         "version": version,
+        "buildId": build_id,
         "new_install_prompt_erase": False,
         "new_install_improv_wait_time": 0,
         "builds": [{"chipFamily": "ESP32", "parts": parts}],
@@ -107,12 +122,20 @@ def main() -> int:
     parser.add_argument("--commit", default="unknown", help="commit de la build")
     parser.add_argument("--build-root", type=Path, default=ROOT / ".pio" / "build")
     parser.add_argument("--boot-app0", type=Path, default=None)
+    parser.add_argument("--binaries-dir", type=Path, default=None,
+                        help="directorio con los cuatro binarios ya publicados por la release "
+                             "(reutilizarlos garantiza que las hashes del sitio y de la release "
+                             "coincidan)")
     parser.add_argument("--output", type=Path, default=ROOT / "site")
     args = parser.parse_args()
 
-    boot_app0 = find_boot_app0(args.boot_app0)
-    manifest = build_site(args.version, args.commit, args.build_root, boot_app0, args.output)
-    print(f"Flasheador web listo en {args.output} ({len(manifest['builds'][0]['parts'])} particiones)")
+    # Con --binaries-dir los cuatro binarios vienen de ahi, incluido boot_app0.bin, asi que no
+    # hace falta localizarlo en el paquete de Arduino.
+    boot_app0 = None if args.binaries_dir is not None else find_boot_app0(args.boot_app0)
+    manifest = build_site(args.version, args.commit, args.build_root, boot_app0, args.output,
+                          args.binaries_dir)
+    print(f"Flasheador web listo en {args.output} ({len(manifest['builds'][0]['parts'])} particiones, "
+          f"buildId={manifest['buildId']})")
     return 0
 
 

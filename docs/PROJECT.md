@@ -272,6 +272,8 @@ Safety rules for the bench:
 | `pio test -e native` with real `src/` headers | Done |
 | CI + CodeQL + Dependabot + pinned actions | Done |
 | Web flasher on GitHub Pages | Done |
+| Flasher reuses the release binaries (matching hashes) | Done |
+| `buildId` in the flasher manifest for update detection | Done |
 | Bench parameterization (no coordinates in repo) | Done |
 | **Authenticate the LoRa protocol (v3, MAC)** | Not started. Largest remaining risk. |
 | **WebUI/API authentication** | Not started. |
@@ -306,6 +308,8 @@ exposes data or weakens a stated guarantee. **Low** is hygiene or reproducibilit
 | F-17 | Info | Fixed | Release and flasher outputs could be committed. `site/`, `release-assets/` git-ignored. |
 | F-18 | Medium | Fixed | NVS key `heading_corr_max` is 16 characters; the ESP32 NVS limit is 15. Every `saveParams()` failed with `KEY_TOO_LONG` and every boot failed with `NOT_FOUND`, so the parameter was silently lost on each restart while the WebUI reported "saved". Renamed to `hdg_corr_max`, matching the MAVLink name. Verified: zero NVS errors at boot and on save on both boards. |
 | F-19 | Low | Fixed | `updateFcEmulation()` called `SimulatedData::update()` on every flight-loop iteration (~1 kHz) while the per-call noise is not scaled by `dt`. The emulated altitude random-walked ~7x too fast, left the valid range within minutes, and the follower then rejected every packet as invalid altitude — the `ttgo-lora32-v1` bench profile lost its link on its own. Rate-limited to `SIMULATION_UPDATE_RATE`: drift measured −0.34 m/s before, −0.05 m/s after. |
+| F-20 | Medium | Fixed | The web flasher and the release were built by two separate workflows, each running its own `pio run`. ESP-IDF builds are **not byte-reproducible** (verified: two builds of the same source give different SHA-256), so the site always served a `firmware.bin` whose hash differed from the one published in the release, and its `SHA256SUMS` never matched `release-manifest.json`. The flasher now reuses the binaries already packaged by the release job, so the hashes agree by construction, and a CI step fails the deploy if they diverge. `web-flasher.yml` removed. |
+| F-21 | Medium | Fixed | The flasher `manifest.json` had no `buildId`, the field ESP Web Tools uses to detect a newer release. Users on an older version were never offered the update — including `v1.0.1`, which carries the WiFi password fix. Now `buildId` is `<version>-<commit12>`, covered by tests. |
 
 ### 7.1 GitHub settings to verify manually
 

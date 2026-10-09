@@ -268,9 +268,11 @@ testing strategy, roadmap).
 |---|---|---|
 | `README.md` | User manual | Feature overview, hardware, flashing, ground configuration, formation flight procedure, limits, badges. No development/testing content. |
 | `DEVELOP.md` | Development and bench | Architecture, PlatformIO profiles, SITL, MAVProxy, simulators, bench and tests. |
-| `docs/PROJECT.md` | Consolidated reference | Project overview, repository layout, security audit, validation results, testing strategy, roadmap and detailed findings F-01…F-17. |
+| `docs/PROJECT.md` | Consolidated reference | Project overview, repository layout, security audit, validation results, testing strategy, roadmap and detailed findings F-01…F-21. |
 | `AGENTS.md` | Agent guide | This document. |
 | `SECURITY.md` | Security policy | Vulnerability reporting, scope, known risks. |
+| `tools/build_web_flasher.py` | Web flasher site generator | `--binaries-dir` reuses the release binaries so the site and release hashes match. |
+| `tools/package_firmware_release.py` | Release packager | Packages the production profile and writes per-segment SHA-256 into `release-manifest.json`. |
 | `tools/hil_test.py` | HIL test harness | Validates the leader/follower link over serial (see §2). |
 | `tools/flash_firmware.py` | Flash and provision | Uploads the common flight image and stores `role` over USB serial; does not build a different binary per role. |
 | `tools/lab.py` | Lab (CLI) | Menu: 2 SITL + headless MAVProxy → UDP for Mission Planner; actions and reports. |

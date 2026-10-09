@@ -40,6 +40,8 @@ public:
     void applyBand(int32_t band);              // core0 solicita el cambio; el owner del SX1276 lo aplica en run()
     void reconfigureBand(int32_t band);        // core1 unicamente: LoRa.end() + begin() + re-aplicar setters
     int32_t band() const { return loraBand; }  // banda efectiva del radio
+    bool radioOk() const { return radioHealthy; } // el SX1276 respondio al begin()
+    volatile bool radioHealthy = false;
     void requestRuntimeSitlProfile();          // core0 solicita; el owner del SX1276 lo aplica en run()
     void sendReplyPacket();                   // v2: REPLY/JOIN del seguidor (enlace de vuelta)
     uint16_t txSeq = 0;                        // v2: secuencia de TX (perdidas/duplicados)

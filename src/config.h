@@ -91,12 +91,17 @@
 #define SERIAL1_TX 13
 
 // Lora
-#define SCK 5
-#define MISO 19
-#define MOSI 27
-#define SS 18
-#define RST 14
-#define DIO0 26
+// Prefijo FWM__: los macros pelados SCK/MISO/MOSI/SS chocan por nombre con las variables
+// "static const uint8_t SCK = 5;" que declara pins_arduino.h. Hoy compila por el orden de los
+// includes, pero cualquier refactor que mueva este fichero antes de Arduino.h produce
+// "static const uint8_t 18 = 18;" y un fallo de compilacion confuso. Los variantes de Arduino
+// ya usan LORA_SCK/LORA_CS, asi que FWM_ evita tambien ahi una redefinicion.
+#define FWM_LORA_SCK 5
+#define FWM_LORA_MISO 19
+#define FWM_LORA_MOSI 27
+#define FWM_LORA_CS 18
+#define FWM_LORA_RST 14
+#define FWM_LORA_DIO0 26
 
 #ifndef LORA_SIGNAL_BANDWIDTH
 #define LORA_SIGNAL_BANDWIDTH 125000 ///< 125kHz

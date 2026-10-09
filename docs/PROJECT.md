@@ -63,7 +63,36 @@ docs/         this document
 `platformio.ini` sets `default_envs = ttgo-lora32-v1-flight`, so a bare `pio run` never builds the
 emulation or bench profiles by accident.
 
-### 2.2 Platform pin
+### 2.3 Board compatibility: only the TTGO LoRa32 V1 is supported
+
+Researched 2026-10-10 against vendor schematics, the Arduino variant headers and the PlatformIO
+board manifests. **No other board is offered as a flash target**, and none is a drop-in: each would
+need a different crystal flag, a different UART1 and, for the SX1262 boards, a different driver.
+
+| Board | Verdict | Reason |
+|---|---|---|
+| **TTGO LoRa32 V1** | **Supported, validated** | The reference target. Two boards tested. |
+| TTGO LoRa32 V2.0 | Not offered | `variants/ttgo-lora32-v2` defines `LORA_RST 12` with the comment `// GPIO14`. Both are wrong: four independent sources (official schematic net `IO23=RESET`, LilyGO `utilities.h` `RADIO_RST_PIN 23`, the vendor pin table, and Espressif's own correction in arduino-esp32 issue #5966) agree on **23**. It is a copy-paste typo from PR #3479 (2020), fixed upstream only in `ttgo-lora32-v21new`. |
+| TTGO LoRa32 V2.1.6 | Not offered | Pins are well documented, but it needs a **40 MHz** crystal (`-DF_XTAL_MHZ=26` must be dropped), the OLED moves to 21/22, and **GPIO12/13 are wired to the microSD slot**, colliding with the MAVLink UART. |
+| TTGO T-Beam | Not offered | 40 MHz crystal, and **GPIO12 is the TX of the onboard NEO-6M GPS**; using it for UART1 RX would silently steal the GNSS. |
+| Heltec WiFi LoRa 32 V2 | Not offered | Same SX1276, but different pin naming (`RST_LoRa`, `SDA_OLED`), and the Arduino variant's generic `SDA/SCL` point at 21/22 while the OLED is on 4/15. |
+| Heltec WiFi LoRa 32 V3 / V4, TTGO T3-S3 (SX1262) | **Impossible with the current driver** | `sandeepmistry/LoRa@0.8.0` supports only SX1276/77/78/79. The SX1262 is a command-based part with a BUSY line, not a memory-mapped SX127x. Supporting it means porting `Comm.cpp` to another library (RadioLib). Not a pin change. |
+| TTGO T-Display / T-Display-S3 | Not candidates | No LoRa radio at all. |
+
+> Naming warning for anyone testing other boards: LILYGO's "V2.0", "V2.1.6" and "T3_V1.6.1" refer to
+> the **same PCB** in most units, and `V2.1` is the model version while `1.6` is the PCB revision.
+> Read the schematic of the board in your hands, not the version number on the listing.
+
+Two safety consequences already implemented, independent of board support:
+
+- **Refuse the leader role when the radio does not answer.** A leader with an unusable radio fails
+  silently: the follower simply never locks and nobody can tell whether the cause is the band, the
+  radio or the board. `FWM::canBecomeLeader()` gates role assignment and `FWM_ID` reports
+  `radio=ok|fail`.
+- **A failed `LoRa.begin()` no longer hangs the board.** It used to `for(;;)`, so the 30 s watchdog
+  rebooted the board, which failed again, producing a reboot loop with no useful diagnosis.
+
+### 2.4 Platform pin
 
 The build is pinned to the pioarduino fork release `55.03.37` by URL:
 
@@ -266,7 +295,7 @@ Safety rules for the bench:
 |---|---|
 | Role as runtime parameter, single flight image | Done |
 | Runtime LoRa band selection (433/868/915) | Done, validated on hardware 2026-10-10 |
-| Multi-board flash targets (V2.1, T-Beam) | Not started. Blocked on V2.1 pin ambiguity (core variant says `LORA_RST 12`, its own comment says GPIO14). |
+| Multi-board flash targets (V2.0, V2.1.6, T-Beam, Heltec) | **Not viable.** See §2.2. Not started by choice, not by oversight. |
 | `canWriteConfig()` fail-closed writes | Done |
 | WiFi password change (WebUI + MAVLink) | Done (WebUI verified on board; MAVLink pending V6) |
 | `pio test -e native` with real `src/` headers | Done |
@@ -310,6 +339,8 @@ exposes data or weakens a stated guarantee. **Low** is hygiene or reproducibilit
 | F-19 | Low | Fixed | `updateFcEmulation()` called `SimulatedData::update()` on every flight-loop iteration (~1 kHz) while the per-call noise is not scaled by `dt`. The emulated altitude random-walked ~7x too fast, left the valid range within minutes, and the follower then rejected every packet as invalid altitude — the `ttgo-lora32-v1` bench profile lost its link on its own. Rate-limited to `SIMULATION_UPDATE_RATE`: drift measured −0.34 m/s before, −0.05 m/s after. |
 | F-20 | Medium | Fixed | The web flasher and the release were built by two separate workflows, each running its own `pio run`. ESP-IDF builds are **not byte-reproducible** (verified: two builds of the same source give different SHA-256), so the site always served a `firmware.bin` whose hash differed from the one published in the release, and its `SHA256SUMS` never matched `release-manifest.json`. The flasher now reuses the binaries already packaged by the release job, so the hashes agree by construction, and a CI step fails the deploy if they diverge. `web-flasher.yml` removed. |
 | F-21 | Medium | Fixed | The flasher `manifest.json` had no `buildId`, the field ESP Web Tools uses to detect a newer release. Users on an older version were never offered the update — including `v1.0.1`, which carries the WiFi password fix. Now `buildId` is `<version>-<commit12>`, covered by tests. |
+| F-22 | Low | Fixed | `Comm::begin()` blocked forever (`for(;;)`) when `LoRa.begin()` failed. The 30 s watchdog rebooted the board, which failed identically, giving a reboot loop with no useful diagnosis. It now records the failure and continues, with the state visible in `FWM_ID` as `radio=fail`. |
+| F-23 | Low | Fixed | `config.h` defined bare macros `SCK`, `MISO`, `MOSI`, `SS`, colliding by name with the `static const uint8_t` of the same name in `pins_arduino.h`. It compiled only because of include order; moving `config.h` ahead of `Arduino.h` yields `static const uint8_t 18 = 18;`. Renamed to `FWM_LORA_*`. |
 
 ### 7.1 Release history and superseded defects
 

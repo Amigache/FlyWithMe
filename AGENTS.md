@@ -88,6 +88,12 @@ pio run -t clean
     toward zero, **negative longitudes** (western hemisphere, e.g. Spain) were corrupted by ~100 km.
   - **LoRa:** the setters (`setSignalBandwidth`, etc.) go **after** `LoRa.begin()`; before that,
     `setLdoFlag()` divides by zero (registers not initialised).
+  - **LoRa pins are `FWM_LORA_*`.** Do not reintroduce bare `SCK`/`MISO`/`MOSI`/`SS` macros: they
+    collide by name with the `static const uint8_t` of the same name in `pins_arduino.h` and only
+    compile because of include order (F-23).
+  - **A leader must have a working radio.** `Comm::begin()` sets `radioHealthy`; `canBecomeLeader()`
+    refuses the role when it is false and `FWM_ID` reports `radio=ok|fail`. Never spin forever on a
+    failed `LoRa.begin()`: the watchdog turns it into a reboot loop (F-22).
   - **Route order in `src/Web.cpp`:** ESPAsyncWebServer matches routes registered without a
     wildcard with the `BackwardCompatible` predicate
     `(url == ruta) || url.startsWith(ruta + "/")` (`WebServer.cpp:336`), and `_attachHandler` serves

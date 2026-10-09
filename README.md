@@ -122,7 +122,10 @@ and then provisions the role over USB serial; it requires `pyserial` in the Pyth
 
 Without PlatformIO you can install the flight profile from the
 [web flasher](https://amigache.github.io/FlyWithMe/) using desktop Chrome or Edge, then assign the
-role from the same panel.
+role from the same panel. **Choose your board in the selector before installing:** the boards differ
+in pin map, and installing the wrong one leaves the radio mute with no error. The TTGO LoRa32
+V1.6 / V2.0 / V2.1.6 target is marked **beta**: its pin map is verified against the vendor schematic
+but has not been tested on physical hardware yet.
 
 Notes:
 

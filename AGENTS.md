@@ -88,6 +88,16 @@ pio run -t clean
     toward zero, **negative longitudes** (western hemisphere, e.g. Spain) were corrupted by ~100 km.
   - **LoRa:** the setters (`setSignalBandwidth`, etc.) go **after** `LoRa.begin()`; before that,
     `setLdoFlag()` divides by zero (registers not initialised).
+  - **LoRa pins are `FWM_LORA_*`.** Do not reintroduce bare `SCK`/`MISO`/`MOSI`/`SS` macros: they
+    collide by name with the `static const uint8_t` of the same name in `pins_arduino.h` and only
+    compile because of include order (F-23).
+  - **Board pin maps are selected with `-D FWM_BOARD=...`** (`FWM_BOARD_V1` default, `FWM_BOARD_V21`
+    for the V1.6/V2.0/V2.1.6). A wrong map compiles fine and leaves the radio mute, so never rely on
+    the Arduino variant macros: `ttgo-lora32-v2` ships `LORA_RST 12` with the comment `// GPIO14` and
+    both are wrong (it is **23**). See `docs/PROJECT.md` §2.3 and `DEVELOP.md` for the table.
+  - **A leader must have a working radio.** `Comm::begin()` sets `radioHealthy`; `canBecomeLeader()`
+    refuses the role when it is false and `FWM_ID` reports `radio=ok|fail`. Never spin forever on a
+    failed `LoRa.begin()`: the watchdog turns it into a reboot loop (F-22).
   - **Route order in `src/Web.cpp`:** ESPAsyncWebServer matches routes registered without a
     wildcard with the `BackwardCompatible` predicate
     `(url == ruta) || url.startsWith(ruta + "/")` (`WebServer.cpp:336`), and `_attachHandler` serves
@@ -271,8 +281,9 @@ testing strategy, roadmap).
 | `docs/PROJECT.md` | Consolidated reference | Project overview, repository layout, security audit, validation results, testing strategy, roadmap and detailed findings F-01…F-21. |
 | `AGENTS.md` | Agent guide | This document. |
 | `SECURITY.md` | Security policy | Vulnerability reporting, scope, known risks. |
-| `tools/build_web_flasher.py` | Web flasher site generator | `--binaries-dir` reuses the release binaries so the site and release hashes match. |
-| `tools/package_firmware_release.py` | Release packager | Packages the production profile and writes per-segment SHA-256 into `release-manifest.json`. |
+| `tools/build_web_flasher.py` | Web flasher site generator | One manifest per board. `--binaries-root` reuses the release binaries so the site and release hashes match. The beta flag comes from the shared `BOARDS` table. |
+| `tools/package_firmware_release.py` | Release packager | Owns the shared `BOARDS` table (board → env, label, `beta`). Writes one zip per board and per-segment SHA-256 into `release-manifest.json`. |
+| `tools/verify_site_hashes.py` | CI deploy gate | Re-hashes the **actual site binaries** and compares them with each release zip, per board, plus the site's `SHA256SUMS`. Fails the Pages deploy on any mismatch. |
 | `tools/hil_test.py` | HIL test harness | Validates the leader/follower link over serial (see §2). |
 | `tools/flash_firmware.py` | Flash and provision | Uploads the common flight image and stores `role` over USB serial; does not build a different binary per role. |
 | `tools/lab.py` | Lab (CLI) | Menu: 2 SITL + headless MAVProxy → UDP for Mission Planner; actions and reports. |

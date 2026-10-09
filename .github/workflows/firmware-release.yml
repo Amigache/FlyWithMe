@@ -42,7 +42,7 @@ jobs:
         run: python -m pip install platformio==6.2.0
 
       - name: Build locked production flight profile
-        run: pio run -e ttgo-lora32-v1-flight
+        run: pio run -e ttgo-lora32-v1-flight -e ttgo-lora32-v21-flight
 
       - name: Package firmware bundles
         env:
@@ -123,7 +123,14 @@ jobs:
       - name: Unpack the published firmware binaries
         run: |
           mkdir -p published
-          unzip -q release-assets/*.zip -d published
+          for bundle in release-assets/FlyWithMe-*.zip; do
+            board="$(basename "$bundle" .zip)"
+            board="${board#FlyWithMe-*-}"
+            mkdir -p "published/$board"
+            unzip -q "$bundle" -d "published/$board"
+            echo "  $board <- $(basename "$bundle")"
+          done
+          ls -1 published
 
       - name: Generate web flasher site from the published binaries
         env:
@@ -133,17 +140,16 @@ jobs:
           python tools/build_web_flasher.py \
             --version "$RELEASE_VERSION" \
             --commit "$RELEASE_COMMIT" \
-            --binaries-dir published \
+            --binaries-root published \
             --output site
 
-      # Las hashes del sitio deben ser identicas a las del manifest.json publicado dentro del zip.
-      # Si divergen, el despliegue falla: es la garantia de que ambos canales sirve lo mismo.
+      # Las hashes del sitio deben ser identicas a las de cada manifest.json publicado en los zips.
+      # Si divergen, el despliegue falla: es la garantia de que ambos canales sirven lo mismo.
       - name: Verify the site matches the published hashes
         run: |
-          unzip -p release-assets/*.zip manifest.json > published-manifest.json
           python tools/verify_site_hashes.py \
-            --manifest published-manifest.json \
-            --sha256sums site/firmware/SHA256SUMS
+            --release-assets release-assets \
+            --site site
 
       - name: Configure Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0

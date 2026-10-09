@@ -545,7 +545,7 @@ bool FWM::enableRuntimeSitlMode(String &error)
 #endif
 }
 
-void FWM::logDeviceIdentity()
+void FWM::logDeviceIdentity(bool includeRadio)
 {
     uint8_t apMac[6] = {};
     char macText[18] = {};
@@ -565,9 +565,22 @@ void FWM::logDeviceIdentity()
     // identificar la placa incluso en la imagen normal de vuelo. `band` se añade al final: si
     // dos placas no coinciden no hay enlace ni error visible, y comparar esta línea en ambas es
     // la forma rápida de detectarlo.
-    Serial.printf("FWM_ID ap_mac=%s ap_ssid=\"%s\" role=%s sysid=%u band=%s\r\n",
-                  macText, params.ssid, roleName, (unsigned)fwmSystemId(),
-                  loraBandLabel(params.band));
+    // El estado del radio SOLO se incluye bajo demanda ("FWM ID"): el banner de arranque se llama
+    // antes de Comm::begin(), donde radioHealthy todavía vale false, y publicarlo ahí daría un
+    // "radio=FAIL" falso.
+    if (includeRadio)
+    {
+        Serial.printf("FWM_ID ap_mac=%s ap_ssid=\"%s\" role=%s sysid=%u band=%s radio=%s\r\n",
+                      macText, params.ssid, roleName, (unsigned)fwmSystemId(),
+                      loraBandLabel(params.band),
+                      (comm != nullptr && comm->radioOk()) ? "ok" : "FAIL");
+    }
+    else
+    {
+        Serial.printf("FWM_ID ap_mac=%s ap_ssid=\"%s\" role=%s sysid=%u band=%s\r\n",
+                      macText, params.ssid, roleName, (unsigned)fwmSystemId(),
+                      loraBandLabel(params.band));
+    }
 }
 
 void FWM::requestRestart()
@@ -600,7 +613,8 @@ void FWM::processSerialProvisioning()
         line.trim();
         if (line == "FWM ID")
         {
-            logDeviceIdentity();
+            // Aqui el radio ya esta inicializado, asi que el estado si es fiable.
+            logDeviceIdentity(true);
         }
         else if (line == "FWM SIM ON")
         {
@@ -630,6 +644,10 @@ void FWM::processSerialProvisioning()
             else if (params.role != role && !canChangeRole())
             {
                 Serial.println("ROLECFG WAIT FC must be connected, disarmed and on ground");
+            }
+            else if (role == FWM_ROLE_LEADER && !canBecomeLeader())
+            {
+                Serial.println("ROLECFG ERR LoRa radio did not respond; cannot become LEADER");
             }
             else
             {
@@ -946,6 +964,19 @@ bool FWM::isOnGround()
 #endif
 }
 
+/**
+ * @brief ¿Puede la placa asumir el papel de LIDER?
+ *
+ * Un lider sin radio util no cumple su funcion y el fallo es silencioso: el seguidor simplemente
+ * nunca encuentra beacon y nadie sabe si es la banda, el enlace o la placa. Se exige que el SX1276
+ * haya respondido al begin(). Es el unico punto donde un mapa de pines equivocado (imagen de otra
+ * variante de placa) se detecta en lugar de fallar en silencio.
+ */
+bool FWM::canBecomeLeader() const
+{
+    return comm != nullptr && comm->radioOk();
+}
+
 bool FWM::canChangeRole() const
 {
 #if FC_EMULATION || SIMULATION_MODE
@@ -1143,6 +1174,9 @@ bool FWM::setParamByIndex(int idx, float value, bool persist)
         if (requestedRole == params.role)
             return true;
         if (!canChangeRole())
+            return false;
+        // Un lider necesita un radio que funcione; sin el, el fallo es silencioso.
+        if (requestedRole == FWM_ROLE_LEADER && !canBecomeLeader())
             return false;
     }
     if (idx == 14)

@@ -81,6 +81,7 @@ public:
     // AP/WiFi solo en tierra (configuracion); nunca en vuelo
     bool isOnGround();
     bool canChangeRole() const;
+    bool canBecomeLeader() const; // el radio SX1276 respondio (evita lider silencioso e inutil)
     bool canChangeApMode() const;
     bool canWriteConfig() const; // permiso fail-closed para escribir configuración (F-05)
     void updateApGate();
@@ -107,7 +108,7 @@ private:
     Preferences preferences;
 
     void processSerialProvisioning();
-    void logDeviceIdentity();
+    void logDeviceIdentity(bool includeRadio = false);
     bool enableRuntimeSitlMode(String &error);
     volatile bool runtimeSitlMode = false;
     volatile bool adaptiveRateEnabled = ADAPTIVE_RATE;

@@ -14,23 +14,28 @@ void Comm::begin()
 {
   // SPI- --------------------------------------------------------------------------------------------------
   Log.notice("Init SPI for LoRa" CR);
-  SPI.begin(SCK, MISO, MOSI, SS);
+  SPI.begin(FWM_LORA_SCK, FWM_LORA_MISO, FWM_LORA_MOSI, FWM_LORA_CS);
   delay(2000);
   Log.notice("SPI for LoRa Ready" CR);
 
   // LORA --------------------------------------------------------------------------------------------------
   Log.notice("Init LoRa" CR);
-  LoRa.setPins(SS, RST, DIO0);
+  LoRa.setPins(FWM_LORA_CS, FWM_LORA_RST, FWM_LORA_DIO0);
 
   // La banda es un parametro de runtime (params.band). LORA_BAND solo define el valor por
   // defecto de compilacion para placas sin valor en NVS.
   loraBand = loraBandValid(fwm->params.band) ? fwm->params.band : FWM_DEFAULT_BAND;
   if (!LoRa.begin(loraBandFrequency(loraBand)))
   {
-    Log.error("Starting LoRa failed!" CR);
-    for (;;)
-      ; // Don't proceed, loop forever
+    // Falla CERRADO: la placa no puede|leaderarse (ver FWM::canBecomeLeader) y FWM_ID lo
+    // declara. Antes este caso hacia "for(;;)": el watchdog (30 s) reiniciaba la placa, que
+    // volvia a fallar igual, produciendo un bucle de reinicio sin diagnostico. Seguir vivo es
+    // mas seguro y mas facil de diagnosticar que colgarse.
+    radioHealthy = false;
+    Log.error("Starting LoRa failed! Radio unusable; leader role will be refused." CR);
+    return;
   }
+  radioHealthy = true;
 
   // IMPORTANTE: los setters deben ir DESPUÉS de begin(). Antes, los registros del SX1276 están
   // sin inicializar y setLdoFlag() calcula getSignalBandwidth()/2^SF == 0 -> divide by zero.
@@ -583,8 +588,10 @@ void Comm::reconfigureBand(int32_t band)
   if (!LoRa.begin(loraBandFrequency(loraBand)))
   {
     Log.error("LoRa re-init failed at new band!" CR);
+    radioHealthy = false; // el radio queda sin enlace hasta el reintento
     return; // se mantiene loraBand sin aplicar; el radio queda sin enlace hasta el reintento
   }
+  radioHealthy = true;
   LoRa.setSignalBandwidth(LORA_SIGNAL_BANDWIDTH);
   LoRa.setSpreadingFactor(LORA_SPREADING_FACTOR);
   LoRa.setCodingRate4(LORA_CODING_RATE);

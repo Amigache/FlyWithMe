@@ -74,10 +74,14 @@ void Screen::begin()
   // DISPLAY -----------------------------------------------------------------------------------------------
   Log.notice("Init Display" CR);
 
+  // En la V1.6/V2.0 el RES# del OLED no va a ningun GPIO (OLED_RST == -1): no hay reset por
+  // software. Adafruit_SSD1306 acepta -1 en el constructor como "sin pin de reset".
+#if OLED_RST >= 0
   pinMode(OLED_RST, OUTPUT);
   digitalWrite(OLED_RST, LOW);
   delay(20);
   digitalWrite(OLED_RST, HIGH);
+#endif
 
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3c, false, false))
   { // Address 0x3C for 128x32

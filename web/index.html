@@ -6,7 +6,7 @@
   <meta name="referrer" content="no-referrer">
   <title>FlyWithMe · Web flasher</title>
   <style>
-    :root { --bg:#0f1115; --card:#171a21; --fg:#e7eaf0; --mut:#8b93a7; --acc:#3da9fc; --warn:#ffb020; --bd:#262b36; }
+    :root { --bg:#0f1115; --card:#171a21; --fg:#e7eaf0; --mut:#8b93a7; --acc:#3da9fc; --warn:#ffb020; --beta:#c084fc; --bd:#262b36; }
     * { box-sizing: border-box; }
     body { margin:0; font:15px/1.5 system-ui, Segoe UI, Roboto, Arial, sans-serif; background:var(--bg); color:var(--fg); }
     main { max-width:760px; margin:0 auto; padding:24px 16px 48px; }
@@ -25,20 +25,26 @@
     button { background:var(--acc); color:#04121f; border:0; font-weight:600; cursor:pointer; }
     button:disabled { opacity:.5; cursor:not-allowed; }
     .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:12px; }
+    .row label { color:var(--mut); }
     pre { background:#0d1015; border:1px solid var(--bd); border-radius:9px; padding:10px; min-height:90px; max-height:260px; overflow:auto; font-size:12px; color:var(--mut); white-space:pre-wrap; }
     .muted { color:var(--mut); font-size:13px; }
     esp-web-install-button { display:inline-block; }
+    .badge { display:inline-block; font-size:11px; font-weight:700; padding:1px 7px; border-radius:999px; vertical-align:middle; margin-left:6px; }
+    .badge-beta { background:var(--beta); color:#1a0b2e; }
+    .card-beta { border-color:var(--beta); }
+    #betaNote { display:none; margin-top:10px; }
+    #betaNote.on { display:block; }
   </style>
 </head>
 <body>
   <main>
     <h1>🛸 FlyWithMe · Web flasher</h1>
-    <p class="sub">Flash the flight firmware onto a TTGO LoRa32 V1 directly from your browser.</p>
+    <p class="sub">Flash the flight firmware onto your board directly from the browser.</p>
 
     <section class="warn">
       <h2>Before you start</h2>
       <ul>
-        <li>This flasher installs the <b>flight profile only</b> (<code>ttgo-lora32-v1-flight</code>). The bench/SITL image is not published here.</li>
+        <li>This flasher installs the <b>flight profile only</b>. The bench/SITL image is not published here.</li>
         <li>Read the <a href="https://github.com/Amigache/FlyWithMe#readme">manual</a>. FlyWithMe does not replace the pilot or the autopilot failsafes.</li>
         <li>Connect the LoRa antennas before powering the board. Close any serial monitor using the port.</li>
         <li>Requires desktop <b>Chrome or Edge</b>, an HTTPS connection and a USB data cable.</li>
@@ -46,10 +52,27 @@
     </section>
 
     <section>
-      <h2>1 · Install the firmware</h2>
+      <h2>1 · Choose your board</h2>
+      <p class="muted">Pick the board you have. Picking the wrong one installs a firmware whose pin map does not match your hardware: the board boots but the radio stays mute, with no error.</p>
+      <div class="row">
+        <label for="board">Board</label>
+        <select id="board"></select>
+        <span id="boardBadge"></span>
+      </div>
+      <p class="muted" id="boardDesc"></p>
+      <div id="betaNote" class="warn" style="border:1px solid var(--beta); border-radius:10px; padding:12px;">
+        <b>Beta board.</b> This pin map has been verified against the vendor schematic but <b>not yet tested on
+        physical hardware</b>. Expect problems, and please report what you see — success or failure — at
+        <a href="https://github.com/Amigache/FlyWithMe/issues">the issue tracker</a>. If the board boots but the
+        radio never links, that is exactly the feedback we need.
+      </div>
+    </section>
+
+    <section id="installCard">
+      <h2>2 · Install the firmware</h2>
       <p class="muted">Press the button, select the board's port and wait for it to finish. The NVS (role, parameters and netid) is preserved when updating.</p>
       <div class="row">
-        <esp-web-install-button manifest="manifest.json">
+        <esp-web-install-button id="installer" manifest="manifest-ttgo-lora32-v1.json">
           <button slot="activate">Install FlyWithMe</button>
           <span slot="unsupported">Your browser does not support Web Serial. Use desktop Chrome or Edge.</span>
           <span slot="not-allowed">This page must be opened over HTTPS.</span>
@@ -59,7 +82,7 @@
     </section>
 
     <section>
-      <h2>2 · Assign the role</h2>
+      <h2>3 · Assign the role</h2>
       <p class="muted">A new board stays <b>Disabled</b> until you assign its role: assign <b>Leader</b> to the leader aircraft's board and <b>Follower</b> to the follower's. The change is only accepted on the ground; if the board already has an active role, it needs the FC connected, disarmed and on the ground.</p>
       <div class="row">
         <label for="role" class="muted">Role</label>
@@ -76,27 +99,57 @@
 
     <section>
       <h2>Verification and files</h2>
-      <p class="muted">Binaries and their SHA-256 sums are in <a href="firmware/SHA256SUMS">firmware/SHA256SUMS</a>. After installing, the board prints <code>FWM_ID ap_mac=… ap_ssid="FWM XXXXXX" role=… sysid=…</code> on serial at 57600 baud; it also answers to <code>FWM ID</code>.</p>
+      <p class="muted">Binaries and their SHA-256 sums are in <code>firmware/&lt;board&gt;/SHA256SUMS</code>. After installing, the board prints <code>FWM_ID ap_mac=… ap_ssid="FWM XXXXXX" role=… sysid=… band=…</code> on serial at 57600 baud; it also answers to <code>FWM ID</code>.</p>
       <p class="muted"><b>Security:</b> the factory WiFi password (<code>12345678</code>) is public and identical on every board. It can be used as-is, but we recommend changing it from the “WiFi password” section of the board's WebUI. See <a href="https://github.com/Amigache/FlyWithMe/blob/main/docs/PROJECT.md">the security audit</a>.</p>
     </section>
   </main>
 
   <script type="module" src="vendor/esp-web-tools/install-button.js"></script>
   <script>
-    (function () {
-      fetch('build-info.json', { cache: 'no-store' })
-        .then(function (r) { return r.json(); })
-        .then(function (info) {
-          document.getElementById('version').textContent =
-            'Version ' + info.version + ' · commit ' + String(info.git_commit).slice(0, 12) + ' · ESP Web Tools ' + info.esp_web_tools;
-        })
-        .catch(function () {
-          document.getElementById('version').textContent = 'Could not read the published version.';
-        });
-    })();
-
+    var installer = document.getElementById('installer');
+    var boardSelect = document.getElementById('board');
+    var boardBadge = document.getElementById('boardBadge');
+    var boardDesc = document.getElementById('boardDesc');
+    var betaNote = document.getElementById('betaNote');
+    var installCard = document.getElementById('installCard');
     var log = document.getElementById('log');
     var btn = document.getElementById('provBtn');
+
+    var DESCRIPTIONS = {
+      'ttgo-lora32-v1': 'The original board: 26 MHz crystal, OLED on 4/15, LoRa reset on GPIO14.',
+      'ttgo-lora32-v21': 'LILYGO “T3” family: no external crystal (40 MHz internal), OLED on 21/22, LoRa reset on GPIO23, MAVLink UART on 32/33.'
+    };
+
+    function applyBoard(info) {
+      installer.setAttribute('manifest', info.manifest);
+      boardBadge.innerHTML = info.beta ? '<span class="badge badge-beta">BETA</span>' : '';
+      boardDesc.textContent = DESCRIPTIONS[info.board] || '';
+      betaNote.classList.toggle('on', !!info.beta);
+      installCard.classList.toggle('card-beta', !!info.beta);
+    }
+
+    fetch('build-info.json', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (info) {
+        document.getElementById('version').textContent =
+          'Version ' + info.version + ' · commit ' + String(info.git_commit).slice(0, 12) + ' · ESP Web Tools ' + info.esp_web_tools;
+
+        boardSelect.innerHTML = '';
+        info.boards.forEach(function (b) {
+          var option = document.createElement('option');
+          option.value = b.board;
+          option.textContent = b.label + (b.beta ? ' — beta' : '');
+          boardSelect.appendChild(option);
+        });
+        boardSelect.addEventListener('change', function () {
+          var chosen = info.boards.filter(function (b) { return b.board === boardSelect.value; })[0];
+          if (chosen) applyBoard(chosen);
+        });
+        if (info.boards.length) applyBoard(info.boards[0]);
+      })
+      .catch(function () {
+        document.getElementById('version').textContent = 'Could not read the published version.';
+      });
 
     function write(msg) {
       log.textContent += msg + '\n';

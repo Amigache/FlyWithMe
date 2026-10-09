@@ -31,8 +31,19 @@
 
 #include "../lib/mavlink/common/mavlink.h"
 
-#define VERSION "FlyWithMe V1.0"
-
+// Version del firmware para la pantalla de arranque y los logs.
+//
+// FWM_VERSION la inyecta tools/version.py en tiempo de compilacion (tag exacto, SHA corto, o
+// FWM_BUILD_VERSION que pasa el workflow de release). El valor por defecto solo aparece si se
+// compila sin el script; antes esto era un literal "FlyWithMe V1.0" que se quedo obsoleto en la
+// primera release y la pantalla siguio anunciando V1.0 con el firmware ya en v1.2.x.
+#ifndef FWM_VERSION
+#define FWM_VERSION "dev"
+#endif
+#ifndef FWM_VERSION_FULL
+#define FWM_VERSION_FULL "FlyWithMe " FWM_VERSION
+#endif
+#define VERSION "FlyWithMe " FWM_VERSION
 // DEBUG MODE
 #define DEBUG_MODE // Comentar para desactivar debug
 

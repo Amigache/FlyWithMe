@@ -248,6 +248,7 @@ testing strategy, roadmap).
 | `netid` | `4660` (0x1234) | v2 protocol network: filters traffic from other systems **at packet level**. Must match on both; configurable by parameter and WebUI. Distance/OSD are only published if the packet indicates a valid position. |
 | `band` NVS/WebUI/MAVLink/USB | `FWM_DEFAULT_BAND` (868) | `0=433`, `1=868`, `2=915`. **Must match on both boards**; a mismatch means no link and no error. Ground-only (restarting the SX1276). Mapping and labels live in the pure header `src/lora_band.h`. USB console `FWM BAND 433\|868\|915`. |
 | `role` NVS/WebUI/MAVLink | `OFF` on a new board | `0=OFF`, `1=FOLLOWER`, `2=LEADER`; editable on the ground only, change with reboot. FWM/FC SYSID: leader 1, follower 2. Provision with `tools/flash_firmware.py`; older boards without this key must be reassigned. |
+| `FWM_VERSION` (build flag) | `dev` | Version shown on the OLED splash and in logs. Injected by `tools/version.py` from `FWM_BUILD_VERSION`, an exact git tag, or the short SHA. It used to be the literal `"FlyWithMe V1.0"`, which went stale on the first release and was still on screen at v1.2.x. |
 | `ap_mode` NVS/WebUI/REST/USB | `AUTO` | `0=AUTO`, `1=ON (ground only)`, `2=OFF`; the ground-only policy always prevails in flight. REST `/api/ap`; USB console `FWM AP auto|on|off`. |
 | WiFi SSID | Derived from MAC | `FWM XXXXXX`, where `XXXXXX` are the last 3 bytes of the SoftAP MAC in hexadecimal; read over serial with `FWM_ID` at boot or the `FWM ID` command. Not manually configurable. |
 | `approach_dist` | `300` | m — below this distance the follower **requires a stable leader mode** (FBWA/FBWB/CRUISE/AUTO/RTL/LOITER/TAKEOFF/GUIDED); above it, it still goes looking for it. |
@@ -283,6 +284,7 @@ testing strategy, roadmap).
 | `SECURITY.md` | Security policy | Vulnerability reporting, scope, known risks. |
 | `tools/build_web_flasher.py` | Web flasher site generator | One manifest per board. `--binaries-root` reuses the release binaries so the site and release hashes match. The beta flag comes from the shared `BOARDS` table. |
 | `tools/package_firmware_release.py` | Release packager | Owns the shared `BOARDS` table (board → env, label, `beta`). Writes one zip per board and per-segment SHA-256 into `release-manifest.json`. |
+| `tools/version.py` | PlatformIO pre-script | Injects `FWM_VERSION` (OLED splash and logs) from `FWM_BUILD_VERSION`, an exact git tag, or the short SHA. Does **not** use bare `git describe`: it lies on `develop`, where the later tags are on unreachable `main` merge commits. |
 | `tools/verify_site_hashes.py` | CI deploy gate | Re-hashes the **actual site binaries** and compares them with each release zip, per board, plus the site's `SHA256SUMS`. Fails the Pages deploy on any mismatch. |
 | `tools/hil_test.py` | HIL test harness | Validates the leader/follower link over serial (see §2). |
 | `tools/flash_firmware.py` | Flash and provision | Uploads the common flight image and stores `role` over USB serial; does not build a different binary per role. |

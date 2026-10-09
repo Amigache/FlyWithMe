@@ -42,6 +42,10 @@ jobs:
         run: python -m pip install platformio==6.2.0
 
       - name: Build locked production flight profile
+        env:
+          # tools/version.py la usa para FWM_VERSION. Explicito y no por git describe: en un
+          # clon superficial el tag puede no estar y la pantalla mostraria el SHA.
+          FWM_BUILD_VERSION: ${{ inputs.version || github.ref_name }}
         run: pio run -e ttgo-lora32-v1-flight -e ttgo-lora32-v21-flight
 
       - name: Package firmware bundles

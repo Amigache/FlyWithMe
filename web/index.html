@@ -184,6 +184,7 @@
       var band = document.getElementById('band').value;
       var steps = makeSteps(role, band);
       var current = null;
+      var finishing = false;
       var port = null, reader = null, writer = null;
       btn.disabled = true;
       try {
@@ -215,7 +216,10 @@
               }
             }
           } catch (e) {
-            write('Read interrupted: ' + e.message);
+            // Al cerrar nosotros el lector, la lectura pendiente falla ("framing error"): es
+            // nuestra propia limpieza, no un problema de la placa, y anunciarla asustaba justo
+            // despues de dos ✓. Solo se reporta si el fallo ocurre mientras trabajamos.
+            if (!finishing) write('Read interrupted: ' + e.message);
           }
         })();
 
@@ -247,10 +251,13 @@
 
           // Tras un cambio de rol la placa se reinicia: darle un momento antes del siguiente paso.
           if (steps[s].cmd.indexOf('FWM ROLE') === 0) {
+            write('The board reboots to apply the role. The port may report a brief error while it '
+                  + 'restarts; that is expected.');
             await new Promise(function (r) { setTimeout(r, 3000); });
           }
         }
 
+        finishing = true;
         await reader.cancel().catch(function () {});
         await readLoop;
       } catch (e) {

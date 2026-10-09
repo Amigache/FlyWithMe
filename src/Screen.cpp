@@ -487,11 +487,18 @@ void Screen::bridgeRun()
 void Screen::showCenterText(const char *text)
 {
   display.clearDisplay();
-  display.setCursor(0, 0);
 
-  // Calculate the position to center the text
-  int16_t x = (SCREEN_WIDTH - (strlen(text) * 6)) / 2; // Each character is approximately 6 pixels wide
-  int16_t y = (SCREEN_HEIGHT - display.getCursorY()) / 2;
+  // Medir el texto en vez de estimarlo: antes se asumia "6 px por caracter" y una Y calculada
+  // sobre getCursorY() (que valia 0 tras setCursor(0,0)), asi que el texto no quedaba centrado
+  // ni en horizontal ni en vertical, y una version mas larga se descentraba mas.
+  int16_t x1 = 0, y1 = 0;
+  uint16_t width = 0, height = 0;
+  display.getTextBounds(text, 0, 0, &x1, &y1, &width, &height);
+
+  int16_t x = (SCREEN_WIDTH - (int16_t)width) / 2;
+  int16_t y = (SCREEN_HEIGHT - (int16_t)height) / 2;
+  if (x < 0) x = 0; // texto mas ancho que la pantalla: recortar por la izquierda, no salir fuera
+  if (y < 0) y = 0;
 
   display.setCursor(x, y);
   display.println(text);

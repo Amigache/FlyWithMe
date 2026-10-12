@@ -79,11 +79,16 @@
         </esp-web-install-button>
       </div>
       <p class="muted" id="version">Loading version…</p>
+      <p class="muted">If the install fails with <code>Failed to open serial port</code>, something else
+      is holding the port: keep only <b>one</b> tab of this page open and close any serial program
+      (Arduino IDE, PlatformIO, Mission Planner). Then unplug the USB, wait five seconds, plug it back
+      and reload the page.</p>
     </section>
 
     <section>
       <h2>3 · Assign the role and the band</h2>
       <p class="muted">A new board stays <b>Disabled</b> until you assign its role: assign <b>Leader</b> to the leader aircraft's board and <b>Follower</b> to the follower's. The change is only accepted on the ground; if the board already has an active role, it needs the FC connected, disarmed and on the ground.</p>
+      <p class="muted">In the port dialog, <b>click the port row first</b> — the Connect button stays greyed out until a port is selected. Pick the CP210x/CH910x entry for the board, not a card reader or another device. Do this <b>after</b> the board has finished rebooting from the install step.</p>
       <p class="muted"><b>Both aircraft must use the same LoRa band.</b> If they differ there is no link and <b>no error message</b>: the follower just waits. Default is 868 MHz (Europe).</p>
       <div class="row">
         <label for="role" class="muted">Role</label>
@@ -184,11 +189,26 @@
       var band = document.getElementById('band').value;
       var steps = makeSteps(role, band);
       var current = null;
+      var finishing = false;
       var port = null, reader = null, writer = null;
       btn.disabled = true;
       try {
         port = await navigator.serial.requestPort();
-        await port.open({ baudRate: 57600 });
+        // El fallo mas comun con diferencia no es un problema de la placa: otro programa o OTRA
+        // PESTAÑA del flasheador mantiene el puerto abierto, o Windows conserva un handle raro
+        // despues de que la placa se reinicie tras grabar. El error crudo del navegador
+        // ("Failed to open serial port") no dice nada de esto, asi que se explica aqui.
+        try {
+          await port.open({ baudRate: 57600 });
+        } catch (openError) {
+          write('✗ Could not open the port: ' + openError.message);
+          write('  Almost always this means something else already has the port open:');
+          write('   · another tab of this flasher page (keep only one)');
+          write('   · Arduino IDE, PlatformIO monitor, Mission Planner or any serial program');
+          write('   · a stale port handle: unplug the USB, wait 5 s, plug it back, reload the page');
+          write('  Then pick the port again. Only one program can use it at a time.');
+          return;
+        }
         reader = port.readable.getReader();
         writer = port.writable.getWriter();
 
@@ -215,7 +235,10 @@
               }
             }
           } catch (e) {
-            write('Read interrupted: ' + e.message);
+            // Al cerrar nosotros el lector, la lectura pendiente falla ("framing error"): es
+            // nuestra propia limpieza, no un problema de la placa, y anunciarla asustaba justo
+            // despues de dos ✓. Solo se reporta si el fallo ocurre mientras trabajamos.
+            if (!finishing) write('Read interrupted: ' + e.message);
           }
         })();
 
@@ -247,10 +270,13 @@
 
           // Tras un cambio de rol la placa se reinicia: darle un momento antes del siguiente paso.
           if (steps[s].cmd.indexOf('FWM ROLE') === 0) {
+            write('The board reboots to apply the role. The port may report a brief error while it '
+                  + 'restarts; that is expected.');
             await new Promise(function (r) { setTimeout(r, 3000); });
           }
         }
 
+        finishing = true;
         await reader.cancel().catch(function () {});
         await readLoop;
       } catch (e) {

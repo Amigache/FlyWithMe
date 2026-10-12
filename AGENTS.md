@@ -95,6 +95,18 @@ pio run -t clean
     for the V1.6/V2.0/V2.1.6). A wrong map compiles fine and leaves the radio mute, so never rely on
     the Arduino variant macros: `ttgo-lora32-v2` ships `LORA_RST 12` with the comment `// GPIO14` and
     both are wrong (it is **23**). See `docs/PROJECT.md` §2.3 and `DEVELOP.md` for the table.
+  - **The pioarduino platform installs its own PlatformIO Core fork into `~/.platformio/penv`.**
+    `builder/penv_setup.py` in the pinned platform declares
+    `"platformio": ".../pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip"` and installs it
+    with `uv` on every build. So the penv can legitimately hold a `pioarduino-core` distribution
+    alongside the official `platformio`, with contradictory version constraints. That is by design,
+    not corruption — do not "fix" it by uninstalling one of them.
+  - **If a build dies with `Failed to install Python dependencies (exit code: 2)`**, that same script
+    is the culprit, and it hides the real error (`stdout=DEVNULL`, `stderr=STDOUT`). Reproduce the
+    install by hand without `--quiet` to see it. The case seen so far was an **all-NUL `RECORD` file**
+    in `site-packages/*.dist-info/`, left behind when a machine was killed mid-write: `uv` refuses to
+    touch a malformed RECORD. Delete the affected `*.dist-info` directories and reinstall those
+    packages. Check with a script that parses every `RECORD` as 3-field CSV.
   - **A leader must have a working radio.** `Comm::begin()` sets `radioHealthy`; `canBecomeLeader()`
     refuses the role when it is false and `FWM_ID` reports `radio=ok|fail`. Never spin forever on a
     failed `LoRa.begin()`: the watchdog turns it into a reboot loop (F-22).

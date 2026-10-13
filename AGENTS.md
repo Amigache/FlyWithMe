@@ -79,8 +79,23 @@ pio run -t clean
   - Verified: builds `ttgo-lora32-v1-flight` and `ttgo-lora32-v1-sitl` → **SUCCESS**.
   - `ttgo-lora32-v1-flight` blocks `FWM SIM ON`; the dev profile accepts the command temporarily.
   - **OLED menu disabled** (`USE_INTERACTIVE_MENU 0`): its pins (12/13/14/15) collide with the
-    MAVLink UART (12/13), LoRa RST (14) and OLED SCL (15). Do not re-enable without reassigning to
+    LoRa RST (14), OLED SCL (15) and the MAVLink UART. Do not re-enable without reassigning to
     free GPIOs.
+  - **UART1 is on GPIO25/17, NOT on GPIO12/13 (V1).** GPIO12 is the ESP32 **MTDI strapping pin**:
+    at reset, before any code runs, its level selects the flash voltage (1.8 V / 3.3 V). The V1 flash
+    is 3.3 V, so with the FC's TX (idle high) on GPIO12 the board reads flash at 1.8 V and **corrupts
+    its own image on every boot**: bootloader `csum err`, 4 KB sectors reading as `0xFF`, literal
+    strings coming out garbled (`follower` → `llower`), and the device looping in `Init Access
+    Point`. It is invisible to `esptool` at first: `pio run -t upload` reports SUCCESS, and the
+    corruption only shows on the **next** boot. A pull-down resistor does **not** fix it (10 kΩ and
+    4.7 kΩ both failed: the FC's push-pull TX overdrives them; the line must be < 0.8 V *and* a small
+    value loads the UART). GPIO32/33 do not work on V1 either: they measure a solid low on the board
+    (tied to the SX1276 DIO1/DIO2). GPIO25/17 were **validated on hardware** with a loopback jumper
+    (248/248 bytes). Wire the FC TELEM to **25 (RX) and 17 (TX)**. See `docs/PROJECT.md` §2.3.
+  - **A follower only accepts an FC with SYSID 2** (`targetSystemId()` returns `FWM_FOLLOWER_SYSID`).
+    An FC left at the ArduPilot default SYSID 1 works with `role=off` (the SYSID is learned from the
+    heartbeat) but never links once `role=follower`: the symptom is a healthy FC on USB with
+    `LINK TO FC LOST` on the board. Leader FC = SYSID 1, follower FC = SYSID 2.
   - **NVS keys are limited to 15 characters.** `heading_corr_max` was 16 and silently failed on
     every save/load (`KEY_TOO_LONG` / `NOT_FOUND`); it is now `hdg_corr_max`. Check the length
     before adding a key.

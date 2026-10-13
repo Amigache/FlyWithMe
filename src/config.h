@@ -129,8 +129,15 @@
 #define OLED_SDA 4
 #define OLED_SCL 15
 #define OLED_RST 16
-#define SERIAL1_RX 12
-#define SERIAL1_TX 13
+// UART1 en GPIO25/17, NO en GPIO12/13. GPIO12 es MTDI: pin de strapping que, en el instante del
+// reset y ANTES de ejecutar codigo, decide a que tension se lee la flash. Con la FC conectada a 12,
+// su TX en reposo (alto) hace que el flash de 3.3 V se lea a 1.8 V y la imagen se CORROMPE en cada
+// arranque (csum err del bootloader, sectores a 0xFF, cadenas de texto ilegibles). Una resistencia
+// pull-down NO lo arregla: la salida push-pull del TX de la FC la pisa. GPIO25/17 no son strapping
+// ni los usa el LoRa; validados en placa con prueba de loopback (248/248 bytes). GPIO32/33 se
+// descartaron: en V1 estan atados a DIO2/DIO1 del SX1276 y se miden a nivel bajo fijo.
+#define SERIAL1_RX 25
+#define SERIAL1_TX 17
 #define FWM_LORA_SCK 5
 #define FWM_LORA_MISO 19
 #define FWM_LORA_MOSI 27

@@ -86,9 +86,13 @@ the board's NVS, **not** a compile-time flag, so there is only ever one flight b
 
 | UART connection | TTGO LoRa32 V1 |
 |---|---|
-| FC TX → ESP32 RX | GPIO12 |
-| ESP32 TX → FC RX | GPIO13 |
+| FC TX → ESP32 RX | **GPIO25** |
+| ESP32 TX → FC RX | **GPIO17** |
 | Ground | common GND |
+
+> Do **not** use GPIO12/13 for this. GPIO12 is the ESP32's MTDI strapping pin: at reset it selects the
+> flash voltage, and with the FC connected there the board reads its 3.3 V flash at 1.8 V and damages
+> its own firmware on every power-up.
 
 Configure the chosen TELEM port in ArduPlane for MAVLink2 (`SERIALx_PROTOCOL=2`) and 57600 baud
 (`SERIALx_BAUD=57`), where `x` depends on the physical port you use. Keep the wiring crossed, and do

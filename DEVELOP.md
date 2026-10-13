@@ -46,11 +46,17 @@ V1.6/V2.0 differs from the V1 in four ways that matter:
 | OLED SDA / SCL | 4 / 15 | 21 / 22 |
 | OLED reset | 16 | none (`OLED_RST = -1`) |
 | LoRa RST | 14 | **23** |
-| UART1 RX / TX | 12 / 13 | **32 / 33** |
+| UART1 RX / TX | **25 / 17** | **32 / 33** |
 
 Sources and the full reasoning are in [`docs/PROJECT.md` §2.3](docs/PROJECT.md#23-board-compatibility-only-the-ttgo-lora32-v1-is-supported).
 Note that the Arduino variant `ttgo-lora32-v2` defines `LORA_RST 12` with the comment `// GPIO14`:
 **both are wrong**, which is why this target builds `board = ttgo-lora32-v21` instead.
+
+The V1 originally used GPIO12/13 for UART1 and that is unsafe: GPIO12 is the ESP32 MTDI strapping
+pin, which picks the flash voltage at reset, and an FC wired there corrupts the board's own image on
+every boot. GPIO25/17 were validated on hardware (loopback, then a real FC link); GPIO32/33 do not
+work on the V1 (tied to the SX1276 DIO lines). Also note the FC SYSID must match the board's role:
+leader FC = 1, follower FC = 2. Details in [`docs/PROJECT.md` §2.3](docs/PROJECT.md#uart1-pin-selection-on-the-v1-f-24).
 
 Profiles use Arduino ESP32 core 3.x, C++17 and `huge_app.csv`. The
 `ttgo-lora32-v1-flight` profile does **not** define the role in build flags: every board receives the

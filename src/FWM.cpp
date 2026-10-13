@@ -58,6 +58,7 @@ void FWM::begin()
         params.along_gain = ALONG_GAIN_CMS_PER_M;
         params.netid = NETID_DEFAULT;
         params.approach_dist = APPROACH_DIST_DEFAULT;
+        params.band = FWM_DEFAULT_BAND;
 
         saveParams();
     }

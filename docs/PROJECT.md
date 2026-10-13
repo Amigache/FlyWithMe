@@ -71,9 +71,43 @@ need a different crystal flag, a different UART1 and, for the SX1262 boards, a d
 
 | Board | Verdict | Reason |
 |---|---|---|
-| **TTGO LoRa32 V1** | **Supported, validated** | The reference target. Two boards tested. |
+| **TTGO LoRa32 V1** | **Supported, validated** | The reference target. Two boards tested. **UART1 (MAVLink to the FC) is on GPIO25/17, not GPIO12/13** — see below. |
 | TTGO LoRa32 V1.6 / V2.0 / V2.1.6 (T3) | **Published as beta, not yet validated on hardware** | Same PCB under three names: the PDF LILYGO publishes as `TTGO_V2_0_schematic.pdf` is titled internally `TTGO LORA V1.6` / `T3_V1.6` (2019-01-16). Pins from that schematic: LoRa RST **23** (`IO23=RESET`), OLED 21/22, SD 13/15/14/2. Differs from the V1 in the crystal (no external XTAL — `XTAL_N_NC`/`XTAL_P_NC`, PICO-D4 internal 40 MHz, so `-DF_XTAL_MHZ=26` must be dropped), OLED 21/22, LoRa RST 23, and UART1 (GPIO12/13 are the microSD and GPIO12 is a strapping pin, so UART1 moves to **32/33**, sacrificing the unused DIO1/DIO2). Builds as `ttgo-lora32-v21-flight` and the web flasher offers it flagged **beta**. |
 | TTGO T-Beam | Not offered | 40 MHz crystal, and **GPIO12 is the TX of the onboard NEO-6M GPS**; using it for UART1 RX would silently steal the GNSS. |
+
+#### UART1 pin selection on the V1 (F-24)
+
+The V1 was originally built with UART1 on **GPIO12/13**. That is a hardware trap, found on the
+follower board while bringing up a real Pixhack 2.8.4:
+
+- GPIO12 is the ESP32 **MTDI strapping pin**. At reset, before any code runs, the ROM samples it to
+  pick the flash voltage (1.8 V or 3.3 V).
+- The FC's TX idles high. With it on GPIO12, the board samples **1.8 V** and then reads a 3.3 V flash
+  at 1.8 V, which **corrupts the stored image on every boot**.
+- Observable symptoms, all of which pointed away from the cause: bootloader `csum err` whose expected
+  checksum *changed between boots*, whole 4 KB sectors verifying as `0xFF`, literal strings garbled in
+  the serial log (`follower` → `llower`), and endless repetition of `Init Access Point`.
+- `pio run -t upload` reports **SUCCESS** (esptool only checks the bytes it just wrote, at 3.3 V, via
+  the stub flasher); the damage appears on the **next** boot. Diagnosis therefore requires
+  `esptool.py verify_flash` on a *later* boot, plus `flash_id` to read the sampled flash voltage.
+
+Rejected alternatives, all measured on the board:
+
+| Option | Result |
+|---|---|
+| 10 kΩ / 4.7 kΩ pull-down on GPIO12 | **Fails.** The FC's push-pull TX overdrives it; sampling still reads 1.8 V. A value low enough to win (< ~100 Ω) would load the UART data line. |
+| UART1 on GPIO32/33 (as on the V2.1) | **Fails on V1.** Both pins measure a solid low with nothing attached (tied to the SX1276 DIO1/DIO2). |
+| GPIO25/17 | **Works**, validated with a TX→RX loopback jumper: 248/248 bytes returned intact, then a real FC link. |
+
+**Required wiring (V1): FC TELEM TX → GPIO25, FC TELEM RX → GPIO17, GND → GND.**
+
+#### FC SYSID must match the board role
+
+A board in role `follower` only accepts MAVLink from SYSID **2** (`targetSystemId()` returns
+`FWM_FOLLOWER_SYSID`); a leader expects SYSID **1**. An FC left at the ArduPilot default (SYSID 1)
+still works with `role=off`, because in that mode the SYSID is learned from the first heartbeat — so
+the fault only appears after provisioning, as a healthy FC that never links (`LINK TO FC LOST` while
+the FC is visibly streaming over USB). Set `MAV_SYSID=2` on the follower's FC and reboot it.
 | Heltec WiFi LoRa 32 V2 | Not offered | Same SX1276, but different pin naming (`RST_LoRa`, `SDA_OLED`), and the Arduino variant's generic `SDA/SCL` point at 21/22 while the OLED is on 4/15. |
 | Heltec WiFi LoRa 32 V3 / V4, TTGO T3-S3 (SX1262) | **Impossible with the current driver** | `sandeepmistry/LoRa@0.8.0` supports only SX1276/77/78/79. The SX1262 is a command-based part with a BUSY line, not a memory-mapped SX127x. Supporting it means porting `Comm.cpp` to another library (RadioLib). Not a pin change. |
 | TTGO T-Display / T-Display-S3 | Not candidates | No LoRa radio at all. |

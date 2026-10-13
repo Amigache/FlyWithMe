@@ -79,8 +79,29 @@ pio run -t clean
   - Verified: builds `ttgo-lora32-v1-flight` and `ttgo-lora32-v1-sitl` → **SUCCESS**.
   - `ttgo-lora32-v1-flight` blocks `FWM SIM ON`; the dev profile accepts the command temporarily.
   - **OLED menu disabled** (`USE_INTERACTIVE_MENU 0`): its pins (12/13/14/15) collide with the
-    MAVLink UART (12/13), LoRa RST (14) and OLED SCL (15). Do not re-enable without reassigning to
+    LoRa RST (14), OLED SCL (15) and the MAVLink UART. Do not re-enable without reassigning to
     free GPIOs.
+  - **UART1 is on GPIO25/17, NOT on GPIO12/13 (V1).** GPIO12 is the ESP32 **MTDI strapping pin**:
+    at reset, before any code runs, its level selects the flash voltage (1.8 V / 3.3 V). The V1 flash
+    is 3.3 V, so with the FC's TX (idle high) on GPIO12 the board reads flash at 1.8 V and **corrupts
+    its own image on every boot**: bootloader `csum err`, 4 KB sectors reading as `0xFF`, literal
+    strings coming out garbled (`follower` → `llower`), and the device looping in `Init Access
+    Point`. It is invisible to `esptool` at first: `pio run -t upload` reports SUCCESS, and the
+    corruption only shows on the **next** boot. A pull-down resistor does **not** fix it (10 kΩ and
+    4.7 kΩ both failed: the FC's push-pull TX overdrives them; the line must be < 0.8 V *and* a small
+    value loads the UART). GPIO32/33 do not work on V1 either: they measure a solid low on the board
+    (tied to the SX1276 DIO1/DIO2). GPIO25/17 were **validated on hardware** with a loopback jumper
+    (248/248 bytes). Wire the FC TELEM to **25 (RX) and 17 (TX)**. See `docs/PROJECT.md` §2.3.
+  - **A follower only accepts an FC with SYSID 2** (`targetSystemId()` returns `FWM_FOLLOWER_SYSID`).
+    An FC left at the ArduPilot default SYSID 1 works with `role=off` (the SYSID is learned from the
+    heartbeat) but never links once `role=follower`: the symptom is a healthy FC on USB with
+    `LINK TO FC LOST` on the board. Leader FC = SYSID 1, follower FC = SYSID 2.
+  - **The Pixhack 2.8.4 USB VCP is NOT the TELEM1 port.** Listening on the FC's USB shows only the FC's
+    own traffic (sysid 2, compid 1); the board's component (compid 158) never appears there. So a GCS
+    attached to the FC's USB cannot send anything to the board, and the FC does not forward messages
+    between ports. Anything the board must receive over MAVLink has to arrive on TELEM1 itself. This is
+    why `WIFI_CONFIG_AP` (V6) cannot be tested from the FC's USB, and why the USB serial bridge is only
+    useful in SIM mode (where the board's FC port *is* UART0).
   - **NVS keys are limited to 15 characters.** `heading_corr_max` was 16 and silently failed on
     every save/load (`KEY_TOO_LONG` / `NOT_FOUND`); it is now `hdg_corr_max`. Check the length
     before adding a key.
@@ -95,6 +116,18 @@ pio run -t clean
     for the V1.6/V2.0/V2.1.6). A wrong map compiles fine and leaves the radio mute, so never rely on
     the Arduino variant macros: `ttgo-lora32-v2` ships `LORA_RST 12` with the comment `// GPIO14` and
     both are wrong (it is **23**). See `docs/PROJECT.md` §2.3 and `DEVELOP.md` for the table.
+  - **The pioarduino platform installs its own PlatformIO Core fork into `~/.platformio/penv`.**
+    `builder/penv_setup.py` in the pinned platform declares
+    `"platformio": ".../pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip"` and installs it
+    with `uv` on every build. So the penv can legitimately hold a `pioarduino-core` distribution
+    alongside the official `platformio`, with contradictory version constraints. That is by design,
+    not corruption — do not "fix" it by uninstalling one of them.
+  - **If a build dies with `Failed to install Python dependencies (exit code: 2)`**, that same script
+    is the culprit, and it hides the real error (`stdout=DEVNULL`, `stderr=STDOUT`). Reproduce the
+    install by hand without `--quiet` to see it. The case seen so far was an **all-NUL `RECORD` file**
+    in `site-packages/*.dist-info/`, left behind when a machine was killed mid-write: `uv` refuses to
+    touch a malformed RECORD. Delete the affected `*.dist-info` directories and reinstall those
+    packages. Check with a script that parses every `RECORD` as 3-field CSV.
   - **A leader must have a working radio.** `Comm::begin()` sets `radioHealthy`; `canBecomeLeader()`
     refuses the role when it is false and `FWM_ID` reports `radio=ok|fail`. Never spin forever on a
     failed `LoRa.begin()`: the watchdog turns it into a reboot loop (F-22).

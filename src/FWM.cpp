@@ -58,6 +58,7 @@ void FWM::begin()
         params.along_gain = ALONG_GAIN_CMS_PER_M;
         params.netid = NETID_DEFAULT;
         params.approach_dist = APPROACH_DIST_DEFAULT;
+        params.band = FWM_DEFAULT_BAND;
 
         saveParams();
     }
@@ -848,7 +849,15 @@ void FWM::saveParams()
  */
 void FWM::loadParams()
 {
-    preferences.begin("storage", true);
+    // Abrir en LECTURA/ESCRITURA y no en solo-lectura: si el namespace no existe (placa recien
+    // borrada con esptool o NVS nueva) la apertura en solo-lectura FALLA y todas las lecturas de
+    // abajo devolvian ceros en vez de los valores por defecto de config.h. Consecuencia real: una
+    // placa recien borrada arrancaba en banda 433 en vez de 868, y como ambos extremos deben
+    // coincidir, eso es un fallo de enlace silencioso.
+    preferences.begin("storage", false);
+    // "role" lo escribe siempre saveParams(), asi que sirve de centinela: si no esta, la NVS es
+    // nueva y no hay nada que leer. Los defaults se aplican DESPUES de leer (mas abajo).
+    const bool freshNvs = !preferences.isKey("role");
     params.role = preferences.getInt("role", FWM_DEFAULT_ROLE);
     params.ap_mode = preferences.getInt("ap_mode", FWM_DEFAULT_AP_MODE);
     params.foll_enable = preferences.getInt("foll_enable", 0);
@@ -877,6 +886,29 @@ void FWM::loadParams()
     const int savedBand = preferences.getInt("band", FWM_DEFAULT_BAND);
     params.band = loraBandValid(savedBand) ? (int32_t)savedBand : FWM_DEFAULT_BAND;
 
+    if (freshNvs)
+    {
+        // NVS nueva o borrada: lo leido arriba son ceros, no defaults. Se imponen los de
+        // config.h para que una placa recien borrada arranque con la banda y los offsets
+        // correctos en lugar de "todo a cero".
+        Log.notice("NVS nueva: aplicando valores por defecto de config.h" CR);
+        params.role = FWM_DEFAULT_ROLE;
+        params.ap_mode = FWM_DEFAULT_AP_MODE;
+        params.foll_enable = 0;
+        params.foll_ofs_type = 0;
+        params.foll_alt_type = 0;
+        params.link_timeout = LINK_TIMEOUT;
+        params.dist_offset = DIST_OFFSET;
+        params.lateral_offset = FORMATION_LATERAL_OFFSET;
+        params.vertical_offset = FORMATION_VERTICAL_OFFSET;
+        params.cross_gain = CROSS_TRACK_GAIN_DEG_PER_M;
+        params.heading_corr_max = MAX_HEADING_CORR_DEG;
+        params.along_gain = ALONG_GAIN_CMS_PER_M;
+        params.netid = NETID_DEFAULT;
+        params.approach_dist = APPROACH_DIST_DEFAULT;
+        params.band = FWM_DEFAULT_BAND;
+    }
+
     String ssid = preferences.getString("ssid", "");
     String pass = preferences.getString("pass", "");
 
@@ -894,6 +926,13 @@ void FWM::loadParams()
     preferences.end();
 
     Log.notice("Params loaded" CR);
+
+    if (freshNvs)
+    {
+        // Persistir los defaults para que el proximo arranque ya los lea de NVS. Ademas deja el
+        // namespace "storage" creado, que es lo que evita el estado inconsistente de NVS.
+        saveParams();
+    }
 }
 
 /**

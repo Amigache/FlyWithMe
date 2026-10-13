@@ -217,13 +217,37 @@ Both boards: `COM13` leader (`FWM C5B569`, SYSID 1), `COM21` follower (`FWM C5C5
 | V3 | Production rejects simulation | PASS · `SIMCFG ERR` on both boards |
 | V4 | Role provisioning over USB | PASS · `ROLECFG OK leader` / `follower` |
 | V5 | WiFi password change (WebUI) | PASS · saved to NVS, board reboots, WebUI requires the new password |
-| V6 | WiFi password change (MAVLink `WIFI_CONFIG_AP`) | NOT RUN · requires a real autopilot |
-| V7 | Write-blocking after FC link loss | NOT RUN · requires a real autopilot in flight-like conditions |
+| V6 | WiFi password change (MAVLink `WIFI_CONFIG_AP`) | NOT RUN · no way to inject MAVLink into UART1 with the bare Pixhack (see below) |
+| V7 | Write-blocking after FC link loss | PASS · blocked after link loss, allowed before, contrast against never-linked board |
 | V8 | Reflash both boards with production image | PASS · self-test and roles preserved |
 | V9 | Web flasher on a real board | NOT RUN · requires a Chrome/Edge session |
 
 V6 and V7 are documented as pending: V6 needs an active MAVLink link to a real autopilot; V7 needs
 the link to drop while armed. Neither is meaningful in SITL, because the link is TCP to a simulator.
+
+**V7 — PASS (validated on hardware, real Pixhack 2.8.4).** The follower was linked to the FC, then
+the TELEM cable was removed, with the production image on both boards:
+
+| State | Result |
+|---|---|
+| Linked, disarmed, stationary | writes **allowed** (`BANDCFG OK`) — the ground policy permits it |
+| After removing the FC cable | writes **blocked** (`BANDCFG WAIT...`, `ROLECFG WAIT...`), AP not re-enabled |
+| Leader, never linked, no FC | writes **allowed** — the contrast that proves the latch |
+| FC reconnected | link recovers (`LINK TO FC OK`) and writes are allowed again |
+
+The contrast row is the actual evidence: the board that had linked refuses writes once the link is
+gone, while the board that never linked treats the same condition as bench. That is `lock_ap`
+behaving as intended, and it also proves the block is not sticky.
+
+**V6 — still NOT RUN, and blocked by the test setup rather than by the code.** `WIFI_CONFIG_AP` is
+handled only on UART1. On the Pixhack 2.8.4 the USB VCP is a *different* serial port from TELEM1:
+listening on the FC's USB for 25 s yields only the FC's own traffic (sysid 2, compid 1) and none of
+the board's component (compid 158). So a GCS on the FC's USB cannot reach the board, and the FC does
+not forward messages between ports. Injecting through the dev image (`FWM SIM ON`, USB MAVLink) was
+tried and the board returned bytes that fit neither MAVLink framing nor console text, so no case could
+be confirmed. The handler itself is testable: it has five distinguishable STATUSTEXT replies
+(non-empty SSID, key too short, key equal to factory default, not authorised, and success). What is
+missing is a way to put a `WIFI_CONFIG_AP` frame on the TELEM1 wire.
 
 ### 4.3 Bug found and fixed during V5
 

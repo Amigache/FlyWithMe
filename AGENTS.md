@@ -96,6 +96,12 @@ pio run -t clean
     An FC left at the ArduPilot default SYSID 1 works with `role=off` (the SYSID is learned from the
     heartbeat) but never links once `role=follower`: the symptom is a healthy FC on USB with
     `LINK TO FC LOST` on the board. Leader FC = SYSID 1, follower FC = SYSID 2.
+  - **The Pixhack 2.8.4 USB VCP is NOT the TELEM1 port.** Listening on the FC's USB shows only the FC's
+    own traffic (sysid 2, compid 1); the board's component (compid 158) never appears there. So a GCS
+    attached to the FC's USB cannot send anything to the board, and the FC does not forward messages
+    between ports. Anything the board must receive over MAVLink has to arrive on TELEM1 itself. This is
+    why `WIFI_CONFIG_AP` (V6) cannot be tested from the FC's USB, and why the USB serial bridge is only
+    useful in SIM mode (where the board's FC port *is* UART0).
   - **NVS keys are limited to 15 characters.** `heading_corr_max` was 16 and silently failed on
     every save/load (`KEY_TOO_LONG` / `NOT_FOUND`); it is now `hdg_corr_max`. Check the length
     before adding a key.
